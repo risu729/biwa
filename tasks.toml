@@ -1,0 +1,67 @@
+# ref: https://mise.jdx.dev/tasks/
+#:schema https://mise.jdx.dev/schema/mise-task.json
+
+[build]
+run = "cargo build"
+description = "Build the project."
+
+[test]
+run = "cargo test"
+description = "Run the tests."
+
+[check]
+depends = ["check:*"]
+description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
+
+["check:clippy"]
+run = "cargo clippy {% if env.LINT is undefined %}--fix --allow-dirty --allow-staged{% endif %} --all-targets -- --deny warnings"
+description = "Run Clippy to lint Rust code."
+
+["check:rustfmt"]
+run = "cargo fmt {% if env.LINT is defined %}--check{% endif %}"
+description = "Run Rustfmt to format Rust code."
+
+["check:cargo-deny"]
+run = "cargo-deny --locked check"
+description = "Run cargo-deny to check for unsafe dependencies."
+
+["check:actionlint"]
+run = "actionlint -color"
+# SC2312: check-extra-masked-returns
+# pipefail is set by shell: bash in GitHub Actions but cannot be detected by shellcheck
+# ref: https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#defaultsrunshell
+env.SHELLCHECK_OPTS = "--enable=all --exclude=SC2312"
+description = "Run actionlint to check GitHub Actions workflows."
+
+["check:ghalint"]
+wait_for = ["check:pinact"]
+run = "ghalint run"
+description = "Run ghalint to check GitHub Actions workflows."
+
+["check:pinact"]
+run = "pinact run --verify {% if env.LINT is defined %}--check{% endif %}"
+description = "Run pinact to pin/check pinned GitHub Actions dependencies in workflows."
+
+["check:zizmor"]
+run = "zizmor --pedantic {% if env.LINT is undefined %}--fix{% endif %} ."
+env.GH_TOKEN = "{{ env.GITHUB_TOKEN }}"
+description = "Run Zizmor to check GitHub Actions workflows."
+
+["check:taplo"]
+run = [
+	"taplo lint",
+	"taplo fmt {% if env.LINT is defined %}--check --diff{% endif %}",
+]
+description = "Run Taplo to lint and format TOML files."
+
+["check:yamlfmt"]
+run = "yamlfmt {% if env.LINT is defined %}-lint{% endif %} ."
+description = "Run yamlfmt to format YAML files."
+
+["check:yamllint"]
+run = "yamllint --strict ."
+description = "Run yamllint to lint YAML files."
+
+["check:typos"]
+run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
+description = "Run typos to check typo in files."
