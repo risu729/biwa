@@ -1,0 +1,60 @@
+name: Lint PR Title
+
+on:
+  # zizmor: ignore[dangerous-triggers] required to run on PRs from forks
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - opened
+      - edited
+      - reopened
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    name: Lint PR title
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          # always sync with release-plz.toml
+          # `Revert` or `Reapply` PR titles can't be parsed
+          # ref: https://github.com/amannn/action-semantic-pull-request/issues/278
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            style
+            build
+            ci
+            chore
+            revert
+
+  actions-timeline:
+    name: Generate Actions Timeline
+    needs:
+      - lint
+    if: ${{ !cancelled() }}
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+
+    steps:
+      - name: actions-timeline
+        uses: Kesin11/actions-timeline@a7eaabf426cdae26c3582c3fa674b897170dec8f # v2.2.4
