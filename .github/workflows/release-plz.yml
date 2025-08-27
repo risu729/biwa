@@ -1,0 +1,86 @@
+name: release-plz
+
+on:
+  push:
+    branches:
+      - main
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: release-plz
+    if: github.repository_owner == 'risu729'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read # for checkout
+    environment: release
+
+    steps:
+      - name: Create biwa-bot GitHub App token
+        uses: actions/create-github-app-token@a8d616148505b5069dccd32f177bb87d7f39123b # v2.1.1
+        id: github-app
+        with:
+          app-id: ${{ vars.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write # for creating tags and updating branches
+          permission-pull-requests: write # for creating PRs
+
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          # required to run git commands in release-plz
+          # ref: https://release-plz.dev/docs/github/security#zizmor-warning
+          persist-credentials: true
+          # required to run git commands in release-plz as the app
+          # ref: https://release-plz.dev/docs/github/token#use-a-personal-access-token
+          token: ${{ steps.github-app.outputs.token }}
+
+      - name: Install mise
+        uses: jdx/mise-action@ca0c5fc9c8a8386dae8ba5d37608a083a307991c # v3.1.0
+        with:
+          version: 2025.8.20
+
+      - name: Set git user for biwa-bot
+        run: |
+          user_id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)
+          git config --global user.name "${APP_SLUG}[bot]"
+          git config --global user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+        env:
+          GITHUB_TOKEN: ${{ steps.github-app.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          APP_SLUG: ${{ steps.github-app.outputs.app-slug }}
+
+      # - name: Release
+      #   run: release-plz release
+      #   env:
+      #     GIT_TOKEN: ${{ steps.github-app.outputs.token }}
+      #     # TODO: use trusted publishing after first release
+      #     # ref: https://crates.io/docs/trusted-publishing
+      #     CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Create release-plz PR
+        run: release-plz release-pr
+        env:
+          GIT_TOKEN: ${{ steps.github-app.outputs.token }}
+
+  actions-timeline:
+    name: Generate Actions Timeline
+    needs:
+      - release
+    if: ${{ !cancelled() }}
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+
+    steps:
+      - name: actions-timeline
+        uses: Kesin11/actions-timeline@a7eaabf426cdae26c3582c3fa674b897170dec8f # v2.2.4
