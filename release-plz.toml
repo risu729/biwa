@@ -1,0 +1,67 @@
+# ref: https://release-plz.dev/docs/config
+#:schema https://raw.githubusercontent.com/release-plz/release-plz/main/.schema/latest.json
+
+[workspace]
+pr_labels = ["release"]
+# cargo-dist will create GitHub releases
+git_release_enable = false
+# we don't expose API, so semver don't need to be strictly checked
+semver_check = false
+
+[changelog]
+header = """# Changelog
+
+## [Unreleased]
+"""
+body = """
+
+{% macro print_commit(commit) -%}
+    - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+      {% if commit.breaking %}[**breaking**] {% endif %}\
+      {{ commit.message | upper_first }} - \
+      ([{{ commit.id | truncate(length=7, end="") }}]({{ remote.link }}/commit/{{ commit.id }}))\
+{% endmacro -%}
+
+{% if version %}\
+    {% if previous.version %}\
+        ## [{{ version }}]({{ release_link }})
+    {% else %}\
+        ## [{{ version }}]
+    {% endif %}\
+{% endif %}\
+
+{% for group, commits in commits
+| unique(attribute="message")
+| group_by(attribute="group") %}
+    ### {{ group | striptags | trim | upper_first }}
+
+    {% for commit in commits
+    | filter(attribute="scope")
+    | sort(attribute="scope") %}
+        {{ self::print_commit(commit=commit) }}
+    {%- endfor -%}
+    {% raw %}\n{% endraw %}\
+    {%- for commit in commits %}
+        {%- if not commit.scope -%}
+            {{ self::print_commit(commit=commit) }}
+        {% endif -%}
+    {% endfor -%}
+{% endfor %}\n
+"""
+commit_parsers = [
+	{ message = "^feat", group = "<!-- 0 -->⛰️ Features" },
+	{ message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
+	{ message = "^perf", group = "<!-- 2 -->⚡ Performance" },
+	{ message = "^refactor", group = "<!-- 3 -->🚜 Refactor" },
+	{ message = "^docs", group = "<!-- 4 -->📚 Documentation" },
+	{ message = "^test", group = "<!-- 5 -->🧪 Testing" },
+	{ message = "^style", group = "<!-- 6 -->🎨 Styling" },
+	{ message = "^build", group = "<!-- 7 -->🏗️ Build System" },
+	{ message = "^ci", group = "<!-- 8 -->🤖 Continuous Integration" },
+	{ message = "^chore", group = "<!-- 9 -->🧹 Chore" },
+	{ message = "^revert", group = "<!-- 10 -->◀️ Revert" },
+	# Renovate dependency updates
+	{ message = '^(chore|fix|ci)\(deps\):', group = "<!-- 99 -->📦️ Dependency Updates", scope = "" },
+	{ message = "^chore: release", skip = true },
+]
+link_parsers = [{ pattern = "#(\\d+)", href = "{{ remote.link }}/issues/$1" }]
