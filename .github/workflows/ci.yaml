@@ -57,8 +57,6 @@ jobs:
         with:
           persist-credentials: false
 
-      - run: rustup show profile
-
       - name: Install mise
         uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
         with:
