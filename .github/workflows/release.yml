@@ -1,0 +1,301 @@
+name: Release
+
+on:
+  pull_request:
+  # zizmor: ignore[cache-poisoning] false positive for PRs
+  push:
+    tags:
+      - v*
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # for checkout
+
+    outputs:
+      val: ${{ steps.plan.outputs.manifest }}
+      tag: ${{ !github.event.pull_request && github.ref_name || '' }}
+      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
+      publishing: ${{ !github.event.pull_request }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          version: 2025.9.10
+          cache: false
+          cache_save: false
+        env:
+          MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
+
+      - name: Plan Release
+        id: plan
+        run: |
+          # shellcheck disable=SC2086 # intentional word-splitting
+          dist ${DIST_ARGS} --output-format=json > plan-dist-manifest.json
+          jq --color-output . plan-dist-manifest.json
+          echo "manifest=$(jq --compact-output . plan-dist-manifest.json)" >> "${GITHUB_OUTPUT}"
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DIST_ARGS: ${{ github.event.pull_request && 'plan' || format('host --steps=create --tag={0}', github.ref_name) }}
+
+      - name: Upload dist manifest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: artifacts-plan-dist-manifest
+          path: plan-dist-manifest.json
+
+  build-local-artifacts:
+    name: Build local artifacts (${{ join(matrix.targets, ', ') }})
+    needs:
+      - plan
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read # for checkout
+      id-token: write # for attestation
+      attestations: write # for attestation
+
+    strategy:
+      matrix: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix }}
+      fail-fast: false
+    env:
+      BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        id: install-mise
+        uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        if: needs.plan.outputs.publishing == 'true'
+        with:
+          version: 2025.9.10
+          cache: false
+          cache_save: false
+        env:
+          MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
+
+      - name: Install mise
+        uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        if: steps.install-mise.outcome == 'skipped'
+        with:
+          version: 2025.9.10
+          # cache doesn't work well with rust
+          cache: false
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        if: needs.plan.outputs.publishing == 'false'
+        with:
+          key: ${{ join(matrix.targets, '-') }}
+
+      - name: Install dependencies
+        # zizmor: ignore[template-injection] required to run arbitrary commands
+        run: |
+          ${{ matrix.packages_install }}
+
+      - name: Build artifacts
+        run: |
+          # shellcheck disable=SC2086 # intentional word-splitting
+          dist build ${TAG_FLAG} --print=linkage --output-format=json ${DIST_ARGS} > dist-manifest.json
+        env:
+          TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
+          DIST_ARGS: ${{ matrix.dist_args }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: target/distrib/*${{ join(matrix.targets, ', ') }}*
+
+      - name: Store built artifact paths
+        id: paths
+        run: |
+          {
+            echo 'paths<<EOF'
+            dist print-upload-files-from-manifest --manifest dist-manifest.json
+            echo 'EOF'
+          } >> "${GITHUB_OUTPUT}"
+          cp dist-manifest.json "${BUILD_MANIFEST_NAME}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: artifacts-build-local-${{ join(matrix.targets, '_') }}
+          path: |
+            ${{ steps.paths.outputs.paths }}
+            ${{ env.BUILD_MANIFEST_NAME }}
+
+  build-global-artifacts:
+    name: Build global artifacts
+    needs:
+      - plan # required for safe context access
+      - build-local-artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read # for checkout
+
+    env:
+      BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        id: install-mise
+        uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        if: needs.plan.outputs.publishing == 'true'
+        with:
+          version: 2025.9.10
+          cache: false
+          cache_save: false
+        env:
+          MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
+
+      - name: Install mise
+        uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        if: steps.install-mise.outcome == 'skipped'
+        with:
+          version: 2025.9.10
+          # cache doesn't work well with rust
+          cache: false
+
+      - name: Download local artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+
+      - name: Build artifacts
+        run: |
+          # shellcheck disable=SC2086 # intentional word-splitting
+          dist build ${TAG_FLAG} --output-format=json --artifacts=global > dist-manifest.json
+        env:
+          TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
+
+      - name: Store built artifact paths
+        id: paths
+        run: |
+          {
+            echo "paths<<EOF"
+            jq --raw-output ".upload_files[]" dist-manifest.json
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+          cp dist-manifest.json "${BUILD_MANIFEST_NAME}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: artifacts-build-global
+          path: |
+            ${{ steps.paths.outputs.paths }}
+            ${{ env.BUILD_MANIFEST_NAME }}
+
+  release:
+    name: Release
+    needs:
+      - plan # required for safe context access
+      - build-global-artifacts
+    if: github.repository_owner == 'risu729' && needs.plan.outputs.publishing == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write # for checkout and create release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        uses: jdx/mise-action@5ac50f778e26fac95da98d50503682459e86d566 # v3.2.0
+        with:
+          version: 2025.9.10
+          cache: false
+          cache_save: false
+        env:
+          MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
+
+      - name: Fetch artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+
+      - name: Host
+        id: host
+        run: |
+          # shellcheck disable=SC2086 # intentional word-splitting
+          dist host ${TAG_FLAG} --steps=upload --steps=release --output-format=json > dist-manifest.json
+          jq --color-output . dist-manifest.json
+          echo "manifest=$(jq --compact-output . dist-manifest.json)" >> "${GITHUB_OUTPUT}"
+        env:
+          TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
+
+      - name: Download local and global artifacts
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: artifacts-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Remove granular manifests
+        run: rm -f artifacts/*-dist-manifest.json
+
+      - name: Create GitHub Release
+        run: |
+          echo "${BODY}" > "${RUNNER_TEMP}/notes.txt"
+          # shellcheck disable=SC2086 # intentional word-splitting
+          gh release create "${TAG}"\
+            --verify-tag\
+            --target "${RELEASE_COMMIT}"\
+            ${PRERELEASE_FLAG}\
+            --title "${TITLE}"\
+            --notes-file "${RUNNER_TEMP}/notes.txt"\
+            artifacts/*
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          PRERELEASE_FLAG: ${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}
+          TITLE: ${{ fromJson(steps.host.outputs.manifest).announcement_title }}
+          BODY: ${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}
+          RELEASE_COMMIT: ${{ github.sha }}
+
+  actions-timeline:
+    name: Generate Actions Timeline
+    needs:
+      - release
+    if: ${{ !cancelled() }}
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: read
+
+    steps:
+      - name: actions-timeline
+        uses: Kesin11/actions-timeline@a7eaabf426cdae26c3582c3fa674b897170dec8f # v2.2.4

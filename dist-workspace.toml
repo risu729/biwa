@@ -1,0 +1,28 @@
+# ref: https://axodotdev.github.io/cargo-dist/book/reference/config.html
+
+[workspace]
+members = ["cargo:."]
+
+[dist]
+cargo-dist-version = "0.30.0"
+# auto-generated workflow isn't perfect, so manually edit them
+allow-dirty = ["ci"]
+ci = ["github"]
+installers = ["shell"]
+targets = [
+	"aarch64-apple-darwin",
+	"aarch64-unknown-linux-gnu",
+	"x86_64-apple-darwin",
+	"x86_64-unknown-linux-gnu",
+	"x86_64-unknown-linux-musl",
+]
+install-path = ["~/.local/bin"]
+github-attestations = true
+pr-run-mode = "upload"
+
+# Use latest runners
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+aarch64-unknown-linux-gnu = "ubuntu-24.04-arm"
+x86_64-unknown-linux-gnu = "ubuntu-24.04"
+x86_64-unknown-linux-musl = "ubuntu-24.04"
