@@ -2,7 +2,7 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
 [tools]
-rust = { version = "1.89.0", profile = "default" }
+rust = { version = "1.90.0", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.18.4"
 actionlint = "1.7.7"
 # used in actionlint
