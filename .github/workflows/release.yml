@@ -34,7 +34,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@156251fcc627ac4e26cb0f93dd47d1d4979abf24 # v3.3.0
+        uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         with:
           version: 2025.10.3
           cache: false
@@ -84,7 +84,7 @@ jobs:
 
       - name: Install mise
         id: install-mise
-        uses: jdx/mise-action@156251fcc627ac4e26cb0f93dd47d1d4979abf24 # v3.3.0
+        uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         if: needs.plan.outputs.publishing == 'true'
         with:
           version: 2025.10.3
@@ -94,7 +94,7 @@ jobs:
           MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
 
       - name: Install mise
-        uses: jdx/mise-action@156251fcc627ac4e26cb0f93dd47d1d4979abf24 # v3.3.0
+        uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         if: steps.install-mise.outcome == 'skipped'
         with:
           version: 2025.10.3
@@ -164,7 +164,7 @@ jobs:
 
       - name: Install mise
         id: install-mise
-        uses: jdx/mise-action@156251fcc627ac4e26cb0f93dd47d1d4979abf24 # v3.3.0
+        uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         if: needs.plan.outputs.publishing == 'true'
         with:
           version: 2025.10.3
@@ -174,7 +174,7 @@ jobs:
           MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
 
       - name: Install mise
-        uses: jdx/mise-action@156251fcc627ac4e26cb0f93dd47d1d4979abf24 # v3.3.0
+        uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         if: steps.install-mise.outcome == 'skipped'
         with:
           version: 2025.10.3
@@ -231,7 +231,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@156251fcc627ac4e26cb0f93dd47d1d4979abf24 # v3.3.0
+        uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         with:
           version: 2025.10.3
           cache: false
