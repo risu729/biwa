@@ -36,7 +36,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         with:
-          version: 2025.10.4
+          version: 2025.10.5
           cache: false
           cache_save: false
         env:
@@ -87,7 +87,7 @@ jobs:
         uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         if: needs.plan.outputs.publishing == 'true'
         with:
-          version: 2025.10.4
+          version: 2025.10.5
           cache: false
           cache_save: false
         env:
@@ -97,7 +97,7 @@ jobs:
         uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         if: steps.install-mise.outcome == 'skipped'
         with:
-          version: 2025.10.4
+          version: 2025.10.5
           # cache doesn't work well with rust
           cache: false
 
@@ -167,7 +167,7 @@ jobs:
         uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         if: needs.plan.outputs.publishing == 'true'
         with:
-          version: 2025.10.4
+          version: 2025.10.5
           cache: false
           cache_save: false
         env:
@@ -177,7 +177,7 @@ jobs:
         uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         if: steps.install-mise.outcome == 'skipped'
         with:
-          version: 2025.10.4
+          version: 2025.10.5
           # cache doesn't work well with rust
           cache: false
 
@@ -233,7 +233,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@e3d7b8d67a7958d1207f6ed871e83b1ea780e7b0 # v3.3.1
         with:
-          version: 2025.10.4
+          version: 2025.10.5
           cache: false
           cache_save: false
         env:
