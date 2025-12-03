@@ -13,7 +13,7 @@ zizmor = "1.12.1"
 taplo = "0.10.0"
 yamlfmt = "0.20.0"
 # required for pipx backend
-uv = "0.9.14"
+uv = "0.9.15"
 yamllint = "1.37.1"
 typos = "1.40.0"
 "aqua:release-plz/release-plz" = "0.3.147"
