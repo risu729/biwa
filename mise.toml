@@ -14,7 +14,7 @@ taplo = "0.10.0"
 yamlfmt = "0.21.0"
 # required for pipx backend
 uv = "0.9.24"
-yamllint = "1.37.1"
+yamllint = "1.38.0"
 typos = "1.42.0"
 "aqua:release-plz/release-plz" = "0.3.147"
 "aqua:axodotdev/cargo-dist" = "0.30.3"
