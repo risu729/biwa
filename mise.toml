@@ -15,7 +15,7 @@ yamlfmt = "0.21.0"
 # required for pipx backend
 uv = "0.9.26"
 yamllint = "1.38.0"
-typos = "1.42.1"
+typos = "1.42.2"
 "aqua:release-plz/release-plz" = "0.3.147"
 "aqua:axodotdev/cargo-dist" = "0.30.3"
 
