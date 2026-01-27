@@ -11,7 +11,7 @@ keywords = ["unsw"]
 categories = ["command-line-utilities"]
 
 [dependencies]
-clap = { version = "=4.5.54", features = ["derive"] }
+clap = { version = "=4.5.55", features = ["derive"] }
 color-eyre = "=0.6.5"
 eyre = "=0.6.12"
 itertools = "=0.14.0"
