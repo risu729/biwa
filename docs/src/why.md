@@ -1,5 +1,18 @@
 # Why biwa?
 
+**biwa** is a modern CLI tool designed to bridge the gap between local comfort and remote necessity. It allows you to **develop locally** with your preferred tools while seamlessly running code on UNSW CSE infrastructure.
+
+## Core Philosophy: Develop Locally
+
+The core philosophy of biwa is simple: **You should develop on your own machine.**
+
+CSE servers are shared resources. They are not designed to host VS Code servers for hundreds of students, nor do they have the disk space for modern `node_modules` or Rust build artifacts.
+
+biwa enables a **Local-First Workflow**:
+1. **Edit Locally**: Use VS Code, Neovim, IntelliJ, or any editor you love with zero latency.
+2. **Build Locally**: Run fast feedback loops on your own hardware.
+3. **Execute Remotely**: When you need to run `autotest`, `give`, or use specific CSE compilers, biwa handles it instantly.
+
 ## The Problem with Remote Development
 
 When working on UNSW CSE coursework, you often face a dilemma: work locally comfortably but struggle with submission/testing, or work remotely on CSE servers but deal with latency and restrictions.
@@ -41,22 +54,18 @@ When working on UNSW CSE coursework, you often face a dilemma: work locally comf
 
 ## The biwa Solution
 
-biwa bridging the gap between local comfort and remote necessity.
+biwa handles the complexity so you don't have to.
 
-### 1. Local-First Workflow
-You edit, build, and test your code **locally**.
-- Use your favorite editor (VS Code, Neovim, IntelliJ) with zero latency.
-- Install any tools you want on your own machine.
-- No disk quota anxieties.
-
-### 2. Seamless Remote Execution
+### Seamless Remote Execution
 When you need to run a CSE-specific command (like `autotest`, `give`, or a specific compiler version), biwa handles it instantly:
 - **Smart Sync**: Uses `rsync` to synchronize *only changed files* instantly.
 - **Auto-Cleanup**: Manages remote directories automatically. If you haven't touched a project in a while, biwa cleans it up to save your remote disk quota.
 - **Transient**: No heavy background processes left running on the server.
 
-### 3. Better than `cserun`
-biwa is the spiritual successor to `cserun`, modernized for today's workflow:
+### Better than `cserun`
+biwa is the spiritual successor to `cserun`, modernized for today's workflow. We are grateful to the authors of `cserun` for pioneering this approach.
+
+Comparison:
 - **Rust-Powered**: Fast, reliable, and binary-distributed.
 - **Active Maintenance**: Built to be maintained and improved.
 - **Smart Environment**: No need to manually set environments for every call.
