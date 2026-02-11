@@ -65,3 +65,15 @@ description = "Run yamllint to lint YAML files."
 ["check:typos"]
 run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
 description = "Run typos to check typo in files."
+
+["docs:dev"]
+run = "cd docs && bun run vitepress dev"
+description = "Start VitePress development server."
+
+["docs:build"]
+run = "cd docs && bun run vitepress build"
+description = "Build VitePress documentation for production."
+
+["docs:preview"]
+run = "cd docs && bun run vitepress preview"
+description = "Preview built VitePress documentation."
