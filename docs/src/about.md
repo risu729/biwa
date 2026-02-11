@@ -4,7 +4,7 @@
 
 ## Evolution from cserun
 
-biwa is the spiritual successor to **`cserun`**. We are deeply grateful to [Bogay](https://github.com/Bogay), the author of `cserun`, for pioneering this approach and providing the tool that inspired biwa.
+biwa is the spiritual successor to **`cserun`**. We are deeply grateful to [Bojin](https://github.com/xxxbrian), the author of `cserun`, for pioneering this approach and providing the tool that inspired biwa.
 
 **biwa supports all usages of `cserun`** while introducing significant improvements:
 
