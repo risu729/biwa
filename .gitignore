@@ -203,3 +203,8 @@ rust-project.json
 .ionide
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,rust-analyzer,visualstudiocode,intellij,linux,macos
+
+# VitePress Documentation
+docs/.vitepress/cache
+docs/.vitepress/dist
+docs/node_modules
