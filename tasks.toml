@@ -67,13 +67,16 @@ run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
 description = "Run typos to check typo in files."
 
 ["docs:dev"]
-run = "cd docs && bun run vitepress dev"
+run = "bun run vitepress dev"
+dir = "docs"
 description = "Start VitePress development server."
 
 ["docs:build"]
-run = "cd docs && bun run vitepress build"
+run = "bun run vitepress build"
+dir = "docs"
 description = "Build VitePress documentation for production."
 
 ["docs:preview"]
-run = "cd docs && bun run vitepress preview"
+run = "bun run vitepress preview"
+dir = "docs"
 description = "Preview built VitePress documentation."
