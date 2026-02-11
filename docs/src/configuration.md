@@ -4,10 +4,12 @@ Comprehensive guide to configuring biwa for your workflow.
 
 ## Configuration File
 
-biwa uses TOML configuration files. The configuration can be placed in:
+biwa supports **TOML**, **JSON**, **JSON5**, **JSONC**, **YAML**, and **YML** configuration files.
 
-- Project-specific: `.biwa.toml` or `biwa.toml` in your project root
-- Global: `~/.config/biwa/config.toml`
+The configuration can be placed in:
+
+- Project-specific: `biwa.toml`, `biwa.json`, etc. in your project root
+- Global: `~/.config/biwa/config.toml` (or other formats)
 
 Project-specific configuration takes precedence over global configuration.
 
@@ -19,7 +21,7 @@ Create a default configuration file using:
 biwa init
 ```
 
-This generates a configuration file with sensible defaults that you can customize.
+This generates a configuration file (typically `biwa.toml`) in your project directory with default settings.
 
 ## Configuration Schema
 
@@ -37,10 +39,18 @@ remote_root = "~/.cache/biwa"  # Remote directory for synced files
 
 ```toml
 [ssh]
-identity_file = "~/.ssh/id_ed25519"  # Path to private key
-# auth_method = "publickey"          # Authentication method
+# Path to your SSH private key (optional, uses default if not specified)
+ssh_key = "~/.ssh/id_ed25519"
 # connect_timeout = 30               # Connection timeout in seconds
 ```
+
+#### Password Authentication
+
+If you don't provide an `ssh_key` and no SSH agent is active, biwa will prompt for a password.
+
+::: warning Security
+Password authentication works fine but is **not recommended** for frequent use due to security and convenience reasons. We strongly suggest setting up SSH keys.
+:::
 
 ### Sync Configuration
 
@@ -96,46 +106,21 @@ command_prefix = "mise x --"
 
 ### Minimal Configuration
 
-For simple use cases:
-
+**biwa.toml**
 ```toml
 [remote]
 host = "cse.unsw.edu.au"
 user = "z5555555"
 ```
 
-### Advanced Configuration
-
-For complex projects:
-
-```toml
-[remote]
-host = "cse.unsw.edu.au"
-user = "z5555555"
-port = 22
-remote_root = "~/.cache/biwa/projects/my-project"
-
-[ssh]
-identity_file = "~/.ssh/id_ed25519"
-
-[sync]
-ignore_patterns = [
-    "*.log",
-    ".venv/",
-    "__pycache__/",
-    "dist/",
-    "build/"
-]
-
-[env]
-vars = ["NODE_ENV", "DEBUG"]
-
-[hooks]
-pre_sync = "npm run build"
-
-[mise]
-environment = "dev"
-command_prefix = "mise x --"
+**biwa.json**
+```json
+{
+  "remote": {
+    "host": "cse.unsw.edu.au",
+    "user": "z5555555"
+  }
+}
 ```
 
 ### Course-Specific Configuration
@@ -165,10 +150,9 @@ pre_sync = "make clean"
 
 When biwa looks for configuration, it checks in this order:
 
-1. `.biwa.toml` in current directory
-2. `biwa.toml` in current directory  
-3. Traverse up directories looking for config files
-4. `~/.config/biwa/config.toml` (global configuration)
+1. Local config (`biwa.toml`, `biwa.json`, etc.)
+2. Traverse up directories looking for config files
+3. Global config (`~/.config/biwa/config.toml`, etc.)
 
 ## Schema Validation
 
@@ -186,55 +170,3 @@ Error: Invalid configuration
 - Learn about [environment variable handling](/configuration#environment-variables)
 - Explore [hooks](/configuration#hooks) for automation
 - Set up [mise integration](/configuration#mise-integration) for advanced workflows
-
-## Configuration Tips
-
-### Use Environment-Specific Configs
-
-Keep different configs for different environments:
-
-```bash
-# Development
-cp biwa.dev.toml .biwa.toml
-
-# Production  
-cp biwa.prod.toml .biwa.toml
-```
-
-### Version Control
-
-Add to `.gitignore` if it contains sensitive data:
-
-```gitignore
-.biwa.toml
-biwa.toml
-```
-
-Or use a template approach:
-
-```bash
-# Commit a template
-git add biwa.toml.example
-
-# Users copy and customize
-cp biwa.toml.example .biwa.toml
-```
-
-### Share Global Config
-
-For consistent settings across projects, use global config:
-
-```bash
-mkdir -p ~/.config/biwa
-```bash
-cat > ~/.config/biwa/config.toml << 'EOF'
-[remote]
-user = "z5555555"
-host = "cse.unsw.edu.au"
-
-[ssh]
-identity_file = "~/.ssh/id_ed25519"
-EOF
-```
-
-Then each project only needs project-specific settings.
