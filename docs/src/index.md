@@ -25,13 +25,3 @@ features:
     details: Designed for modern workflows with mise integration and comprehensive tooling
 ---
 
-## Quick Example
-
-```bash
-# Initialize configuration
-biwa init
-
-# Run commands on remote CSE server
-biwa run cargo test
-biwa run npm start
-```
