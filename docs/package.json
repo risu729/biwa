@@ -1,0 +1,15 @@
+{
+  "name": "biwa-docs",
+  "version": "0.1.0",
+  "description": "Documentation for biwa CLI",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "vitepress": "^1.6.4",
+    "vitepress-plugin-mermaid": "^2.0.17"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
