@@ -35,9 +35,8 @@ When working on UNSW CSE coursework, you often face a dilemma: work locally comf
 ### VS Code Remote SSH
 *The popular extension*
 
-- **Resource Heavy**: Runs a full node.js server on the host. This consumes significant RAM and CPU.
-- **Unstable on CSE**: CSE servers often kill these resource-heavy "zombie" processes. This forcibly disconnects your session, requiring a window reload and often losing terminal state.
-- **Banned/Discouraged**: Due to the resource usage, its use is often discouraged or even restricted on shared servers.
+- **Banned / Unstable on CSE**: CSE servers aggressively kill the heavy "zombie" processes that VS Code leaves behind. This forcibly disconnects your session, requires a window reload, and often loses your terminal state.
+- **Resource Limits**: Because it runs a full Node.js server for each user, it consumes significant resources, leading to system instability—the primary reason it is restricted on shared servers.
 
 ### SSH FS / SFTP Extensions
 *The filesystem mount approach*
