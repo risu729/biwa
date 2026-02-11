@@ -12,6 +12,7 @@ export default withMermaid(
             // https://vitepress.dev/reference/default-theme-config
             nav: [
                 { text: 'Home', link: '/' },
+                { text: 'About', link: '/about' },
                 { text: 'Getting Started', link: '/getting-started' },
                 { text: 'Configuration', link: '/configuration' }
             ],
@@ -21,6 +22,7 @@ export default withMermaid(
                     text: 'Introduction',
                     items: [
                         { text: 'Overview', link: '/' },
+                        { text: 'About', link: '/about' },
                         { text: 'Comparison', link: '/comparison' }
                     ]
                 },
@@ -28,14 +30,25 @@ export default withMermaid(
                     text: 'Guide',
                     items: [
                         { text: 'Getting Started', link: '/getting-started' },
-                        { text: 'Configuration', link: '/configuration' }
+                        { text: 'Configuration', link: '/configuration' },
+                    ]
+                },
+                {
+                    text: 'Community',
+                    items: [
+                        { text: 'Contributing', link: '/contributing' }
                     ]
                 }
             ],
 
             socialLinks: [
                 { icon: 'github', link: 'https://github.com/risu729/biwa' }
-            ]
+            ],
+
+            footer: {
+                message: 'Released under the MIT License.',
+                copyright: 'Maintained by @risu729'
+            }
         }
     })
 )
