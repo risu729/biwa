@@ -6,6 +6,7 @@ export default withMermaid(
     defineConfig({
         title: "biwa",
         description: "CLI to execute commands on UNSW CSE servers from local",
+        srcDir: "src",
 
         themeConfig: {
             // https://vitepress.dev/reference/default-theme-config
