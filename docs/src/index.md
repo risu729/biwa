@@ -24,4 +24,3 @@ features:
   - title: Developer Friendly
     details: Designed for modern workflows with mise integration and comprehensive tooling
 ---
-

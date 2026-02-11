@@ -22,8 +22,8 @@ export default withMermaid(
                     text: 'Introduction',
                     items: [
                         { text: 'Overview', link: '/' },
-                        { text: 'About', link: '/about' },
-                        { text: 'Comparison', link: '/comparison' }
+                        { text: 'Why biwa?', link: '/why' },
+                        { text: 'About', link: '/about' }
                     ]
                 },
                 {
