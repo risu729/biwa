@@ -10,8 +10,8 @@ hero:
       text: Get Started
       link: /getting-started
     - theme: alt
-      text: Why biwa?
-      link: /why
+      text: About
+      link: /about
     - theme: alt
       text: View on GitHub
       link: https://github.com/risu729/biwa

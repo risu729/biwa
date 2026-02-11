@@ -1,12 +1,23 @@
-# Why biwa?
+# About
 
 **biwa** is a modern CLI tool designed to bridge the gap between local comfort and remote necessity. It allows you to **develop locally** with your preferred tools while seamlessly running code on UNSW CSE infrastructure.
+
+## Evolution from cserun
+
+biwa is the spiritual successor to **`cserun`**. We are deeply grateful to [Bogay](https://github.com/Bogay), the author of `cserun`, for pioneering this approach and providing the tool that inspired biwa.
+
+**biwa supports all usages of `cserun`** while introducing significant improvements:
+
+- **Superset of Features**: Everything you could do in `cserun`, you can do in biwa.
+- **Active Maintenance**: Built to be maintained and improved for the long term.
+- **Smart Environment**: No need to manually set environments for every call.
+- **Symlink Support**: Seamlessly handles CSE symlinks (like `1511` or specific standard libraries).
 
 ## Core Philosophy: Develop Locally
 
 The core philosophy of biwa is simple: **You should develop on your own machine.**
 
-CSE servers are shared resources. They are not designed to host VS Code servers for hundreds of students, nor do they have the disk space for modern `node_modules` or Rust build artifacts.
+CSE servers are shared resources. They are not designed to host VS Code servers for hundreds of students, nor do they have the disk space for modern `node_modules` or build artifacts.
 
 biwa enables a **Local-First Workflow**:
 1. **Edit Locally**: Use VS Code, Neovim, IntelliJ, or any editor you love with zero latency.
@@ -60,12 +71,3 @@ When you need to run a CSE-specific command (like `autotest`, `give`, or a speci
 - **Smart Sync**: Uses `rsync` to synchronize *only changed files* instantly.
 - **Auto-Cleanup**: Manages remote directories automatically. If you haven't touched a project in a while, biwa cleans it up to save your remote disk quota.
 - **Transient**: No heavy background processes left running on the server.
-
-### Better than `cserun`
-biwa is the spiritual successor to `cserun`, modernized for today's workflow. We are grateful to the authors of `cserun` for pioneering this approach.
-
-Comparison:
-- **Rust-Powered**: Fast, reliable, and binary-distributed.
-- **Active Maintenance**: Built to be maintained and improved.
-- **Smart Environment**: No need to manually set environments for every call.
-- **Symlink Support**: Seamlessly handles CSE symlinks (like `1511` or specific standard libraries).

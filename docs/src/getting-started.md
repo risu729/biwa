@@ -83,5 +83,5 @@ If you're in a project directory, biwa will automatically sync your local files 
 ## Next Steps
 
 - Read about [Configuration](/configuration) options
-- Check [Why biwa?](/why)
+- Check [About biwa](/about)
 - Explore advanced features like hooks and mise integration

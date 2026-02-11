@@ -12,7 +12,7 @@ export default withMermaid(
             // https://vitepress.dev/reference/default-theme-config
             nav: [
                 { text: 'Home', link: '/' },
-                { text: 'Why biwa?', link: '/why' },
+                { text: 'About', link: '/about' },
                 { text: 'Getting Started', link: '/getting-started' },
                 { text: 'Configuration', link: '/configuration' }
             ],
@@ -22,7 +22,7 @@ export default withMermaid(
                     text: 'Introduction',
                     items: [
                         { text: 'Overview', link: '/' },
-                        { text: 'Why biwa?', link: '/why' }
+                        { text: 'About', link: '/about' }
                     ]
                 },
                 {
