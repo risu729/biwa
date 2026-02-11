@@ -68,6 +68,8 @@ biwa handles the complexity so you don't have to.
 
 ### Seamless Remote Execution
 When you need to run a CSE-specific command (like `autotest`, `give`, or a specific compiler version), biwa handles it instantly:
-- **Smart Sync**: Uses `rsync` to synchronize *only changed files* instantly.
+- **Smart Sync (rsync)**: Unlike `cserun` which clones the directory from scratch every time (wasting disk space and time), **biwa uses `rsync`** to synchronize *only changed files*.
+- **Direct Command Execution**: Run CSE commands directly. For example, you can run `biwa 1511` or `biwa Give` without needing `biwa run`.
 - **Auto-Cleanup**: Manages remote directories automatically. If you haven't touched a project in a while, biwa cleans it up to save your remote disk quota.
 - **Transient**: No heavy background processes left running on the server.
+
