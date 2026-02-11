@@ -10,34 +10,44 @@ export default withMermaid(
 
         themeConfig: {
             // https://vitepress.dev/reference/default-theme-config
-            items: [
-                { text: 'Overview', link: '/' },
-                { text: 'Why biwa?', link: '/why' }
-            ]
-        },
-                {
-            text: 'Guide',
-            items: [
+            nav: [
+                { text: 'Home', link: '/' },
+                { text: 'Why biwa?', link: '/why' },
                 { text: 'Getting Started', link: '/getting-started' },
-                { text: 'Configuration', link: '/configuration' },
-            ]
-        },
-        {
-            text: 'Community',
-            items: [
-                { text: 'Contributing', link: '/contributing' }
-            ]
-        }
+                { text: 'Configuration', link: '/configuration' }
             ],
 
-        socialLinks: [
-        { icon: 'github', link: 'https://github.com/risu729/biwa' }
-    ],
+            sidebar: [
+                {
+                    text: 'Introduction',
+                    items: [
+                        { text: 'Overview', link: '/' },
+                        { text: 'Why biwa?', link: '/why' }
+                    ]
+                },
+                {
+                    text: 'Guide',
+                    items: [
+                        { text: 'Getting Started', link: '/getting-started' },
+                        { text: 'Configuration', link: '/configuration' },
+                    ]
+                },
+                {
+                    text: 'Community',
+                    items: [
+                        { text: 'Contributing', link: '/contributing' }
+                    ]
+                }
+            ],
 
-        footer: {
-        message: 'Released under the [MIT License](https://github.com/risu729/biwa/blob/main/LICENSE).',
-        copyright: 'Maintained by [@risu729](https://github.com/risu729)'
-    }
+            socialLinks: [
+                { icon: 'github', link: 'https://github.com/risu729/biwa' }
+            ],
+
+            footer: {
+                message: 'Released under the [MIT License](https://github.com/risu729/biwa/blob/main/LICENSE).',
+                copyright: 'Maintained by [@risu729](https://github.com/risu729)'
+            }
         }
     })
 )
