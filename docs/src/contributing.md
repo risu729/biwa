@@ -16,7 +16,8 @@ That's it! The environment is automatically managed by mise and `mise.toml`.
 
 ## Guidelines
 
-- We welcome all contributions, including bug fixes, features, and documentation improvements.
+- **Contributions Welcome**: We welcome all contributions, including bug fixes, features, and documentation improvements. Even small **typo fixes** are highly appreciated!
+- **AI Contributions**: We allow AI-generated code, but **you must understand the changes**. Submitting blindly generated code that you cannot explain or debug is discouraged. Please verify that your AI-generated code works as intended.
 - **Please be considerate**: Maintainers are volunteers. We might not have time to check every PR immediately, or fix every issue.
 - **No guarantees**: We may not merge your PR if it doesn't align with the project's goals or quality standards.
 - **Communication**: Opening an issue to discuss major changes before submitting a PR is recommended.
