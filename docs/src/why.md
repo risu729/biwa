@@ -42,7 +42,7 @@ When working on UNSW CSE coursework, you often face a dilemma: work locally comf
 *The filesystem mount approach*
 
 - **Slow Performance**: Every file save or read requires a network round-trip.
-- **Disk Usage**: Often requires caching files or installing dependencies remotely (e.g., `node_modules`), which eats into your disk quota.
+- **Incompatible with `node_modules`**: Dependency directories like `node_modules` often fail to work correctly on mounted volumes, or `npm install` takes an agonizingly long time due to thousands of small file operations.
 - **Network Dependency**: If your internet blips, your editor hangs.
 
 ### VNC / VLab
