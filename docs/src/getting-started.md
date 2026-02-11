@@ -6,7 +6,7 @@ Get up and running with biwa in minutes.
 
 ### Via mise (Recommended)
 
-First, install [mise](https://mise.jdx.dev) if you haven't already. Then:
+First, install [mise](https://mise.jdx.dev/getting-started.html) if you haven't already. Then:
 
 ```bash
 # Install biwa
@@ -14,6 +14,14 @@ mise use -g github:risu729/biwa
 
 # Verify installation
 biwa --version
+```
+
+### Via Cargo
+
+If you have Rust installed, you can install biwa directly from crates.io:
+
+```bash
+cargo install biwa
 ```
 
 ### From Release Assets (Binary)
@@ -27,8 +35,7 @@ For the latest development version:
 ```bash
 git clone https://github.com/risu729/biwa.git
 cd biwa
-cargo build --release
-# Binary will be in target/release/biwa
+cargo install --path .
 ```
 
 ## Configuration
