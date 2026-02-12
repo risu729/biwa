@@ -15,6 +15,9 @@ hero:
     - theme: alt
       text: View on GitHub
       link: https://github.com/risu729/biwa
+  image:
+    src: /icon.svg
+    alt: biwa logo
 
 features:
   - title: Fast & Efficient

@@ -8,8 +8,10 @@ export default withMermaid(
         description: "CLI to execute commands on UNSW CSE servers from local",
         srcDir: "src",
 
+        head: [['link', { rel: 'icon', href: '/icon.svg' }]],
         themeConfig: {
             // https://vitepress.dev/reference/default-theme-config
+            logo: '/icon.svg',
             nav: [
                 { text: 'Home', link: '/' },
                 { text: 'About', link: '/about' },
