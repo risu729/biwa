@@ -47,8 +47,8 @@ export default withMermaid(
             ],
 
             footer: {
-                message: 'Released under the [MIT License](https://github.com/risu729/biwa/blob/main/LICENSE).',
-                copyright: 'Maintained by [@risu729](https://github.com/risu729)'
+                message: 'Released under the <a href="https://github.com/risu729/biwa/blob/main/LICENSE">MIT License</a>.',
+                copyright: 'Maintained by <a href="https://github.com/risu729">@risu729</a>'
             }
         }
     })
