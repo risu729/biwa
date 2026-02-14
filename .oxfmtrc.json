@@ -2,5 +2,6 @@
 	"$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxfmt/configuration_schema.json",
 	"useTabs": true,
 	"experimentalSortImports": {},
-	"vueIndentScriptAndStyle": true
+	"vueIndentScriptAndStyle": true,
+	"ignorePatterns": ["CHANGELOG.md"]
 }
