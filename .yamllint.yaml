@@ -6,7 +6,7 @@ ignore-from-file: .gitignore
 
 rules:
   comments:
-    min-spaces-from-content: 1 # follow yamlfmt
+    min-spaces-from-content: 1 # follow oxfmt
   document-start:
     present: false
   line-length: disable # cannot disable only for URLs
