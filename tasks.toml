@@ -10,7 +10,7 @@ run = "cargo test"
 description = "Run the tests."
 
 [check]
-depends = ["check:*"]
+depends = ["check:*", "docs:check"]
 description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
 
 ["check:clippy"]
@@ -65,3 +65,31 @@ description = "Run yamllint to lint YAML files."
 ["check:typos"]
 run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
 description = "Run typos to check typo in files."
+
+["docs:dev"]
+run = "bun run --bun vitepress dev"
+dir = "docs"
+description = "Start VitePress development server."
+
+["docs:build"]
+run = "bun run --bun vitepress build"
+dir = "docs"
+description = "Build VitePress documentation for production."
+
+["docs:preview"]
+run = "bun run --bun vitepress preview"
+dir = "docs"
+description = "Preview built VitePress documentation."
+
+["docs:check"]
+depends = ["docs:check:*"]
+description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
+
+["docs:check:oxlint"]
+run = "oxlint {% if env.LINT is undefined %}--fix{% endif %}"
+dir = "docs"
+description = "Run oxlint to lint VitePress documentation."
+
+["check:oxfmt"]
+run = "oxfmt {% if env.LINT is defined %}--check{% endif %}"
+description = "Run oxfmt to format VitePress documentation."

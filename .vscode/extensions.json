@@ -1,9 +1,10 @@
 {
-	// ref: https://code.visualstudio.com/docs/editor/extension-marketplace#_workspace-recommended-extensions
-	"recommendations": [
-		"rust-lang.rust-analyzer",
-		"bluebrown.yamlfmt",
-		"github.vscode-github-actions",
-		"tamasfe.even-better-toml"
-	]
+  // ref: https://code.visualstudio.com/docs/editor/extension-marketplace#_workspace-recommended-extensions
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "bluebrown.yamlfmt",
+    "github.vscode-github-actions",
+    "tamasfe.even-better-toml",
+    "oxc.oxc-vscode"
+  ]
 }
