@@ -47,49 +47,14 @@ run = "zizmor --pedantic {% if env.LINT is undefined %}--fix{% endif %} ."
 env.GH_TOKEN = "{{ env.GITHUB_TOKEN }}"
 description = "Run Zizmor to check GitHub Actions workflows."
 
-["check:taplo"]
-run = [
-	"taplo lint",
-	"taplo fmt {% if env.LINT is defined %}--check --diff{% endif %}",
-]
-description = "Run Taplo to lint and format TOML files."
-
-["check:yamlfmt"]
-run = "yamlfmt {% if env.LINT is defined %}-lint{% endif %} ."
-description = "Run yamlfmt to format YAML files."
-
 ["check:yamllint"]
 run = "yamllint --strict ."
 description = "Run yamllint to lint YAML files."
 
+["check:oxfmt"]
+run = "oxfmt {% if env.LINT is defined %}--check{% endif %}"
+description = "Run oxfmt to format JS, TS, CSS, Vue, JSON, JSONC, YAML, TOML, and Markdown files."
+
 ["check:typos"]
 run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
 description = "Run typos to check typo in files."
-
-["docs:dev"]
-run = "bun run --bun vitepress dev"
-dir = "docs"
-description = "Start VitePress development server."
-
-["docs:build"]
-run = "bun run --bun vitepress build"
-dir = "docs"
-description = "Build VitePress documentation for production."
-
-["docs:preview"]
-run = "bun run --bun vitepress preview"
-dir = "docs"
-description = "Preview built VitePress documentation."
-
-["docs:check"]
-depends = ["docs:check:*"]
-description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
-
-["docs:check:oxlint"]
-run = "oxlint {% if env.LINT is undefined %}--fix{% endif %}"
-dir = "docs"
-description = "Run oxlint to lint VitePress documentation."
-
-["check:oxfmt"]
-run = "oxfmt {% if env.LINT is defined %}--check{% endif %}"
-description = "Run oxfmt to format VitePress documentation."

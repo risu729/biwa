@@ -1,21 +1,15 @@
 {
-  // ref: https://code.visualstudio.com/docs/getstarted/settings#_workspace-settings
+	// ref: https://code.visualstudio.com/docs/getstarted/settings#_workspace-settings
 
-  "[rust]": {
-    "editor.defaultFormatter": "rust-lang.rust-analyzer"
-  },
-  "[toml]": {
-    "editor.defaultFormatter": "tamasfe.even-better-toml"
-  },
-  "[typescript][javascript][json][jsonc][vue]": {
-    "editor.defaultFormatter": "oxc.oxc-vscode"
-  },
-  "[yaml][github-actions-workflow]": {
-    "editor.defaultFormatter": "bluebrown.yamlfmt"
-  },
+	"[rust]": {
+		"editor.defaultFormatter": "rust-lang.rust-analyzer"
+	},
+	"[typescript][javascript][css][vue][json][jsonc][yaml][github-actions-workflow][toml][markdown]": {
+		"editor.defaultFormatter": "oxc.oxc-vscode"
+	},
 
-  "files.readonlyInclude": {
-    // auto-generated
-    "**/Cargo.lock": true
-  }
+	"files.readonlyInclude": {
+		// auto-generated
+		"**/Cargo.lock": true
+	}
 }
