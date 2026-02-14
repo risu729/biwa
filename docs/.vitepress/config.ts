@@ -27,20 +27,20 @@ export default withMermaid(
 			sidebar: [
 				{
 					items: [
-						{ text: "Overview", link: "/" },
-						{ text: "About", link: "/about" },
+						{ link: "/", text: "Overview" },
+						{ link: "/about", text: "About" },
 					],
 					text: "Introduction",
 				},
 				{
 					items: [
-						{ text: "Getting Started", link: "/getting-started" },
-						{ text: "Configuration", link: "/configuration" },
+						{ link: "/getting-started", text: "Getting Started" },
+						{ link: "/configuration", text: "Configuration" },
 					],
 					text: "Guide",
 				},
 				{
-					items: [{ text: "Contributing", link: "/contributing" }],
+					items: [{ link: "/contributing", text: "Contributing" }],
 					text: "Community",
 				},
 			],
