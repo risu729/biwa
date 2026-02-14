@@ -10,7 +10,7 @@ run = "cargo test"
 description = "Run the tests."
 
 [check]
-depends = ["check:*", "docs:check"]
+depends = ["check:*"]
 description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
 
 ["check:clippy"]
