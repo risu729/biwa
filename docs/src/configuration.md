@@ -107,6 +107,7 @@ command_prefix = "mise x --"
 ### Minimal Configuration
 
 **biwa.toml**
+
 ```toml
 [remote]
 host = "cse.unsw.edu.au"
@@ -114,12 +115,13 @@ user = "z5555555"
 ```
 
 **biwa.json**
+
 ```json
 {
-  "remote": {
-    "host": "cse.unsw.edu.au",
-    "user": "z5555555"
-  }
+	"remote": {
+		"host": "cse.unsw.edu.au",
+		"user": "z5555555"
+	}
 }
 ```
 

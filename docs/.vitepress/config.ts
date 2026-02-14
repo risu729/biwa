@@ -1,55 +1,52 @@
-import { defineConfig } from 'vitepress'
-import { withMermaid } from 'vitepress-plugin-mermaid'
+import { defineConfig } from "vitepress";
+import { withMermaid } from "vitepress-plugin-mermaid";
 
 // https://vitepress.dev/reference/site-config
 export default withMermaid(
-    defineConfig({
-        title: "biwa",
-        description: "CLI to execute commands on UNSW CSE servers from local",
-        srcDir: "src",
+	defineConfig({
+		description: "CLI to execute commands on UNSW CSE servers from local",
+		head: [["link", { href: "/icon.svg", rel: "icon" }]],
+		srcDir: "src",
 
-        head: [['link', { rel: 'icon', href: '/icon.svg' }]],
-        themeConfig: {
-            // https://vitepress.dev/reference/default-theme-config
-            logo: '/icon.svg',
-            nav: [
-                { text: 'Home', link: '/' },
-                { text: 'About', link: '/about' },
-                { text: 'Getting Started', link: '/getting-started' },
-                { text: 'Configuration', link: '/configuration' }
-            ],
+		themeConfig: {
+			// https://vitepress.dev/reference/default-theme-config
+			footer: {
+				copyright: 'Maintained by <a href="https://github.com/risu729">@risu729</a>',
+				message:
+					'Released under the <a href="https://github.com/risu729/biwa/blob/main/LICENSE">MIT License</a>.',
+			},
+			logo: "/icon.svg",
 
-            sidebar: [
-                {
-                    text: 'Introduction',
-                    items: [
-                        { text: 'Overview', link: '/' },
-                        { text: 'About', link: '/about' }
-                    ]
-                },
-                {
-                    text: 'Guide',
-                    items: [
-                        { text: 'Getting Started', link: '/getting-started' },
-                        { text: 'Configuration', link: '/configuration' },
-                    ]
-                },
-                {
-                    text: 'Community',
-                    items: [
-                        { text: 'Contributing', link: '/contributing' }
-                    ]
-                }
-            ],
+			nav: [
+				{ link: "/", text: "Home" },
+				{ link: "/about", text: "About" },
+				{ link: "/getting-started", text: "Getting Started" },
+				{ link: "/configuration", text: "Configuration" },
+			],
 
-            socialLinks: [
-                { icon: 'github', link: 'https://github.com/risu729/biwa' }
-            ],
+			sidebar: [
+				{
+					items: [
+						{ text: "Overview", link: "/" },
+						{ text: "About", link: "/about" },
+					],
+					text: "Introduction",
+				},
+				{
+					items: [
+						{ text: "Getting Started", link: "/getting-started" },
+						{ text: "Configuration", link: "/configuration" },
+					],
+					text: "Guide",
+				},
+				{
+					items: [{ text: "Contributing", link: "/contributing" }],
+					text: "Community",
+				},
+			],
 
-            footer: {
-                message: 'Released under the <a href="https://github.com/risu729/biwa/blob/main/LICENSE">MIT License</a>.',
-                copyright: 'Maintained by <a href="https://github.com/risu729">@risu729</a>'
-            }
-        }
-    })
-)
+			socialLinks: [{ icon: "github", link: "https://github.com/risu729/biwa" }],
+		},
+		title: "biwa",
+	}),
+);

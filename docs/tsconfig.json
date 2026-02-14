@@ -1,19 +1,9 @@
 {
-  "extends": "@risu729/tsconfigs/bundler",
-  "compilerOptions": {
-    "jsx": "react-jsx",
-    "allowJs": true,
-    "noEmit": true,
-    "module": "Preserve"
-  },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.vue",
-    ".vitepress/**/*.ts",
-    ".vitepress/**/*.vue"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
+	"$schema": "https://www.schemastore.org/tsconfig",
+	"extends": "@risu729/tsconfigs/bundler",
+	"include": ["src/**/*.ts", "src/**/*.vue", ".vitepress/**/*.ts", ".vitepress/**/*.vue"],
+	"exclude": ["node_modules", "dist"],
+	"compilerOptions": {
+		"types": ["bun"]
+	}
 }
