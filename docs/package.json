@@ -1,0 +1,11 @@
+{
+	"$schema": "https://www.schemastore.org/package",
+	"type": "module",
+	"devDependencies": {
+		"@risu729/tsconfigs": "2.0.0",
+		"@types/bun": "1.3.9",
+		"typescript": "6.0.0-beta",
+		"vitepress": "1.6.4",
+		"vitepress-plugin-mermaid": "2.0.17"
+	}
+}
