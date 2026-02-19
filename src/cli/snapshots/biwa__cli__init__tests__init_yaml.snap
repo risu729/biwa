@@ -1,0 +1,22 @@
+---
+source: src/cli/init.rs
+assertion_line: 99
+expression: content
+---
+# yaml-language-server: $schema=https://biwa.takuk.me/schema/config.json
+ssh:
+  host: example.com
+  port: 22
+  user: user
+  key_path: null
+sync:
+  remote_root: ~/.cache/biwa/projects
+  ignore_files:
+  - .git
+  - target
+  - node_modules
+env:
+  vars: []
+hooks:
+  pre_sync: null
+  post_sync: null

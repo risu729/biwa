@@ -3,7 +3,9 @@ use clap::{ArgAction, Parser, Subcommand};
 use eyre::bail;
 use tracing::Level;
 
+mod init;
 mod run;
+mod schema;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -31,12 +33,16 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
 	Run(run::Run),
+	Init(init::Init),
+	Schema(schema::Schema),
 }
 
 impl Commands {
 	pub async fn run(self) -> Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run().await,
+			Self::Init(cmd) => cmd.run().await,
+			Self::Schema(cmd) => cmd.run().await,
 		}
 	}
 }

@@ -1,0 +1,23 @@
+---
+source: src/cli/init.rs
+assertion_line: 99
+expression: content
+---
+#:schema https://biwa.takuk.me/schema/config.json
+[ssh]
+host = "example.com"
+port = 22
+user = "user"
+
+[sync]
+remote_root = "~/.cache/biwa/projects"
+ignore_files = [
+    ".git",
+    "target",
+    "node_modules",
+]
+
+[env]
+vars = []
+
+[hooks]
