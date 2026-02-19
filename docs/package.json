@@ -1,6 +1,11 @@
 {
 	"$schema": "https://www.schemastore.org/package",
 	"type": "module",
+	"scripts": {
+		"build": "vitepress build",
+		"deploy": "wrangler deploy",
+		"deploy-preview": "wrangler versions upload"
+	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "1.25.1",
 		"@risu729/tsconfigs": "2.0.0",
@@ -12,10 +17,5 @@
 	},
 	"overrides": {
 		"vite": "7.1.12"
-	},
-	"scripts": {
-		"build": "vitepress build",
-		"deploy": "wrangler deploy",
-		"deploy-preview": "wrangler versions upload"
 	}
 }
