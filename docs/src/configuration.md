@@ -36,7 +36,7 @@
 
 `biwa` provides a JSON schema to enable autocompletion and validation in editors like VS Code.
 
-To use the schema, adding the following to your configuration file:
+To use the schema, add the following to your configuration file:
 
 **TOML**:
 
