@@ -70,7 +70,7 @@ dir = "docs"
 description = "Run oxlint to lint VitePress documentation."
 
 ["check:tsc"]
-run = "bun run vue-tsc"
+run = ["bun run vue-tsc", "bun run tsc"]
 dir = "docs"
 description = "Run tsc to check TypeScript files in docs."
 
