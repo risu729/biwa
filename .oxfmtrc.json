@@ -3,5 +3,5 @@
 	"useTabs": true,
 	"experimentalSortImports": {},
 	"vueIndentScriptAndStyle": true,
-	"ignorePatterns": ["CHANGELOG.md"]
+	"ignorePatterns": ["CHANGELOG.md", "schema/*"]
 }

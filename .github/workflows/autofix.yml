@@ -36,7 +36,9 @@ jobs:
           cache: false
 
       - name: Run autofix
-        run: mise run check --continue-on-error
+        run: |
+          mise run render --continue-on-error
+          mise run check --continue-on-error
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ github.token }}

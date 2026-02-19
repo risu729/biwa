@@ -10,6 +10,7 @@
 
 	"files.readonlyInclude": {
 		// auto-generated
-		"**/Cargo.lock": true
+		"**/Cargo.lock": true,
+		"schema/*": true
 	}
 }

@@ -83,3 +83,11 @@ description = "Build VitePress documentation for production."
 run = "bun run --bun vitepress preview"
 dir = "docs"
 description = "Preview built VitePress documentation."
+
+[render]
+depends = ["render:*"]
+description = "Run all render tasks."
+
+["render:schema"]
+run = "cargo run --quiet -- schema > schema/config.json"
+description = "Generate the configuration schema."

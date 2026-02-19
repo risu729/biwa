@@ -67,6 +67,9 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
+      - name: Render
+        run: mise run --jobs 1 --continue-on-error render
+
       - name: Lint
         run: mise run --jobs 1 --continue-on-error check
         env:
