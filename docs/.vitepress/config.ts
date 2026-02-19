@@ -50,7 +50,7 @@ export default withMermaid(
 		vite: {
 			plugins: [
 				// Cloudflare plugin doesn't work on dev for some reasons
-				process.env.NODE_ENV === "production" ? cloudflare() : [],
+				...(process.env.NODE_ENV === "production" ? [cloudflare()] : []),
 			],
 		},
 	}),
