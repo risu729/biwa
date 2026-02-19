@@ -2,6 +2,7 @@
 	"$schema": "./node_modules/wrangler/config-schema.json",
 	"name": "biwa-docs",
 	"compatibility_date": "2026-02-17",
+	"preview_urls": true,
 	"routes": [
 		{
 			"pattern": "biwa.takuk.me",
