@@ -1,0 +1,5 @@
+[test_config]
+run-types = ["AllTargets"]
+
+[report]
+out = ["Html", "Xml"]
