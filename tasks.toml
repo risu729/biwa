@@ -12,6 +12,7 @@ description = "Run the tests."
 ["test:update-snapshot"]
 run = "cargo insta test --accept --unreferenced=auto"
 description = "Update test snapshots."
+tools = { cargo-insta = "1.46.3" }
 
 [check]
 depends = ["check:*"]

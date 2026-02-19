@@ -42,7 +42,7 @@ impl Init {
 				let toml_str = toml::to_string_pretty(&config)?;
 				format!("#:schema {schema_url}\n\n{toml_str}")
 			}
-			ConfigFormat::Json => {
+			ConfigFormat::Json | ConfigFormat::Json5 => {
 				let mut value = serde_json::to_value(&config)?;
 				if let Some(obj) = value.as_object_mut() {
 					obj.insert(
@@ -50,17 +50,11 @@ impl Init {
 						serde_json::Value::String(schema_url.to_string()),
 					);
 				}
-				serde_json::to_string_pretty(&value)?
-			}
-			ConfigFormat::Json5 => {
-				let mut value = serde_json::to_value(&config)?;
-				if let Some(obj) = value.as_object_mut() {
-					obj.insert(
-						"$schema".to_string(),
-						serde_json::Value::String(schema_url.to_string()),
-					);
+				if format == ConfigFormat::Json {
+					serde_json::to_string_pretty(&value)?
+				} else {
+					json5::to_string(&value)?
 				}
-				json5::to_string(&value)?
 			}
 			ConfigFormat::Yaml => {
 				let value = serde_yaml::to_value(&config)?;
