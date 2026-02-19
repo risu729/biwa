@@ -12,5 +12,10 @@
 	},
 	"overrides": {
 		"vite": "7.1.12"
+	},
+	"scripts": {
+		"build": "vitepress build",
+		"deploy": "wrangler deploy",
+		"deploy-preview": "wrangler versions upload"
 	}
 }
