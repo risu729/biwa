@@ -70,7 +70,7 @@ dir = "docs"
 description = "Run oxlint to lint VitePress documentation."
 
 ["check:tsc"]
-run = "bun run tsc"
+run = "bun run vue-tsc"
 dir = "docs"
 description = "Run tsc to check TypeScript files in docs."
 
@@ -96,3 +96,11 @@ description = "Run all render tasks."
 ["render:schema"]
 run = "cargo run --quiet -- schema > schema/config.json"
 description = "Generate the configuration schema."
+
+["render:usage"]
+run = [
+	"cargo run --quiet -- usage > biwa.usage.kdl",
+	"rm -rf docs/src/cli && mkdir -p docs/src/cli",
+	"usage generate markdown -m --out-dir docs/src/cli --url-prefix /cli --html-encode --file biwa.usage.kdl",
+]
+description = "Generate usage spec and CLI reference docs."

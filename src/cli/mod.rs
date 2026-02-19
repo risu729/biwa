@@ -3,9 +3,11 @@ use clap::{ArgAction, Parser, Subcommand};
 use eyre::bail;
 use tracing::Level;
 
+mod completion;
 mod init;
 mod run;
 mod schema;
+mod usage;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -35,6 +37,8 @@ enum Commands {
 	Run(run::Run),
 	Init(init::Init),
 	Schema(schema::Schema),
+	Completion(completion::Completion),
+	Usage(usage::Usage),
 }
 
 impl Commands {
@@ -43,6 +47,8 @@ impl Commands {
 			Self::Run(cmd) => cmd.run().await,
 			Self::Init(cmd) => cmd.run(),
 			Self::Schema(cmd) => cmd.run(),
+			Self::Completion(cmd) => cmd.run(),
+			Self::Usage(cmd) => cmd.run(),
 		}
 	}
 }

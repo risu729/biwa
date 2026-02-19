@@ -36,8 +36,18 @@ export default withMermaid(
 					items: [
 						{ link: "/getting-started", text: "Getting Started" },
 						{ link: "/configuration", text: "Configuration" },
+						{ link: "/shell-completion", text: "Shell Completion" },
 					],
 					text: "Guide",
+				},
+				{
+					items: [
+						{ link: "/cli/", text: "Overview" },
+						{ link: "/cli/run", text: "biwa run" },
+						{ link: "/cli/init", text: "biwa init" },
+						{ link: "/cli/completion", text: "biwa completion" },
+					],
+					text: "CLI Reference",
 				},
 				{
 					items: [{ link: "/contributing", text: "Contributing" }],

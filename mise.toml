@@ -4,6 +4,7 @@
 [tools]
 rust = { version = "1.93.1", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.19.0"
+usage = "2.16.1"
 actionlint = "1.7.11"
 # used in actionlint
 shellcheck = "0.11.0"

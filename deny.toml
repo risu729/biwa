@@ -9,15 +9,20 @@ targets = [
 ]
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause"]
 
 [bans]
 multiple-versions = "deny"
 multiple-versions-include-dev = true
 wildcards = "deny"
 skip = [
+	{ name = "getrandom", version = "*" },
+	{ name = "rand", version = "*" },
+	{ name = "rand_chacha", version = "*" },
+	{ name = "rand_core", version = "*" },
 	{ name = "serde_spanned", version = "*" },
 	{ name = "toml", version = "*" },
 	{ name = "toml_datetime", version = "*" },
 	{ name = "toml_edit", version = "*" },
+	{ name = "winnow", version = "*" },
 ]
