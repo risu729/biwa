@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read # for checkout
+      id-token: write # for codecov
 
     steps:
       - name: Checkout
@@ -42,7 +43,12 @@ jobs:
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Test
-        run: mise run test
+        run: mise run test:coverage
+
+      - uses: codecov/codecov-action@v5
+        with:
+          fail_ci_if_error: true
+          use_oidc: true
 
   lint:
     name: Lint

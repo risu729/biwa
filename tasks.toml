@@ -9,6 +9,10 @@ description = "Build the project."
 run = "cargo test"
 description = "Run the tests."
 
+["test:coverage"]
+run = "cargo tarpaulin"
+description = "Run the tests with coverage."
+
 ["test:update-snapshot"]
 run = "cargo insta test --accept --unreferenced=auto"
 description = "Update test snapshots."

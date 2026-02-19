@@ -1,0 +1,3 @@
+[configs]
+bins = true
+out = ["Html", "Xml"]
