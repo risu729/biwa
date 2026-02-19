@@ -40,7 +40,7 @@ jobs:
           cache: false
           cache_save: false
         env:
-          MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
+          MISE_ENABLE_TOOLS: rust,cargo-dist
 
       - name: Plan Release
         id: plan
@@ -91,7 +91,7 @@ jobs:
           cache: false
           cache_save: false
         env:
-          MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
+          MISE_ENABLE_TOOLS: rust,cargo-dist
 
       - name: Install mise
         uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
@@ -171,7 +171,7 @@ jobs:
           cache: false
           cache_save: false
         env:
-          MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
+          MISE_ENABLE_TOOLS: rust,cargo-dist
 
       - name: Install mise
         uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
@@ -237,7 +237,7 @@ jobs:
           cache: false
           cache_save: false
         env:
-          MISE_ENABLE_TOOLS: rust,aqua:axodotdev/cargo-dist
+          MISE_ENABLE_TOOLS: rust,cargo-dist
 
       - name: Fetch artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
