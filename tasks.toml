@@ -10,7 +10,7 @@ run = "cargo test"
 description = "Run the tests."
 
 [check]
-depends = ["check:*", "docs:check"]
+depends = ["check:*"]
 description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
 
 ["check:clippy"]
@@ -59,6 +59,16 @@ description = "Run oxfmt to format JS, TS, CSS, Vue, JSON, JSONC, YAML, TOML, an
 run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
 description = "Run typos to check typo in files."
 
+["check:oxlint"]
+run = "oxlint {% if env.LINT is undefined %}--fix{% endif %}"
+dir = "docs"
+description = "Run oxlint to lint VitePress documentation."
+
+["check:tsc"]
+run = "bun run tsc"
+dir = "docs"
+description = "Run tsc to check TypeScript files in docs."
+
 ["docs:dev"]
 run = "bun run --bun vitepress dev"
 dir = "docs"
@@ -73,12 +83,3 @@ description = "Build VitePress documentation for production."
 run = "bun run --bun vitepress preview"
 dir = "docs"
 description = "Preview built VitePress documentation."
-
-["docs:check"]
-depends = ["docs:check:*"]
-description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
-
-["docs:check:oxlint"]
-run = "oxlint {% if env.LINT is undefined %}--fix{% endif %}"
-dir = "docs"
-description = "Run oxlint to lint VitePress documentation."
