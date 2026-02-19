@@ -8,7 +8,8 @@ use schemars::schema_for;
 pub struct Schema;
 
 impl Schema {
-	pub async fn run(self) -> Result<()> {
+	#[allow(clippy::unused_self)]
+	pub fn run(self) -> Result<()> {
 		let schema = schema_for!(Config);
 		println!("{}", serde_json::to_string_pretty(&schema)?);
 		Ok(())

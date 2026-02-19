@@ -41,8 +41,8 @@ impl Commands {
 	pub async fn run(self) -> Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run().await,
-			Self::Init(cmd) => cmd.run().await,
-			Self::Schema(cmd) => cmd.run().await,
+			Self::Init(cmd) => cmd.run(),
+			Self::Schema(cmd) => cmd.run(),
 		}
 	}
 }

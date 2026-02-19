@@ -184,7 +184,7 @@ mod tests {
 	#[case::yaml("ssh:\n  host: yaml", "yaml", "yaml")]
 	fn test_format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
 		let dir = tempdir().unwrap();
-		let file_path = dir.path().join(format!("biwa.{}", ext));
+		let file_path = dir.path().join(format!("biwa.{ext}"));
 		fs::write(&file_path, content).unwrap();
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
@@ -234,7 +234,7 @@ mod tests {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
-		fs::create_dir_all(&config_home.join("biwa")).unwrap();
+		fs::create_dir_all(config_home.join("biwa")).unwrap();
 
 		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#).unwrap();
 
@@ -294,7 +294,7 @@ mod tests {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
-		fs::create_dir_all(&config_home.join("biwa")).unwrap();
+		fs::create_dir_all(config_home.join("biwa")).unwrap();
 
 		// Multiple global configs should fail
 		fs::write(home.join("biwa.toml"), r#"ssh.host = "home""#).unwrap();
@@ -352,7 +352,7 @@ mod tests {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
-		fs::create_dir_all(&config_home.join("biwa")).unwrap();
+		fs::create_dir_all(config_home.join("biwa")).unwrap();
 
 		// This should be ignored: ~/.config/biwa/biwa.toml
 		fs::write(

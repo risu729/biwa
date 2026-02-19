@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
+#[derive(Default)]
 pub struct Config {
 	pub ssh: SshConfig,
 	pub sync: SyncConfig,
@@ -61,15 +62,4 @@ pub struct EnvConfig {
 pub struct HooksConfig {
 	pub pre_sync: Option<String>,
 	pub post_sync: Option<String>,
-}
-
-impl Default for Config {
-	fn default() -> Self {
-		Self {
-			ssh: SshConfig::default(),
-			sync: SyncConfig::default(),
-			env: EnvConfig::default(),
-			hooks: HooksConfig::default(),
-		}
-	}
 }

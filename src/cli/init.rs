@@ -17,7 +17,7 @@ pub struct Init {
 }
 
 impl Init {
-	pub async fn run(self) -> Result<()> {
+	pub fn run(self) -> Result<()> {
 		let (filename, content) = self.generate()?;
 		let path = Path::new(&filename);
 		if path.exists() && !self.force {
@@ -25,7 +25,7 @@ impl Init {
 		}
 
 		fs::write(path, content)?;
-		eprintln!("Created {}", filename);
+		eprintln!("Created {filename}");
 		Ok(())
 	}
 
@@ -40,7 +40,7 @@ impl Init {
 		let content = match format {
 			ConfigFormat::Toml => {
 				let toml_str = toml::to_string_pretty(&config)?;
-				format!("#:schema {}\n\n{}", schema_url, toml_str)
+				format!("#:schema {schema_url}\n\n{toml_str}")
 			}
 			ConfigFormat::Json => {
 				let mut value = serde_json::to_value(&config)?;
@@ -65,10 +65,7 @@ impl Init {
 			ConfigFormat::Yaml => {
 				let value = serde_yaml::to_value(&config)?;
 				let yaml_str = serde_yaml::to_string(&value)?;
-				format!(
-					"# yaml-language-server: $schema={}\n{}",
-					schema_url, yaml_str
-				)
+				format!("# yaml-language-server: $schema={schema_url}\n{yaml_str}")
 			}
 		};
 
@@ -95,7 +92,7 @@ mod tests {
 			format: format.to_string(),
 		};
 		let (filename, content) = init.generate().expect("Failed to generate");
-		assert_eq!(filename, format!("biwa.{}", format));
+		assert_eq!(filename, format!("biwa.{format}"));
 		assert_snapshot!(format!("init_{}", format), content);
 	}
 }
