@@ -1,0 +1,30 @@
+name biwa
+bin biwa
+version "0.1.0"
+about "CLI to execute commands on UNSW CSE servers from local"
+usage "Usage: biwa [OPTIONS] [COMMAND]"
+flag "-v --verbose" help="Set the verbosity level" var=#true global=#true count=#true {
+    long_help "Set the verbosity level\n\nCan be used multiple times to increase verbosity (e.g., -v, -vv, -vvv).\nBy default, only warnings and errors are shown.\n-v: info\n-vv: debug\n-vvv: trace"
+}
+arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true
+cmd run help="Run a command on the CSE server" {
+    alias r
+    arg <COMMAND> help="The command to run"
+    arg "[COMMAND_ARGS]…" help="The arguments for the command" required=#false double_dash=automatic var=#true
+}
+cmd init help="Initialize a new configuration file" {
+    flag "-f --force" help="Force overwrite if file exists"
+    flag --format help="Format to generate (toml, json, jsonc, json5, yaml, yml)" default=toml {
+        arg <FORMAT>
+    }
+}
+cmd schema hide=#true help="Generate the configuration schema"
+cmd completion help="Generate shell completions" {
+    long_help "Generate shell completions\n\nRequires the `usage` CLI: <https://usage.jdx.dev>"
+    arg <SHELL> help="Shell type to generate completions for" {
+        choices bash fish zsh
+    }
+}
+cmd usage hide=#true help="Generate a usage CLI spec" {
+    long_help "Generate a usage CLI spec\n\nSee <https://usage.jdx.dev> for more information."
+}

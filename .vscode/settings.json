@@ -11,6 +11,8 @@
 	"files.readonlyInclude": {
 		// auto-generated
 		"**/Cargo.lock": true,
+		"biwa.usage.kdl": true,
+		"docs/src/cli/*": true,
 		"schema/*": true
 	}
 }
