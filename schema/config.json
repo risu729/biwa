@@ -19,10 +19,10 @@
     "ssh": {
       "$ref": "#/$defs/SshConfig",
       "default": {
-        "host": "example.com",
+        "host": "cse.unsw.edu.au",
         "key_path": null,
         "port": 22,
-        "user": "user"
+        "user": "z1234567"
       }
     },
     "sync": {
@@ -74,7 +74,7 @@
       "properties": {
         "host": {
           "type": "string",
-          "default": "example.com"
+          "default": "cse.unsw.edu.au"
         },
         "key_path": {
           "type": [
@@ -92,7 +92,7 @@
         },
         "user": {
           "type": "string",
-          "default": "user"
+          "default": "z1234567"
         }
       }
     },
