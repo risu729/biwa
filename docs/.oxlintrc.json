@@ -1,0 +1,16 @@
+{
+	"$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+	"plugins": ["import", "jsdoc", "promise", "vue"],
+	"categories": {
+		"correctness": "error",
+		"nursery": "error",
+		"pedantic": "error",
+		"perf": "error",
+		"restriction": "error",
+		"style": "error",
+		"suspicious": "error"
+	},
+	"rules": {
+		"import/unambiguous": "allow"
+	}
+}

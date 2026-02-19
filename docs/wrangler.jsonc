@@ -1,0 +1,15 @@
+{
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "biwa-docs",
+	"compatibility_date": "2026-02-12",
+	"routes": [
+		{
+			"pattern": "biwa.takuk.me",
+			"custom_domain": true,
+		},
+	],
+	"assets": {
+		"directory": "./dist",
+		"not_found_handling": "single-page-application",
+	},
+}
