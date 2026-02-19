@@ -1,4 +1,4 @@
-use crate::{Result, config::Config, config::ConfigFormat};
+use crate::{Result, config::format::ConfigFormat, config::types::Config};
 use clap::Args;
 use eyre::bail;
 use std::fs;

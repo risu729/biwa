@@ -1,4 +1,4 @@
-use crate::{Result, ssh::execute_command};
+use crate::{Result, config::Config, ssh::execute_command};
 use clap::Args;
 
 /// Run a command on the CSE server
@@ -16,7 +16,8 @@ pub struct Run {
 
 impl Run {
 	pub async fn run(self) -> Result<()> {
-		execute_command(&self.command, &self.command_args).await?;
+		let config = Config::load()?;
+		execute_command(&config.ssh, &self.command, &self.command_args).await?;
 		Ok(())
 	}
 }

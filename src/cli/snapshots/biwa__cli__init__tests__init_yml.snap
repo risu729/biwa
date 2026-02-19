@@ -1,13 +1,12 @@
 ---
 source: src/cli/init.rs
-assertion_line: 99
 expression: content
 ---
 # yaml-language-server: $schema=https://biwa.takuk.me/schema/config.json
 ssh:
-  host: example.com
+  host: cse.unsw.edu.au
   port: 22
-  user: user
+  user: z1234567
   key_path: null
 sync:
   remote_root: ~/.cache/biwa/projects

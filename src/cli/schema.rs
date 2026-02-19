@@ -1,4 +1,4 @@
-use crate::{Result, config::Config};
+use crate::{Result, config::types::Config};
 use clap::Args;
 use schemars::schema_for;
 

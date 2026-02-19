@@ -1,6 +1,5 @@
 ---
 source: src/cli/init.rs
-assertion_line: 99
 expression: content
 ---
 {
@@ -13,10 +12,10 @@ expression: content
     "pre_sync": null
   },
   "ssh": {
-    "host": "example.com",
+    "host": "cse.unsw.edu.au",
     "key_path": null,
     "port": 22,
-    "user": "user"
+    "user": "z1234567"
   },
   "sync": {
     "ignore_files": [

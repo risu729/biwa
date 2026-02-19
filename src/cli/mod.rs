@@ -65,7 +65,13 @@ pub async fn run() -> Result<()> {
 	if let Some(command) = cli.command {
 		command.run().await?;
 	} else if !cli.run_command_args.is_empty() {
-		execute_command(&cli.run_command_args[0], &cli.run_command_args[1..]).await?;
+		let config = crate::config::Config::load()?;
+		execute_command(
+			&config.ssh,
+			&cli.run_command_args[0],
+			&cli.run_command_args[1..],
+		)
+		.await?;
 	} else {
 		bail!("No command provided. Use `biwa --help` for usage information.");
 	}
