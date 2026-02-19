@@ -2,7 +2,7 @@
 
 extends: default
 
-ignore-from-file: .gitignore
+ignore-from-file: [.gitignore, docs/.gitignore]
 
 rules:
   comments:
