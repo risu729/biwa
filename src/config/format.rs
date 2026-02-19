@@ -28,9 +28,10 @@ impl ConfigFormat {
 	}
 
 	pub fn from_extension(ext: &str) -> Option<Self> {
+		let ext = ext.to_lowercase();
 		Self::all()
 			.iter()
-			.find(|format| format.extensions().contains(&ext))
+			.find(|format| format.extensions().contains(&ext.as_str()))
 			.copied()
 	}
 }

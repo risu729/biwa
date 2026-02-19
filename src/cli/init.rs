@@ -11,7 +11,7 @@ pub struct Init {
 	#[arg(long, short)]
 	force: bool,
 
-	/// Format to generate (toml, json, json5, yaml)
+	/// Format to generate (toml, json, jsonc, json5, yaml, yml)
 	#[arg(long, default_value = "toml")]
 	format: String,
 }
