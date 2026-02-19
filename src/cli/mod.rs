@@ -3,7 +3,9 @@ use clap::{ArgAction, Parser, Subcommand};
 use eyre::bail;
 use tracing::Level;
 
+mod init;
 mod run;
+mod schema;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
@@ -31,12 +33,16 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
 	Run(run::Run),
+	Init(init::Init),
+	Schema(schema::Schema),
 }
 
 impl Commands {
 	pub async fn run(self) -> Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run().await,
+			Self::Init(cmd) => cmd.run(),
+			Self::Schema(cmd) => cmd.run(),
 		}
 	}
 }
@@ -59,7 +65,13 @@ pub async fn run() -> Result<()> {
 	if let Some(command) = cli.command {
 		command.run().await?;
 	} else if !cli.run_command_args.is_empty() {
-		execute_command(&cli.run_command_args[0], &cli.run_command_args[1..]).await?;
+		let config = crate::config::Config::load()?;
+		execute_command(
+			&config.ssh,
+			&cli.run_command_args[0],
+			&cli.run_command_args[1..],
+		)
+		.await?;
 	} else {
 		bail!("No command provided. Use `biwa --help` for usage information.");
 	}

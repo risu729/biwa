@@ -15,3 +15,9 @@ allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
 multiple-versions = "deny"
 multiple-versions-include-dev = true
 wildcards = "deny"
+skip = [
+	{ name = "serde_spanned", version = "*" },
+	{ name = "toml", version = "*" },
+	{ name = "toml_datetime", version = "*" },
+	{ name = "toml_edit", version = "*" },
+]

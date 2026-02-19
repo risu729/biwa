@@ -1,174 +1,65 @@
 # Configuration
 
-Comprehensive guide to configuring biwa for your workflow.
+`biwa` uses a layered configuration system, allowing you to define settings globally and override them locally per project.
 
-## Configuration File
+## Configuration File Locations
 
-biwa supports **TOML**, **JSON**, **JSON5**, **JSONC**, **YAML**, and **YML** configuration files.
+`biwa` looks for configuration files in the following order (later sources override earlier ones):
 
-The configuration can be placed in:
+1.  **Global Configuration**:
+    - `$HOME/biwa.<ext>`
+    - `$HOME/.biwa.<ext>`
+    - `$XDG_CONFIG_HOME/biwa/config.<ext>` (usually `$HOME/.config/biwa/config.<ext>`)
 
-- Project-specific: `biwa.toml`, `biwa.json`, etc. in your project root
-- Global: `~/.config/biwa/config.toml` (or other formats)
+2.  **Local Configuration (Traversed)**:
+    `biwa` searches from the current directory upwards, stopping before the home directory (which is handled as Global Configuration). Files found in deeper directories (closer to the current working directory) override those found in parent directories.
+    - `./biwa.<ext>`
+    - `./.biwa.<ext>`
+    - `./.config/biwa.<ext>`
 
-Project-specific configuration takes precedence over global configuration.
+3.  **Environment Variables**:
+    - Any environment variable prefixed with `BIWA_`.
+    - Use `__` (double underscore) to separate nested keys. (e.g., `BIWA_SSH__HOST=myserver` maps to `ssh.host`).
 
-## Initialization
+## Supported Formats
 
-Create a default configuration file using:
+`biwa` supports the following file extensions:
 
-```bash
-biwa init
-```
+- `.toml` (Recommended)
+- `.json`
+- `.jsonc` / `.json5` (Both are parsed as JSON5, allowing comments and trailing commas)
+- `.yaml` / `.yml`
 
-This generates a configuration file (typically `biwa.toml`) in your project directory with default settings.
+## Schema Validation
 
-## Configuration Schema
+`biwa` provides a JSON schema to enable autocompletion and validation in editors like VS Code.
 
-### Remote Server Settings
+To use the schema, add the following to your configuration file:
+
+**TOML**:
 
 ```toml
-[remote]
-host = "cse.unsw.edu.au"      # Remote server hostname
-user = "z5555555"               # Your username/zID
-port = 22                       # SSH port (default: 22)
-remote_root = "~/.cache/biwa"  # Remote directory for synced files
-```
+#:schema https://biwa.takuk.me/schema/config.json
 
-### SSH Settings
-
-```toml
 [ssh]
-# Path to your SSH private key (optional, uses default if not specified)
-ssh_key = "~/.ssh/id_ed25519"
-# connect_timeout = 30               # Connection timeout in seconds
-```
-
-#### Password Authentication
-
-If you don't provide an `ssh_key` and no SSH agent is active, biwa will prompt for a password.
-
-::: warning Security
-Password authentication works fine but is **not recommended** for frequent use due to security and convenience reasons. We strongly suggest setting up SSH keys.
-:::
-
-### Sync Configuration
-
-```toml
-[sync]
-# Additional patterns to ignore (beyond .gitignore)
-ignore_patterns = [
-    "*.log",
-    "tmp/",
-    "node_modules/"
-]
-
-# Custom ignore file (like .gitignore but for biwa)
-ignore_file = ".biwaignore"
-```
-
-### Environment Variables
-
-```toml
-[env]
-# Simple key-value environment variables to transfer
-vars = [
-    "NODE_ENV",
-    "DEBUG",
-    "API_KEY"
-]
-```
-
-::: warning Security Note
-Be careful when transferring sensitive environment variables. Consider using mise or other secure secret management for production credentials.
-:::
-
-### Hooks
-
-```toml
-[hooks]
-pre_sync = "bun install"          # Run before syncing files
-post_sync = "echo 'Sync complete'" # Run after syncing
-```
-
-### Mise Integration
-
-```toml
-[mise]
-# Load specific mise environment on remote
-environment = "production"
-
-# Prefix for all remote commands
-command_prefix = "mise x --"
-```
-
-## Example Configurations
-
-### Minimal Configuration
-
-**biwa.toml**
-
-```toml
-[remote]
 host = "cse.unsw.edu.au"
-user = "z5555555"
 ```
 
-**biwa.json**
+**JSON**:
 
 ```json
 {
-	"remote": {
-		"host": "cse.unsw.edu.au",
-		"user": "z5555555"
+	"$schema": "https://biwa.takuk.me/schema/config.json",
+	"ssh": {
+		"host": "cse.unsw.edu.au"
 	}
 }
 ```
 
-### Course-Specific Configuration
+**YAML**:
 
-For UNSW CSE course work:
-
-```toml
-[remote]
-host = "cse.unsw.edu.au"
-user = "z5555555"
-
-[sync]
-# Don't sync large test files or binaries
-ignore_patterns = [
-    "*.o",
-    "*.out",
-    "test_data/",
-    "*.mp4"
-]
-
-[hooks]
-# Ensure dependencies are installed before syncing
-pre_sync = "make clean"
+```yaml
+# yaml-language-server: $schema=https://biwa.takuk.me/schema/config.json
+ssh:
+  host: cse.unsw.edu.au
 ```
-
-## Configuration Precedence
-
-When biwa looks for configuration, it checks in this order:
-
-1. Local config (`biwa.toml`, `biwa.json`, etc.)
-2. Traverse up directories looking for config files
-3. Global config (`~/.config/biwa/config.toml`, etc.)
-
-## Schema Validation
-
-biwa validates your configuration on startup. If there are issues, you'll see helpful error messages:
-
-```bash
-$ biwa run echo test
-Error: Invalid configuration
-  - remote.host is required
-  - remote.user is required
-```
-
-## Next Steps
-
-- Learn about [environment variable handling](/configuration#environment-variables)
-- Explore [hooks](/configuration#hooks) for automation
-- Set up [mise integration](/configuration#mise-integration) for advanced workflows

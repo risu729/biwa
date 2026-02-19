@@ -3,6 +3,7 @@
 pub use eyre::Result;
 
 mod cli;
+mod config;
 mod ssh;
 
 #[tokio::main]

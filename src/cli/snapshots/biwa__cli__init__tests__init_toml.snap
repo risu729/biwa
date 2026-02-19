@@ -1,0 +1,23 @@
+---
+source: src/cli/init.rs
+expression: content
+---
+#:schema https://biwa.takuk.me/schema/config.json
+
+[ssh]
+host = "cse.unsw.edu.au"
+port = 22
+user = "z1234567"
+
+[sync]
+remote_root = "~/.cache/biwa/projects"
+ignore_files = [
+    ".git",
+    "target",
+    "node_modules",
+]
+
+[env]
+vars = []
+
+[hooks]

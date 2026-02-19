@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "type": "object",
+  "properties": {
+    "env": {
+      "$ref": "#/$defs/EnvConfig",
+      "default": {
+        "vars": []
+      }
+    },
+    "hooks": {
+      "$ref": "#/$defs/HooksConfig",
+      "default": {
+        "post_sync": null,
+        "pre_sync": null
+      }
+    },
+    "ssh": {
+      "$ref": "#/$defs/SshConfig",
+      "default": {
+        "host": "cse.unsw.edu.au",
+        "key_path": null,
+        "port": 22,
+        "user": "z1234567"
+      }
+    },
+    "sync": {
+      "$ref": "#/$defs/SyncConfig",
+      "default": {
+        "ignore_files": [
+          ".git",
+          "target",
+          "node_modules"
+        ],
+        "remote_root": "~/.cache/biwa/projects"
+      }
+    }
+  },
+  "$defs": {
+    "EnvConfig": {
+      "type": "object",
+      "properties": {
+        "vars": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "HooksConfig": {
+      "type": "object",
+      "properties": {
+        "post_sync": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "pre_sync": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        }
+      }
+    },
+    "SshConfig": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string",
+          "default": "cse.unsw.edu.au"
+        },
+        "key_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null
+        },
+        "port": {
+          "type": "integer",
+          "format": "uint16",
+          "default": 22,
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "user": {
+          "type": "string",
+          "default": "z1234567"
+        }
+      }
+    },
+    "SyncConfig": {
+      "type": "object",
+      "properties": {
+        "ignore_files": {
+          "type": "array",
+          "default": [
+            ".git",
+            "target",
+            "node_modules"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "remote_root": {
+          "type": "string",
+          "default": "~/.cache/biwa/projects"
+        }
+      }
+    }
+  }
+}

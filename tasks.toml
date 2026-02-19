@@ -9,6 +9,11 @@ description = "Build the project."
 run = "cargo test"
 description = "Run the tests."
 
+["test:update-snapshot"]
+run = "cargo insta test --accept --unreferenced=auto"
+description = "Update test snapshots."
+tools = { cargo-insta = "1.46.3" }
+
 [check]
 depends = ["check:*"]
 description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
@@ -83,3 +88,11 @@ description = "Build VitePress documentation for production."
 run = "bun run --bun vitepress preview"
 dir = "docs"
 description = "Preview built VitePress documentation."
+
+[render]
+depends = ["render:*"]
+description = "Run all render tasks."
+
+["render:schema"]
+run = "cargo run --quiet -- schema > schema/config.json"
+description = "Generate the configuration schema."
