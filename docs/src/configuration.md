@@ -9,9 +9,7 @@
 1.  **Global Configuration**:
     - `$HOME/biwa.<ext>`
     - `$HOME/.biwa.<ext>`
-    - `$XDG_CONFIG_HOME/biwa/config.<ext>` (usually `~/.config/biwa/config.<ext>`)
-
-    _Note: `XDG_CONFIG_HOME` locations take precedence over `$HOME` locations._
+    - `$XDG_CONFIG_HOME/biwa/config.<ext>` (usually `$HOME/.config/biwa/config.<ext>`)
 
 2.  **Local Configuration (Traversed)**:
     `biwa` searches from the current directory upwards, stopping before the home directory (which is handled as Global Configuration). Files found in deeper directories (closer to the current working directory) override those found in parent directories.
