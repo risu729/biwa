@@ -37,10 +37,13 @@ jobs:
         uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
         with:
           version: 2026.2.16
-          cache: false
           cache_save: false
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
+
+      - name: Re-install Rust
+        # cache doesn't work well with rust
+        run: mise install rust --force
 
       - name: Plan Release
         id: plan
@@ -88,7 +91,6 @@ jobs:
         if: needs.plan.outputs.publishing == 'true'
         with:
           version: 2026.2.16
-          cache: false
           cache_save: false
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
@@ -98,8 +100,10 @@ jobs:
         if: steps.install-mise.outcome == 'skipped'
         with:
           version: 2026.2.16
-          # cache doesn't work well with rust
-          cache: false
+
+      - name: Re-install Rust
+        # cache doesn't work well with rust
+        run: mise install rust --force
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -168,7 +172,6 @@ jobs:
         if: needs.plan.outputs.publishing == 'true'
         with:
           version: 2026.2.16
-          cache: false
           cache_save: false
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
@@ -178,8 +181,10 @@ jobs:
         if: steps.install-mise.outcome == 'skipped'
         with:
           version: 2026.2.16
-          # cache doesn't work well with rust
-          cache: false
+
+      - name: Re-install Rust
+        # cache doesn't work well with rust
+        run: mise install rust --force
 
       - name: Download local artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

@@ -35,8 +35,10 @@ jobs:
         uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
         with:
           version: 2026.2.16
-          # cache doesn't work well with rust
-          cache: false
+
+      - name: Re-install Rust
+        # cache doesn't work well with rust
+        run: mise install rust --force
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
@@ -61,8 +63,10 @@ jobs:
         uses: jdx/mise-action@6d1e696aa24c1aa1bcc1adea0212707c71ab78a8 # v3.6.1
         with:
           version: 2026.2.16
-          # cache doesn't work well with rust
-          cache: false
+
+      - name: Re-install Rust
+        # cache doesn't work well with rust
+        run: mise install rust --force
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
