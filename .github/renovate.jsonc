@@ -4,6 +4,6 @@
 	"ignoreDeps": [
 		// @cloudflare/vite-plugin needs to pin vite version
 		// https://github.com/cloudflare/workers-sdk/blob/872368456bfd72cdb45dc8c82f1ab16392d6a1f8/pnpm-workspace.yaml#L50
-		"vite"
-	]
+		"vite",
+	],
 }
