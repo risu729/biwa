@@ -113,7 +113,10 @@ mod tests {
 	use pretty_assertions::assert_eq;
 	use rstest::rstest;
 	use std::fs;
+	use std::sync::Mutex;
 	use tempfile::tempdir;
+
+	static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 	#[test]
 	fn test_default() {
@@ -126,6 +129,7 @@ mod tests {
 
 	#[test]
 	fn test_env_override() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
 
@@ -134,17 +138,22 @@ mod tests {
 			std::env::set_var("BIWA_SSH__HOST", "env");
 		}
 
+		// Ensure cleanup
+		let _cleanup = EnvCleanup("BIWA_SSH__HOST");
+
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
 			.expect("Failed to load config");
 
-		// Clean up env var before assertion so it doesn't leak if assertion fails?
-		// Better to clean up in a finally block or ensuring logic.
-		// For simple test, we just remove it after load.
-		unsafe {
-			std::env::remove_var("BIWA_SSH__HOST");
-		}
-
 		assert_eq!(config.ssh.host, "env");
+	}
+
+	struct EnvCleanup(&'static str);
+	impl Drop for EnvCleanup {
+		fn drop(&mut self) {
+			unsafe {
+				std::env::remove_var(self.0);
+			}
+		}
 	}
 
 	#[test]
@@ -183,6 +192,7 @@ mod tests {
 	#[case::json5("{ ssh: { host: 'json5' } }", "json5", "json5")]
 	#[case::yaml("ssh:\n  host: yaml", "yaml", "yaml")]
 	fn test_format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let file_path = dir.path().join(format!("biwa.{ext}"));
 		fs::write(&file_path, content).unwrap();
@@ -194,6 +204,7 @@ mod tests {
 
 	#[test]
 	fn test_traversal_precedence() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -210,6 +221,7 @@ mod tests {
 
 	#[test]
 	fn test_traversal_stops_at_home() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let home = root.join("home");
@@ -231,6 +243,7 @@ mod tests {
 
 	#[test]
 	fn test_xdg_precedence() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -245,6 +258,7 @@ mod tests {
 
 	#[test]
 	fn test_cwd_is_dot_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -267,6 +281,7 @@ mod tests {
 
 	#[test]
 	fn test_nested_within_dot_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -291,6 +306,7 @@ mod tests {
 
 	#[test]
 	fn test_strict_global_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -306,6 +322,7 @@ mod tests {
 
 	#[test]
 	fn test_strict_local_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Multiple local configs in same dir should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "toml""#).unwrap();
@@ -321,6 +338,7 @@ mod tests {
 
 	#[test]
 	fn test_conflict_root_and_dot_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Test multiple "local" configs (one within .config) should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "root""#).unwrap();
@@ -336,6 +354,7 @@ mod tests {
 
 	#[test]
 	fn test_local_dot_config_support() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let dot_config = dir.path().join(".config");
 		fs::create_dir_all(&dot_config).unwrap();
@@ -349,6 +368,7 @@ mod tests {
 
 	#[test]
 	fn test_ignored_xdg_biwa_biwa() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -374,6 +394,7 @@ mod tests {
 
 	#[test]
 	fn test_find_single_config_logic() {
+		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 
