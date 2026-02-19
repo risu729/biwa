@@ -10,5 +10,7 @@
 		"style": "error",
 		"suspicious": "error"
 	},
-	"rules": {}
+	"rules": {
+		"import/unambiguous": "allow"
+	}
 }

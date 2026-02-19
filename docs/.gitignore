@@ -36,3 +36,6 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # VitePress build artifacts
 .vitepress/cache
 .vitepress/dist
+
+# Wrangler auto-generated files
+.wrangler

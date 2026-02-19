@@ -2,10 +2,15 @@
 	"$schema": "https://www.schemastore.org/package",
 	"type": "module",
 	"devDependencies": {
+		"@cloudflare/vite-plugin": "1.25.1",
 		"@risu729/tsconfigs": "2.0.0",
 		"@types/bun": "1.3.9",
 		"typescript": "6.0.0-beta",
-		"vitepress": "1.6.4",
-		"vitepress-plugin-mermaid": "2.0.17"
+		"vitepress": "2.0.0-alpha.16",
+		"vitepress-plugin-mermaid": "2.0.17",
+		"wrangler": "4.66.0"
+	},
+	"overrides": {
+		"vite": "7.1.12"
 	}
 }

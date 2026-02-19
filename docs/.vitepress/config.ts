@@ -1,8 +1,9 @@
+import { cloudflare } from "@cloudflare/vite-plugin";
 import { defineConfig } from "vitepress";
 import { withMermaid } from "vitepress-plugin-mermaid";
 
 // https://vitepress.dev/reference/site-config
-// oxlint-disable-next-line no-default-export
+// oxlint-disable-next-line import/no-default-export
 export default withMermaid(
 	defineConfig({
 		description: "CLI to execute commands on UNSW CSE servers from local",
@@ -46,5 +47,8 @@ export default withMermaid(
 			socialLinks: [{ icon: "github", link: "https://github.com/risu729/biwa" }],
 		},
 		title: "biwa",
+		vite: {
+			plugins: [cloudflare()],
+		},
 	}),
 );
