@@ -49,7 +49,7 @@ export default withMermaid(
 		title: "biwa",
 		vite: {
 			plugins: [
-				// Cloudflare plugin doesn't work on dev for some reasons
+				// Cloudflare plugin doesn't work on dev for some reason
 				...(process.env.NODE_ENV === "production" ? [cloudflare()] : []),
 			],
 		},
