@@ -6,8 +6,9 @@ expression: content
 ssh:
   host: cse.unsw.edu.au
   port: 22
-  user: z1234567
+  user: z5555555
   key_path: null
+  password: false
 sync:
   remote_root: ~/.cache/biwa/projects
   ignore_files:
@@ -19,3 +20,6 @@ env:
 hooks:
   pre_sync: null
   post_sync: null
+log:
+  quiet: false
+  silent: false

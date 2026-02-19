@@ -2,6 +2,10 @@
 
 `biwa` uses a layered configuration system, allowing you to define settings globally and override them locally per project.
 
+::: warning Windows Not Supported
+biwa does not run natively on Windows. Please use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) (Windows Subsystem for Linux). All features work seamlessly inside WSL2.
+:::
+
 ## Configuration File Locations
 
 `biwa` looks for configuration files in the following order (later sources override earlier ones):
@@ -29,6 +33,29 @@
 - `.json`
 - `.jsonc` / `.json5` (Both are parsed as JSON5, allowing comments and trailing commas)
 - `.yaml` / `.yml`
+
+## Configuration Reference
+
+### `[ssh]` — SSH Connection Settings
+
+| Key        | Type           | Default             | Description                                                                 |
+| ---------- | -------------- | ------------------- | --------------------------------------------------------------------------- |
+| `host`     | string         | `"cse.unsw.edu.au"` | SSH server hostname                                                         |
+| `port`     | integer        | `22`                | SSH server port                                                             |
+| `user`     | string         | `"z5555555"`        | Username (your zID)                                                         |
+| `key_path` | string?        | `null`              | Path to SSH private key (auto-detected if not set)                          |
+| `password` | bool \| string | `false`             | `false`: disabled, `true`: interactive prompt, `"string"`: literal password |
+
+::: warning Password in Config
+Storing your password in a configuration file is **not recommended** for security reasons. If you must use password authentication, prefer `password = true` for an interactive prompt or use environment variables (`BIWA_SSH__PASSWORD`).
+:::
+
+### `[log]` — Log Output Settings
+
+| Key      | Type    | Default | Description                                                     |
+| -------- | ------- | ------- | --------------------------------------------------------------- |
+| `quiet`  | boolean | `false` | Suppress biwa internal logs, only showing remote command output |
+| `silent` | boolean | `false` | Suppress all output, including remote command stdout/stderr     |
 
 ## Schema Validation
 

@@ -9,6 +9,27 @@ pub struct Config {
 	pub sync: SyncConfig,
 	pub env: EnvConfig,
 	pub hooks: HooksConfig,
+	pub log: LogConfig,
+}
+
+/// Password authentication configuration.
+///
+/// - `false` (default): No password authentication.
+/// - `true`: Interactively prompt for a password.
+/// - `"string"`: Use the provided password value.
+#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
+#[serde(untagged)]
+pub enum PasswordConfig {
+	/// Interactive prompt (`true`) or disabled (`false`).
+	Interactive(bool),
+	/// A literal password value.
+	Value(String),
+}
+
+impl Default for PasswordConfig {
+	fn default() -> Self {
+		Self::Interactive(false)
+	}
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
@@ -18,6 +39,8 @@ pub struct SshConfig {
 	pub port: u16,
 	pub user: String,
 	pub key_path: Option<String>,
+	/// Password authentication: `false` (default), `true` (prompt), or a string value.
+	pub password: PasswordConfig,
 }
 
 impl Default for SshConfig {
@@ -25,10 +48,20 @@ impl Default for SshConfig {
 		Self {
 			host: "cse.unsw.edu.au".to_string(),
 			port: 22,
-			user: "z1234567".to_string(),
+			user: "z5555555".to_string(),
 			key_path: None,
+			password: PasswordConfig::default(),
 		}
 	}
+}
+
+#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone, Default)]
+#[serde(default)]
+pub struct LogConfig {
+	/// Suppresses biwa internal logs; only remote command output is shown.
+	pub quiet: bool,
+	/// Suppresses all output, including remote command stdout/stderr.
+	pub silent: bool,
 }
 
 #[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]

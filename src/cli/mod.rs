@@ -30,6 +30,14 @@ struct Cli {
 	/// -vvv: trace
 	#[arg(short, long, action = ArgAction::Count, global = true, verbatim_doc_comment)]
 	verbose: u8,
+
+	/// Suppress biwa internal logs, only showing remote command output
+	#[arg(short, long, global = true)]
+	quiet: bool,
+
+	/// Suppress all output, including remote command stdout/stderr
+	#[arg(short, long, global = true)]
+	silent: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -42,9 +50,9 @@ enum Commands {
 }
 
 impl Commands {
-	pub async fn run(self) -> Result<()> {
+	pub async fn run(self, quiet: bool, silent: bool) -> Result<()> {
 		match self {
-			Self::Run(cmd) => cmd.run().await,
+			Self::Run(cmd) => cmd.run(quiet, silent).await,
 			Self::Init(cmd) => cmd.run(),
 			Self::Schema(cmd) => cmd.run(),
 			Self::Completion(cmd) => cmd.run(),
@@ -56,26 +64,33 @@ impl Commands {
 pub async fn run() -> Result<()> {
 	let cli = Cli::parse();
 
-	let log_level = match cli.verbose {
-		0 => Level::WARN,
-		1 => Level::INFO,
-		2 => Level::DEBUG,
-		_ => Level::TRACE,
-	};
-	tracing_subscriber::fmt()
-		.pretty()
-		.with_max_level(log_level)
-		.without_time()
-		.init();
+	let config = crate::config::Config::load()?;
+	let silent = cli.silent || config.log.silent;
+	let quiet = silent || cli.quiet || config.log.quiet;
+
+	if !quiet {
+		let log_level = match cli.verbose {
+			0 => Level::WARN,
+			1 => Level::INFO,
+			2 => Level::DEBUG,
+			_ => Level::TRACE,
+		};
+		tracing_subscriber::fmt()
+			.pretty()
+			.with_max_level(log_level)
+			.without_time()
+			.init();
+	}
 
 	if let Some(command) = cli.command {
-		command.run().await?;
+		command.run(quiet, silent).await?;
 	} else if !cli.run_command_args.is_empty() {
-		let config = crate::config::Config::load()?;
 		execute_command(
 			&config.ssh,
 			&cli.run_command_args[0],
 			&cli.run_command_args[1..],
+			quiet,
+			silent,
 		)
 		.await?;
 	} else {
@@ -119,5 +134,26 @@ mod tests {
 		let cli = Cli::parse_from(["biwa", "-vv", "run", "ls"]);
 		assert_eq!(cli.verbose, 2);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
+	}
+
+	#[test]
+	fn test_cli_quiet() {
+		let cli = Cli::parse_from(["biwa", "-q", "ls"]);
+		assert!(cli.quiet);
+		assert_eq!(cli.run_command_args, vec!["ls"]);
+	}
+
+	#[test]
+	fn test_cli_quiet_long() {
+		let cli = Cli::parse_from(["biwa", "--quiet", "run", "ls"]);
+		assert!(cli.quiet);
+		assert!(matches!(cli.command, Some(Commands::Run(_))));
+	}
+
+	#[test]
+	fn test_cli_quiet_with_verbose() {
+		let cli = Cli::parse_from(["biwa", "-q", "-vv", "ls"]);
+		assert!(cli.quiet);
+		assert_eq!(cli.verbose, 2);
 	}
 }

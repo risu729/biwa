@@ -40,7 +40,7 @@ When working on UNSW CSE coursework, you often face a dilemma: work locally comf
 
 ### Raw SSH
 
-_The traditional approach: `ssh z1234567@cse.unsw.edu.au`_
+_The traditional approach: `ssh z5555555@cse.unsw.edu.au`_
 
 - **Manual Sync**: You must manually copy files back and forth (`scp`/`rsync`).
 - **Context Switching**: Constant switching between local editor and remote terminal breaks flow.

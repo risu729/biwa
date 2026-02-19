@@ -4,6 +4,7 @@ pub use eyre::Result;
 
 mod cli;
 mod config;
+pub mod path;
 mod ssh;
 
 #[tokio::main]

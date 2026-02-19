@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 impl Config {
 	pub fn load() -> Result<Self> {
-		let home = std::env::var("HOME").ok().map(PathBuf::from);
+		let home = homedir::my_home()?;
 		let xdg = std::env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
 		let cwd = std::env::current_dir().ok();
 		Self::load_internal(home.as_ref(), xdg.as_ref(), cwd.as_ref())
@@ -123,7 +123,7 @@ mod tests {
 		let config = Config::default();
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
-		assert_eq!(config.ssh.user, "z1234567");
+		assert_eq!(config.ssh.user, "z5555555");
 		assert_eq!(config.sync.remote_root, "~/.cache/biwa/projects");
 	}
 
@@ -159,31 +159,36 @@ mod tests {
 	#[test]
 	fn test_snapshot() {
 		let config = Config::default();
-		insta::assert_json_snapshot!(config, @r###"
-  {
-    "ssh": {
-      "host": "cse.unsw.edu.au",
-      "port": 22,
-      "user": "z1234567",
-      "key_path": null
-    },
-    "sync": {
-      "remote_root": "~/.cache/biwa/projects",
-      "ignore_files": [
-        ".git",
-        "target",
-        "node_modules"
-      ]
-    },
-    "env": {
-      "vars": []
-    },
-    "hooks": {
-      "pre_sync": null,
-      "post_sync": null
-    }
-  }
-  "###);
+		insta::assert_json_snapshot!(config, @r#"
+		{
+		  "ssh": {
+		    "host": "cse.unsw.edu.au",
+		    "port": 22,
+		    "user": "z5555555",
+		    "key_path": null,
+		    "password": false
+		  },
+		  "sync": {
+		    "remote_root": "~/.cache/biwa/projects",
+		    "ignore_files": [
+		      ".git",
+		      "target",
+		      "node_modules"
+		    ]
+		  },
+		  "env": {
+		    "vars": []
+		  },
+		  "hooks": {
+		    "pre_sync": null,
+		    "post_sync": null
+		  },
+		  "log": {
+		    "quiet": false,
+		    "silent": false
+		  }
+		}
+		"#);
 	}
 
 	#[rstest]

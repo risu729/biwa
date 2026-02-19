@@ -7,7 +7,8 @@ expression: content
 [ssh]
 host = "cse.unsw.edu.au"
 port = 22
-user = "z1234567"
+user = "z5555555"
+password = false
 
 [sync]
 remote_root = "~/.cache/biwa/projects"
@@ -21,3 +22,7 @@ ignore_files = [
 vars = []
 
 [hooks]
+
+[log]
+quiet = false
+silent = false

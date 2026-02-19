@@ -15,9 +15,16 @@ pub struct Run {
 }
 
 impl Run {
-	pub async fn run(self) -> Result<()> {
+	pub async fn run(self, quiet: bool, silent: bool) -> Result<()> {
 		let config = Config::load()?;
-		execute_command(&config.ssh, &self.command, &self.command_args).await?;
+		execute_command(
+			&config.ssh,
+			&self.command,
+			&self.command_args,
+			quiet,
+			silent,
+		)
+		.await?;
 		Ok(())
 	}
 }

@@ -16,13 +16,21 @@
         "pre_sync": null
       }
     },
+    "log": {
+      "$ref": "#/$defs/LogConfig",
+      "default": {
+        "quiet": false,
+        "silent": false
+      }
+    },
     "ssh": {
       "$ref": "#/$defs/SshConfig",
       "default": {
         "host": "cse.unsw.edu.au",
         "key_path": null,
+        "password": false,
         "port": 22,
-        "user": "z1234567"
+        "user": "z5555555"
       }
     },
     "sync": {
@@ -69,6 +77,34 @@
         }
       }
     },
+    "LogConfig": {
+      "type": "object",
+      "properties": {
+        "quiet": {
+          "description": "Suppresses biwa internal logs; only remote command output is shown.",
+          "type": "boolean",
+          "default": false
+        },
+        "silent": {
+          "description": "Suppresses all output, including remote command stdout/stderr.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "PasswordConfig": {
+      "description": "Password authentication configuration.\n\n- `false` (default): No password authentication.\n- `true`: Interactively prompt for a password.\n- `\"string\"`: Use the provided password value.",
+      "anyOf": [
+        {
+          "description": "Interactive prompt (`true`) or disabled (`false`).",
+          "type": "boolean"
+        },
+        {
+          "description": "A literal password value.",
+          "type": "string"
+        }
+      ]
+    },
     "SshConfig": {
       "type": "object",
       "properties": {
@@ -83,6 +119,11 @@
           ],
           "default": null
         },
+        "password": {
+          "description": "Password authentication: `false` (default), `true` (prompt), or a string value.",
+          "$ref": "#/$defs/PasswordConfig",
+          "default": false
+        },
         "port": {
           "type": "integer",
           "format": "uint16",
@@ -92,7 +133,7 @@
         },
         "user": {
           "type": "string",
-          "default": "z1234567"
+          "default": "z5555555"
         }
       }
     },

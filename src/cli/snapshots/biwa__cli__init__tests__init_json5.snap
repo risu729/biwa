@@ -11,11 +11,16 @@ expression: content
     post_sync: null,
     pre_sync: null,
   },
+  log: {
+    quiet: false,
+    silent: false,
+  },
   ssh: {
     host: "cse.unsw.edu.au",
     key_path: null,
+    password: false,
     port: 22,
-    user: "z1234567",
+    user: "z5555555",
   },
   sync: {
     ignore_files: [

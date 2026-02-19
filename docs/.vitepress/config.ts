@@ -36,6 +36,7 @@ export default withMermaid(
 					items: [
 						{ link: "/getting-started", text: "Getting Started" },
 						{ link: "/configuration", text: "Configuration" },
+						{ link: "/ssh-key-setup", text: "SSH Key Setup" },
 						{ link: "/shell-completion", text: "Shell Completion" },
 					],
 					text: "Guide",
