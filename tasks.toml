@@ -60,7 +60,7 @@ run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
 description = "Run typos to check typo in files."
 
 ["check:oxlint"]
-run = "oxlint {% if env.LINT is undefined %}--fix{% endif %}"
+run = "oxlint --report-unused-disable-directives-severity error {% if env.LINT is undefined %}--fix{% endif %}"
 dir = "docs"
 description = "Run oxlint to lint VitePress documentation."
 

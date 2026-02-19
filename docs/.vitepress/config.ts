@@ -2,6 +2,7 @@ import { defineConfig } from "vitepress";
 import { withMermaid } from "vitepress-plugin-mermaid";
 
 // https://vitepress.dev/reference/site-config
+// oxlint-disable-next-line no-default-export
 export default withMermaid(
 	defineConfig({
 		description: "CLI to execute commands on UNSW CSE servers from local",
