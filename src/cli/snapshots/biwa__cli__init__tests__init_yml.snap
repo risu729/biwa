@@ -10,7 +10,7 @@ ssh:
   key_path: null
   password: false
 sync:
-  remote_root: ~/.cache/biwa/projects
+  remote_root: .cache/biwa/projects
   ignore_files:
   - .git
   - target

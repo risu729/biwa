@@ -86,7 +86,7 @@ pub async fn run() -> Result<()> {
 		command.run(quiet, silent).await?;
 	} else if !cli.run_command_args.is_empty() {
 		execute_command(
-			&config.ssh,
+			&config,
 			&cli.run_command_args[0],
 			&cli.run_command_args[1..],
 			quiet,

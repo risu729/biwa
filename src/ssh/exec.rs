@@ -1,5 +1,5 @@
 use super::auth::resolve_auth;
-use crate::config::SshConfig;
+use crate::config::Config;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use console::style;
 use eyre::{Context, bail};
@@ -8,8 +8,9 @@ use std::time::Duration;
 use tracing::{debug, info};
 
 /// Connect to the SSH server using the resolved authentication method.
-async fn connect(config: &SshConfig, silent: bool) -> eyre::Result<Client> {
+async fn connect(config: &Config, silent: bool) -> eyre::Result<Client> {
 	let auth_method = resolve_auth(config)?;
+	let ssh = &config.ssh;
 
 	let spinner = if silent {
 		None
@@ -23,15 +24,15 @@ async fn connect(config: &SshConfig, silent: bool) -> eyre::Result<Client> {
 		);
 		sp.set_message(format!(
 			"Connecting to {}@{}:{}...",
-			config.user, config.host, config.port
+			ssh.user, ssh.host, ssh.port
 		));
 		sp.enable_steady_tick(Duration::from_millis(80));
 		Some(sp)
 	};
 
 	let client = Client::connect(
-		(config.host.as_str(), config.port),
-		config.user.as_str(),
+		(ssh.host.as_str(), ssh.port),
+		ssh.user.as_str(),
 		auth_method,
 		ServerCheckMethod::NoCheck,
 	)
@@ -39,15 +40,15 @@ async fn connect(config: &SshConfig, silent: bool) -> eyre::Result<Client> {
 	.wrap_err_with(|| {
 		format!(
 			"Failed to connect to {}@{}:{}",
-			config.user, config.host, config.port
+			ssh.user, ssh.host, ssh.port
 		)
 	})?;
 
 	spinner.as_ref().inspect(|s| s.finish_and_clear());
 	info!(
-		host = %config.host,
-		port = config.port,
-		user = %config.user,
+		host = %ssh.host,
+		port = ssh.port,
+		user = %ssh.user,
 		"Connected to SSH server"
 	);
 
@@ -58,7 +59,7 @@ async fn connect(config: &SshConfig, silent: bool) -> eyre::Result<Client> {
 ///
 /// Returns the exit code of the remote command.
 pub async fn execute_command(
-	config: &SshConfig,
+	config: &Config,
 	command: &str,
 	args: &[String],
 	quiet: bool,
@@ -69,14 +70,9 @@ pub async fn execute_command(
 	let full_command = if args.is_empty() {
 		command.to_string()
 	} else {
-		format!(
-			"{} {}",
-			command,
-			args.iter()
-				.map(|a| shell_escape(a))
-				.collect::<Vec<_>>()
-				.join(" ")
-		)
+		let mut parts = vec![command.to_string()];
+		parts.extend(args.iter().map(|a| shell_words::quote(a).into_owned()));
+		parts.join(" ")
 	};
 
 	debug!(command = %full_command, "Executing remote command");
@@ -119,46 +115,4 @@ pub async fn execute_command(
 	}
 
 	Ok(exit_status)
-}
-
-/// Escape a shell argument if it contains special characters.
-fn shell_escape(arg: &str) -> String {
-	if arg.is_empty() {
-		return "''".to_string();
-	}
-
-	if arg
-		.chars()
-		.all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | ':' | '=' | '@'))
-	{
-		return arg.to_string();
-	}
-
-	format!("'{}'", arg.replace('\'', "'\\''"))
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn test_shell_escape_simple() {
-		assert_eq!(shell_escape("hello"), "hello");
-		assert_eq!(shell_escape("hello-world"), "hello-world");
-		assert_eq!(shell_escape("/path/to/file"), "/path/to/file");
-	}
-
-	#[test]
-	fn test_shell_escape_special_chars() {
-		assert_eq!(shell_escape("hello world"), "'hello world'");
-		assert_eq!(shell_escape("it's"), "'it'\\''s'");
-		assert_eq!(shell_escape(""), "''");
-	}
-
-	#[test]
-	fn test_shell_escape_safe_chars() {
-		assert_eq!(shell_escape("user@host:22"), "user@host:22");
-		assert_eq!(shell_escape("key=value"), "key=value");
-		assert_eq!(shell_escape("file.txt"), "file.txt");
-	}
 }

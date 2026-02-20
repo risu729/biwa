@@ -21,9 +21,16 @@ biwa does not run natively on Windows. Please use [WSL2](https://learn.microsoft
     - `./.biwa.<ext>`
     - `./.config/biwa.<ext>`
 
+::: tip Relative Path Resolution
+Any relative paths specified in your configuration (such as `ssh.key_path`) are resolved relative to **the directory containing that specific configuration file**.
+
+For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will look for the key at `./.config/id_rsa`, *not* at the project root `./id_rsa`.
+:::
+
 3.  **Environment Variables**:
     - Any environment variable prefixed with `BIWA_`.
     - Use `__` (double underscore) to separate nested keys. (e.g., `BIWA_SSH__HOST=myserver` maps to `ssh.host`).
+    - Relative paths in environment variables are resolved relative to the **current working directory**.
 
 ## Supported Formats
 

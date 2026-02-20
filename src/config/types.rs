@@ -1,3 +1,4 @@
+use figment::value::magic::RelativePathBuf;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -38,7 +39,8 @@ pub struct SshConfig {
 	pub host: String,
 	pub port: u16,
 	pub user: String,
-	pub key_path: Option<String>,
+	#[schemars(with = "Option<String>")]
+	pub key_path: Option<RelativePathBuf>,
 	/// Password authentication: `false` (default), `true` (prompt), or a string value.
 	pub password: PasswordConfig,
 }
@@ -67,14 +69,16 @@ pub struct LogConfig {
 #[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
 #[serde(default)]
 pub struct SyncConfig {
-	pub remote_root: String,
+	#[serde(serialize_with = "RelativePathBuf::serialize_relative")]
+	#[schemars(with = "String")]
+	pub remote_root: RelativePathBuf,
 	pub ignore_files: Vec<String>,
 }
 
 impl Default for SyncConfig {
 	fn default() -> Self {
 		Self {
-			remote_root: "~/.cache/biwa/projects".to_string(),
+			remote_root: RelativePathBuf::from(".cache/biwa/projects"),
 			ignore_files: vec![
 				".git".to_string(),
 				"target".to_string(),
