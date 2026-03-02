@@ -119,18 +119,18 @@ impl Config {
 	}
 
 	fn resolve_paths_partial(partial: &mut <Self as confique::Config>::Partial, root: &Path) {
-		if let Some(key_path) = &mut partial.ssh.key_path
-			&& key_path.is_relative()
-			&& !key_path.starts_with("~")
-		{
-			*key_path = root.join(&key_path);
+		if let Some(key_path) = &mut partial.ssh.key_path {
+			*key_path = expand_tilde(key_path);
+			if key_path.is_relative() {
+				*key_path = root.join(&*key_path);
+			}
 		}
 
-		if let Some(remote_root) = &mut partial.sync.remote_root
-			&& remote_root.is_relative()
-			&& !remote_root.starts_with("~")
-		{
-			*remote_root = root.join(&remote_root);
+		if let Some(remote_root) = &mut partial.sync.remote_root {
+			*remote_root = expand_tilde(remote_root);
+			if remote_root.is_relative() {
+				*remote_root = root.join(&*remote_root);
+			}
 		}
 	}
 
@@ -147,6 +147,20 @@ impl Config {
 			}
 		}
 	}
+}
+
+fn expand_tilde(path: &Path) -> PathBuf {
+	if let Some(home) = homedir::my_home().ok().flatten() {
+		if let Some(s) = path.to_str() {
+			if let Some(rest) = s.strip_prefix("~/") {
+				return home.join(rest);
+			}
+			if s == "~" {
+				return home;
+			}
+		}
+	}
+	path.to_path_buf()
 }
 
 fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, ConfigFormat)>> {
@@ -199,9 +213,11 @@ mod tests {
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
 		assert_eq!(config.ssh.user, "z1234567");
-		assert_eq!(
-			config.sync.remote_root.to_string_lossy(),
-			"~/.cache/biwa/projects"
+		assert!(
+			config
+				.sync
+				.remote_root
+				.ends_with(".cache/biwa/projects")
 		);
 	}
 
