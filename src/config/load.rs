@@ -151,14 +151,15 @@ impl Config {
 
 fn expand_tilde(path: &Path) -> PathBuf {
 	if let Some(home) = homedir::my_home().ok().flatten()
-		&& let Some(s) = path.to_str() {
-			if let Some(rest) = s.strip_prefix("~/") {
-				return home.join(rest);
-			}
-			if s == "~" {
-				return home;
-			}
+		&& let Some(s) = path.to_str()
+	{
+		if let Some(rest) = s.strip_prefix("~/") {
+			return home.join(rest);
 		}
+		if s == "~" {
+			return home;
+		}
+	}
 	path.to_path_buf()
 }
 
