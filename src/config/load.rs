@@ -213,11 +213,11 @@ mod tests {
 
 		// Set env var override
 		unsafe {
-			std::env::set_var("BIWA_SSH__HOST", "env");
+			std::env::set_var("BIWA_SSH_HOST", "env");
 		}
 
 		// Ensure cleanup
-		let _cleanup = EnvCleanup("BIWA_SSH__HOST");
+		let _cleanup = EnvCleanup("BIWA_SSH_HOST");
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
 			.expect("Failed to load config");

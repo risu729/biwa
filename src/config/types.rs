@@ -24,19 +24,19 @@ impl Default for Config {
 
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SshConfig {
-	#[config(default = "cse.unsw.edu.au", env = "BIWA_SSH__HOST")]
+	#[config(default = "cse.unsw.edu.au", env = "BIWA_SSH_HOST")]
 	pub host: String,
-	#[config(default = 22, env = "BIWA_SSH__PORT")]
+	#[config(default = 22, env = "BIWA_SSH_PORT")]
 	pub port: u16,
-	#[config(default = "z1234567", env = "BIWA_SSH__USER")]
+	#[config(default = "z1234567", env = "BIWA_SSH_USER")]
 	pub user: String,
-	#[config(env = "BIWA_SSH__KEY_PATH")]
+	#[config(env = "BIWA_SSH_KEY_PATH")]
 	pub key_path: Option<PathBuf>,
 }
 
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncConfig {
-	#[config(default = "~/.cache/biwa/projects", env = "BIWA_SYNC__REMOTE_ROOT")]
+	#[config(default = "~/.cache/biwa/projects", env = "BIWA_SYNC_REMOTE_ROOT")]
 	pub remote_root: PathBuf,
 	#[config(default = [".git", "target", "node_modules"])]
 	pub ignore_files: Vec<PathBuf>,

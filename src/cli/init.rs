@@ -47,7 +47,6 @@ impl Init {
 				format!("# yaml-language-server: $schema={schema_url}\n{template}")
 			}
 			ConfigFormat::Json => {
-				// For strict JSON, revert to serde_json-based generation to ensure validity.
 				let config = Config::default();
 				let mut value = serde_json::to_value(&config)?;
 				if let Some(obj) = value.as_object_mut() {
@@ -56,22 +55,18 @@ impl Init {
 				serde_json::to_string_pretty(&value)?
 			}
 			ConfigFormat::Json5 => {
-				// Distinguish json5 vs jsonc by the requested extension.
+				// Start from the JSON5 template (with comments)
+				let template = Config::template(format);
+				let body = template.lines().skip(1).collect::<Vec<_>>().join("\n");
+
 				if self.format.eq_ignore_ascii_case("jsonc") {
-					// JSONC should be strict JSON (quoted keys, no trailing commas),
-					// but tools treat .jsonc as JSON-with-comments, so emitting valid JSON
-					// is always safe.
-					let config = Config::default();
-					let mut value = serde_json::to_value(&config)?;
-					if let Some(obj) = value.as_object_mut() {
-						obj.insert("$schema".to_string(), json!(schema_url));
-					}
-					serde_json::to_string_pretty(&value)?
+					// For JSONC, keep comments but ensure keys are quoted and $schema uses JSON syntax.
+					let body = quote_keys_for_jsonc(&body);
+					format!(
+						"{{\n  \"$schema\": \"{schema_url}\",\n{body}"
+					)
 				} else {
-					// For JSON5, keep using the confique template (with comments etc.),
-					// but inject a JSON5-friendly $schema field at the top.
-					let template = Config::template(format);
-					let body = template.lines().skip(1).collect::<Vec<_>>().join("\n");
+					// For JSON5, keep the original JSON5-style keys and schema.
 					format!("{{\n  $schema: \"{schema_url}\",\n{body}")
 				}
 			}
@@ -79,6 +74,37 @@ impl Init {
 
 		Ok((filename, content))
 	}
+}
+
+fn quote_keys_for_jsonc(body: &str) -> String {
+	body
+		.lines()
+		.map(|line| {
+			let trimmed = line.trim_start();
+			// Preserve comment and empty lines as-is
+			if trimmed.starts_with("//") || trimmed.is_empty() {
+				return line.to_string();
+			}
+
+			// Look for simple `key: ...` patterns
+			if let Some(colon_idx) = trimmed.find(':') {
+				let (key, rest) = trimmed.split_at(colon_idx);
+				let is_simple_key = !key.starts_with('"')
+					&& key
+						.chars()
+						.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+				if is_simple_key {
+					let indent_len = line.len() - trimmed.len();
+					let indent = &line[..indent_len];
+					let rest_without_key = &trimmed[colon_idx + 1..];
+					return format!(r#"{indent}"{key}":{rest_without_key}"#);
+				}
+			}
+
+			line.to_string()
+		})
+		.collect::<Vec<_>>()
+		.join("\n")
 }
 
 #[cfg(test)]
