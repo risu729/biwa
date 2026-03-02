@@ -9,13 +9,14 @@ targets = [
 ]
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "ISC"]
 
 [bans]
 multiple-versions = "deny"
 multiple-versions-include-dev = true
 wildcards = "deny"
 skip = [
+	{ name = "json5", version = "*" },
 	{ name = "getrandom", version = "*" },
 	{ name = "rand", version = "*" },
 	{ name = "rand_chacha", version = "*" },
