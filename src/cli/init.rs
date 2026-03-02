@@ -72,9 +72,7 @@ impl Init {
 					// but inject a JSON5-friendly $schema field at the top.
 					let template = Config::template(format);
 					let body = template.lines().skip(1).collect::<Vec<_>>().join("\n");
-					format!(
-						"{{\n  $schema: \"{schema_url}\",\n{body}"
-					)
+					format!("{{\n  $schema: \"{schema_url}\",\n{body}")
 				}
 			}
 		};
