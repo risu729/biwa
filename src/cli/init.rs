@@ -75,18 +75,16 @@ impl Init {
 }
 
 fn quote_keys_for_jsonc(body: &str) -> String {
-	body
-		.lines()
+	body.lines()
 		.map(|line| {
 			let trimmed = line.trim_start();
 			if trimmed.is_empty() {
 				return line.to_string();
 			}
 
-			if trimmed.starts_with("//") {
+			if let Some(comment_body) = trimmed.strip_prefix("//") {
 				let indent_len = line.len() - trimmed.len();
 				let indent = &line[..indent_len];
-				let comment_body = &trimmed[2..];
 				let comment_trimmed = comment_body.trim_start();
 
 				if let Some(colon_idx) = comment_trimmed.find(':') {
