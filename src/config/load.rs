@@ -150,8 +150,8 @@ impl Config {
 }
 
 fn expand_tilde(path: &Path) -> PathBuf {
-	if let Some(home) = homedir::my_home().ok().flatten() {
-		if let Some(s) = path.to_str() {
+	if let Some(home) = homedir::my_home().ok().flatten()
+		&& let Some(s) = path.to_str() {
 			if let Some(rest) = s.strip_prefix("~/") {
 				return home.join(rest);
 			}
@@ -159,7 +159,6 @@ fn expand_tilde(path: &Path) -> PathBuf {
 				return home;
 			}
 		}
-	}
 	path.to_path_buf()
 }
 
@@ -213,12 +212,7 @@ mod tests {
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
 		assert_eq!(config.ssh.user, "z1234567");
-		assert!(
-			config
-				.sync
-				.remote_root
-				.ends_with(".cache/biwa/projects")
-		);
+		assert!(config.sync.remote_root.ends_with(".cache/biwa/projects"));
 	}
 
 	#[test]
