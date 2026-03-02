@@ -1,64 +1,54 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-#[serde(default)]
-#[derive(Default)]
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Config {
+	#[config(nested)]
 	pub ssh: SshConfig,
+	#[config(nested)]
 	pub sync: SyncConfig,
+	#[config(nested)]
 	pub env: EnvConfig,
+	#[config(nested)]
 	pub hooks: HooksConfig,
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
-#[serde(default)]
+impl Default for Config {
+	fn default() -> Self {
+		confique::Config::builder()
+			.load()
+			.expect("Failed to build default config")
+	}
+}
+
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SshConfig {
+	#[config(default = "cse.unsw.edu.au", env = "BIWA_SSH_HOST")]
 	pub host: String,
+	#[config(default = 22, env = "BIWA_SSH_PORT")]
 	pub port: u16,
+	#[config(default = "z1234567", env = "BIWA_SSH_USER")]
 	pub user: String,
-	pub key_path: Option<String>,
+	#[config(env = "BIWA_SSH_KEY_PATH")]
+	pub key_path: Option<PathBuf>,
 }
 
-impl Default for SshConfig {
-	fn default() -> Self {
-		Self {
-			host: "cse.unsw.edu.au".to_string(),
-			port: 22,
-			user: "z1234567".to_string(),
-			key_path: None,
-		}
-	}
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
-#[serde(default)]
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncConfig {
-	pub remote_root: String,
-	pub ignore_files: Vec<String>,
+	#[config(default = "~/.cache/biwa/projects", env = "BIWA_SYNC_REMOTE_ROOT")]
+	pub remote_root: PathBuf,
+	#[config(default = [".git", "target", "node_modules"])]
+	pub ignore_files: Vec<PathBuf>,
 }
 
-impl Default for SyncConfig {
-	fn default() -> Self {
-		Self {
-			remote_root: "~/.cache/biwa/projects".to_string(),
-			ignore_files: vec![
-				".git".to_string(),
-				"target".to_string(),
-				"node_modules".to_string(),
-			],
-		}
-	}
-}
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone, Default)]
-#[serde(default)]
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EnvConfig {
+	#[config(default = [])]
 	pub vars: Vec<String>,
 }
 
-#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone, Default)]
-#[serde(default)]
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HooksConfig {
 	pub pre_sync: Option<String>,
 	pub post_sync: Option<String>,

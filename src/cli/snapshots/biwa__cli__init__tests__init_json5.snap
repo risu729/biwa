@@ -1,28 +1,44 @@
 ---
 source: src/cli/init.rs
+assertion_line: 77
 expression: content
 ---
 {
   $schema: "https://biwa.takuk.me/schema/config.json",
-  env: {
-    vars: [],
-  },
-  hooks: {
-    post_sync: null,
-    pre_sync: null,
-  },
   ssh: {
-    host: "cse.unsw.edu.au",
-    key_path: null,
-    port: 22,
-    user: "z1234567",
+    // Can also be specified via environment variable `BIWA_SSH_HOST`.
+    // Default value: "cse.unsw.edu.au"
+    //host: "cse.unsw.edu.au",
+
+    // Can also be specified via environment variable `BIWA_SSH_PORT`.
+    // Default value: 22
+    //port: 22,
+
+    // Can also be specified via environment variable `BIWA_SSH_USER`.
+    // Default value: "z1234567"
+    //user: "z1234567",
+
+    // Can also be specified via environment variable `BIWA_SSH_KEY_PATH`.
+    //key_path: ,
   },
+
   sync: {
-    ignore_files: [
-      ".git",
-      "target",
-      "node_modules",
-    ],
-    remote_root: "~/.cache/biwa/projects",
+    // Can also be specified via environment variable `BIWA_SYNC_REMOTE_ROOT`.
+    // Default value: "~\/.cache\/biwa\/projects"
+    //remote_root: "~\/.cache\/biwa\/projects",
+
+    // Default value: [".git","target","node_modules"]
+    //ignore_files: [".git","target","node_modules"],
+  },
+
+  env: {
+    // Default value: []
+    //vars: [],
+  },
+
+  hooks: {
+    //pre_sync: ,
+
+    //post_sync: ,
   },
 }

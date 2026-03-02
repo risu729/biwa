@@ -1,5 +1,6 @@
 allowed-duplicate-crates = [
 	"hashbrown",
+	"json5",
 	"rand",
 	"rand_chacha",
 	"rand_core",

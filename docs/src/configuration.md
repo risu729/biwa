@@ -19,7 +19,7 @@
 
 3.  **Environment Variables**:
     - Any environment variable prefixed with `BIWA_`.
-    - Use `__` (double underscore) to separate nested keys. (e.g., `BIWA_SSH__HOST=myserver` maps to `ssh.host`).
+    - Nested keys use single underscores (e.g., `BIWA_SSH_HOST=myserver` maps to `ssh.host`).
 
 ## Supported Formats
 
