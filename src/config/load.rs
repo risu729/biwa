@@ -113,19 +113,17 @@ impl Config {
 	}
 
 	fn resolve_paths_partial(partial: &mut <Self as confique::Config>::Partial, root: &Path) {
-		if let Some(key_path) = &mut partial.ssh.key_path {
-			*key_path = expand_tilde(key_path);
-			if key_path.is_relative() {
-				*key_path = root.join(&*key_path);
+		let resolve = |path_opt: &mut Option<PathBuf>| {
+			if let Some(path) = path_opt {
+				*path = expand_tilde(path);
+				if path.is_relative() {
+					*path = root.join(&*path);
+				}
 			}
-		}
+		};
 
-		if let Some(remote_root) = &mut partial.sync.remote_root {
-			*remote_root = expand_tilde(remote_root);
-			if remote_root.is_relative() {
-				*remote_root = root.join(&*remote_root);
-			}
-		}
+		resolve(&mut partial.ssh.key_path);
+		resolve(&mut partial.sync.remote_root);
 	}
 
 	pub fn template(format: ConfigFormat) -> String {
