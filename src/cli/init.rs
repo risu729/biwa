@@ -1,6 +1,7 @@
 use crate::{Result, config::format::ConfigFormat, config::types::Config};
 use clap::Args;
 use eyre::bail;
+use serde_json::json;
 use std::fs;
 use std::path::Path;
 
@@ -36,19 +37,47 @@ impl Init {
 		let format = ConfigFormat::from_extension(&self.format)
 			.ok_or_else(|| eyre::eyre!("Unsupported format: {}", self.format))?;
 
-		let mut content = Config::template(format);
-		match format {
+		let content = match format {
 			ConfigFormat::Toml => {
-				content = format!("#:schema {schema_url}\n\n{content}");
+				let template = Config::template(format);
+				format!("#:schema {schema_url}\n\n{template}")
 			}
 			ConfigFormat::Yaml => {
-				content = format!("# yaml-language-server: $schema={schema_url}\n{content}");
+				let template = Config::template(format);
+				format!("# yaml-language-server: $schema={schema_url}\n{template}")
 			}
-			ConfigFormat::Json | ConfigFormat::Json5 => {
-				content = content.lines().skip(1).collect::<Vec<_>>().join("\n");
-				content = format!("{{\n  $schema: {schema_url}\n{content}");
+			ConfigFormat::Json => {
+				// For strict JSON, revert to serde_json-based generation to ensure validity.
+				let config = Config::default();
+				let mut value = serde_json::to_value(&config)?;
+				if let Some(obj) = value.as_object_mut() {
+					obj.insert("$schema".to_string(), json!(schema_url));
+				}
+				serde_json::to_string_pretty(&value)?
 			}
-		}
+			ConfigFormat::Json5 => {
+				// Distinguish json5 vs jsonc by the requested extension.
+				if self.format.eq_ignore_ascii_case("jsonc") {
+					// JSONC should be strict JSON (quoted keys, no trailing commas),
+					// but tools treat .jsonc as JSON-with-comments, so emitting valid JSON
+					// is always safe.
+					let config = Config::default();
+					let mut value = serde_json::to_value(&config)?;
+					if let Some(obj) = value.as_object_mut() {
+						obj.insert("$schema".to_string(), json!(schema_url));
+					}
+					serde_json::to_string_pretty(&value)?
+				} else {
+					// For JSON5, keep using the confique template (with comments etc.),
+					// but inject a JSON5-friendly $schema field at the top.
+					let template = Config::template(format);
+					let body = template.lines().skip(1).collect::<Vec<_>>().join("\n");
+					format!(
+						"{{\n  $schema: \"{schema_url}\",\n{body}"
+					)
+				}
+			}
+		};
 
 		Ok((filename, content))
 	}

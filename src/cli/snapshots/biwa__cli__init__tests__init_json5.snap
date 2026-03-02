@@ -4,7 +4,7 @@ assertion_line: 77
 expression: content
 ---
 {
-  $schema: https://biwa.takuk.me/schema/config.json
+  $schema: "https://biwa.takuk.me/schema/config.json",
   ssh: {
     // Can also be specified via environment variable `BIWA_SSH__HOST`.
     // Default value: "cse.unsw.edu.au"
