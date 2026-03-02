@@ -8,37 +8,37 @@ expression: content
   "ssh": {
     // Can also be specified via environment variable `BIWA_SSH_HOST`.
     // Default value: "cse.unsw.edu.au"
-    //host: "cse.unsw.edu.au",
+    // "host": "cse.unsw.edu.au",
 
     // Can also be specified via environment variable `BIWA_SSH_PORT`.
     // Default value: 22
-    //port: 22,
+    // "port": 22,
 
     // Can also be specified via environment variable `BIWA_SSH_USER`.
     // Default value: "z1234567"
-    //user: "z1234567",
+    // "user": "z1234567",
 
     // Can also be specified via environment variable `BIWA_SSH_KEY_PATH`.
-    //key_path: ,
+    // "key_path": ,
   },
 
   "sync": {
     // Can also be specified via environment variable `BIWA_SYNC_REMOTE_ROOT`.
     // Default value: "~\/.cache\/biwa\/projects"
-    //remote_root: "~\/.cache\/biwa\/projects",
+    // "remote_root": "~\/.cache\/biwa\/projects",
 
     // Default value: [".git","target","node_modules"]
-    //ignore_files: [".git","target","node_modules"],
+    // "ignore_files": [".git","target","node_modules"],
   },
 
   "env": {
     // Default value: []
-    //vars: [],
+    // "vars": [],
   },
 
   "hooks": {
-    //pre_sync: ,
+    // "pre_sync": ,
 
-    //post_sync: ,
+    // "post_sync": ,
   },
 }

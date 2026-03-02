@@ -78,8 +78,30 @@ fn quote_keys_for_jsonc(body: &str) -> String {
 	body.lines()
 		.map(|line| {
 			let trimmed = line.trim_start();
-			// Preserve comment and empty lines as-is
-			if trimmed.starts_with("//") || trimmed.is_empty() {
+			// Empty lines stay as-is
+			if trimmed.is_empty() {
+				return line.to_string();
+			}
+
+			// Handle commented-out key lines like `//key: value` → `//"key": value`
+			if trimmed.starts_with("//") {
+				let indent_len = line.len() - trimmed.len();
+				let indent = &line[..indent_len];
+				let comment_body = &trimmed[2..]; // strip leading `//`
+				let comment_trimmed = comment_body.trim_start();
+
+				if let Some(colon_idx) = comment_trimmed.find(':') {
+					let (key, _rest) = comment_trimmed.split_at(colon_idx);
+					let is_simple_key = !key.starts_with('"')
+						&& key
+							.chars()
+							.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+					if is_simple_key {
+						let rest_without_key = &comment_trimmed[colon_idx + 1..];
+						return format!(r#"{indent}// "{key}":{rest_without_key}"#);
+					}
+				}
+
 				return line.to_string();
 			}
 
