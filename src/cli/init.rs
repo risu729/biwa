@@ -75,8 +75,7 @@ impl Init {
 }
 
 fn quote_keys_for_jsonc(body: &str) -> String {
-	body
-		.lines()
+	body.lines()
 		.map(|line| {
 			let trimmed = line.trim_start();
 			if trimmed.is_empty() {
