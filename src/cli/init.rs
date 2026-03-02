@@ -75,45 +75,36 @@ impl Init {
 }
 
 fn quote_keys_for_jsonc(body: &str) -> String {
-	body.lines()
+	body
+		.lines()
 		.map(|line| {
 			let trimmed = line.trim_start();
 			if trimmed.is_empty() {
 				return line.to_string();
 			}
 
-			if let Some(comment_body) = trimmed.strip_prefix("//") {
-				let indent_len = line.len() - trimmed.len();
-				let indent = &line[..indent_len];
+			let indent_len = line.len() - trimmed.len();
+			let indent = &line[..indent_len];
+
+			let (prefix, content) = if let Some(comment_body) = trimmed.strip_prefix("//") {
 				let comment_trimmed = comment_body.trim_start();
+				let prefix_len = comment_body.len() - comment_trimmed.len();
+				(
+					format!("//{}", &comment_body[..prefix_len]),
+					comment_trimmed,
+				)
+			} else {
+				(String::new(), trimmed)
+			};
 
-				if let Some(colon_idx) = comment_trimmed.find(':') {
-					let (key, _rest) = comment_trimmed.split_at(colon_idx);
-					let is_simple_key = !key.starts_with('"')
-						&& key
-							.chars()
-							.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
-					if is_simple_key {
-						let rest_without_key = &comment_trimmed[colon_idx + 1..];
-						// Preserve the original lack of space after `//` by not adding one here.
-						return format!(r#"{indent}//"{key}":{rest_without_key}"#);
-					}
-				}
-
-				return line.to_string();
-			}
-
-			if let Some(colon_idx) = trimmed.find(':') {
-				let (key, _rest) = trimmed.split_at(colon_idx);
+			if let Some(colon_idx) = content.find(':') {
+				let (key, rest) = content.split_at(colon_idx);
 				let is_simple_key = !key.starts_with('"')
 					&& key
 						.chars()
 						.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
 				if is_simple_key {
-					let indent_len = line.len() - trimmed.len();
-					let indent = &line[..indent_len];
-					let rest_without_key = &trimmed[colon_idx + 1..];
-					return format!(r#"{indent}"{key}":{rest_without_key}"#);
+					return format!(r#"{indent}{prefix}"{key}"{rest}"#);
 				}
 			}
 
