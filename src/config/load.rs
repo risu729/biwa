@@ -30,8 +30,6 @@ impl Config {
 			global_root = Some(home_path.clone());
 		}
 
-		let mut root_dir = None;
-
 		if let Some(cwd_path) = cwd {
 			let mut current = Some(cwd_path.as_path());
 
@@ -74,10 +72,6 @@ impl Config {
 				if let Some((config_path, format)) = find_single_config(&local_candidates)? {
 					let partial = Self::load_partial(&config_path, format, config_root)?;
 					builder = builder.preloaded(partial);
-					// Only set root_dir for the innermost found config (highest precedence)
-					if root_dir.is_none() {
-						root_dir = Some(path.clone());
-					}
 				}
 			}
 		}
