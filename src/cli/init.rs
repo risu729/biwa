@@ -62,9 +62,7 @@ impl Init {
 				if self.format.eq_ignore_ascii_case("jsonc") {
 					// For JSONC, keep comments but ensure keys are quoted and $schema uses JSON syntax.
 					let body = quote_keys_for_jsonc(&body);
-					format!(
-						"{{\n  \"$schema\": \"{schema_url}\",\n{body}"
-					)
+					format!("{{\n  \"$schema\": \"{schema_url}\",\n{body}")
 				} else {
 					// For JSON5, keep the original JSON5-style keys and schema.
 					format!("{{\n  $schema: \"{schema_url}\",\n{body}")
@@ -77,8 +75,7 @@ impl Init {
 }
 
 fn quote_keys_for_jsonc(body: &str) -> String {
-	body
-		.lines()
+	body.lines()
 		.map(|line| {
 			let trimmed = line.trim_start();
 			// Preserve comment and empty lines as-is
@@ -88,7 +85,7 @@ fn quote_keys_for_jsonc(body: &str) -> String {
 
 			// Look for simple `key: ...` patterns
 			if let Some(colon_idx) = trimmed.find(':') {
-				let (key, rest) = trimmed.split_at(colon_idx);
+				let (key, _rest) = trimmed.split_at(colon_idx);
 				let is_simple_key = !key.starts_with('"')
 					&& key
 						.chars()
