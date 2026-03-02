@@ -98,7 +98,8 @@ fn quote_keys_for_jsonc(body: &str) -> String {
 							.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
 					if is_simple_key {
 						let rest_without_key = &comment_trimmed[colon_idx + 1..];
-						return format!(r#"{indent}// "{key}":{rest_without_key}"#);
+						// Preserve the original lack of space after `//` by not adding one here.
+						return format!(r#"{indent}//"{key}":{rest_without_key}"#);
 					}
 				}
 
