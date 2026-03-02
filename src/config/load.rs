@@ -569,7 +569,8 @@ remote_root = "libs"
 		)
 		.unwrap();
 
-		let config = Config::load_internal(None, None, Some(&project)).expect("Failed to load config");
+		let config =
+			Config::load_internal(None, None, Some(&project)).expect("Failed to load config");
 
 		let expected_path = project.join("libs");
 		assert_eq!(
