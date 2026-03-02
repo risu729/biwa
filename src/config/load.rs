@@ -1,12 +1,12 @@
-use super::format::{ConfigFormat, merge_config};
+use super::format::ConfigFormat;
 use super::types::Config;
-use eyre::Result;
-use figment::{Figment, providers::Env};
-use std::path::PathBuf;
+use confique::Config as _;
+use eyre::{Result, WrapErr};
+use std::path::{Path, PathBuf};
 
 impl Config {
 	pub fn load() -> Result<Self> {
-		let home = std::env::var("HOME").ok().map(PathBuf::from);
+		let home = homedir::my_home().ok().flatten();
 		let xdg = std::env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
 		let cwd = std::env::current_dir().ok();
 		Self::load_internal(home.as_ref(), xdg.as_ref(), cwd.as_ref())
@@ -17,19 +17,20 @@ impl Config {
 		xdg: Option<&PathBuf>,
 		cwd: Option<&PathBuf>,
 	) -> Result<Self> {
-		let mut figment = Figment::new();
+		let mut builder = Self::builder().env();
 
 		let mut global_candidates = Vec::new();
+		let mut global_root: Option<PathBuf> = None;
 		if let Some(home_path) = home {
 			global_candidates.push(home_path.join("biwa"));
 			global_candidates.push(home_path.join(".biwa"));
 			let config_home = xdg.cloned().unwrap_or_else(|| home_path.join(".config"));
 			global_candidates.push(config_home.join("biwa/config"));
+			// All global configs should resolve relative paths from the home dir (~)
+			global_root = Some(home_path.clone());
 		}
 
-		if let Some((config_path, format)) = find_single_config(&global_candidates)? {
-			figment = merge_config(figment, &config_path, format);
-		}
+		let mut root_dir = None;
 
 		if let Some(cwd_path) = cwd {
 			let mut current = Some(cwd_path.as_path());
@@ -50,7 +51,9 @@ impl Config {
 				current = path.parent();
 			}
 
-			for path in layers.iter().rev() {
+			// Higher precedence sources must be added first in confique!
+			// So iterate layers from cwd (innermost) up to outer directory.
+			for path in &layers {
 				// Don't load config from .config directory itself
 				if path.file_name().and_then(|s| s.to_str()) == Some(".config") {
 					continue;
@@ -61,16 +64,88 @@ impl Config {
 					path.join(".biwa"),
 					path.join(".config/biwa"),
 				];
+
+				// For local configs, the config root is always the project root
+				// represented by this layer (`path`):
+				// - `biwa.toml` / `.biwa.toml`  -> `.`
+				// - `.config/biwa.toml`        -> `..`
+				let config_root = path;
+
 				if let Some((config_path, format)) = find_single_config(&local_candidates)? {
-					figment = merge_config(figment, &config_path, format);
+					let partial = Self::load_partial(&config_path, format, config_root)?;
+					builder = builder.preloaded(partial);
+					// Only set root_dir for the innermost found config (highest precedence)
+					if root_dir.is_none() {
+						root_dir = Some(path.clone());
+					}
 				}
 			}
 		}
 
-		figment = figment.merge(Env::prefixed("BIWA_").split("__"));
+		if let Some((config_path, format)) = find_single_config(&global_candidates)? {
+			// Global configs should resolve relative paths from the home directory (~),
+			// regardless of where the config file actually lives (e.g. XDG paths).
+			let config_root = global_root
+				.as_deref()
+				.unwrap_or_else(|| config_path.parent().unwrap_or_else(|| Path::new("")));
+			let partial = Self::load_partial(&config_path, format, config_root)?;
+			builder = builder.preloaded(partial);
+		}
 
-		let config: Config = figment.extract()?;
+		let config = builder.load()?;
+
 		Ok(config)
+	}
+
+	fn load_partial(
+		path: &Path,
+		format: ConfigFormat,
+		config_root: &Path,
+	) -> Result<<Self as confique::Config>::Partial> {
+		let content = std::fs::read_to_string(path).wrap_err("Failed to read config file")?;
+		let mut partial: <Self as confique::Config>::Partial = match format {
+			ConfigFormat::Toml => toml::from_str(&content).wrap_err("Failed to parse TOML")?,
+			ConfigFormat::Yaml => {
+				serde_yaml::from_str(&content).wrap_err("Failed to parse YAML")?
+			}
+			ConfigFormat::Json | ConfigFormat::Json5 => {
+				json5::from_str(&content).wrap_err("Failed to parse JSON")?
+			}
+		};
+
+		Self::resolve_paths_partial(&mut partial, config_root);
+
+		Ok(partial)
+	}
+
+	fn resolve_paths_partial(partial: &mut <Self as confique::Config>::Partial, root: &Path) {
+		if let Some(key_path) = &mut partial.ssh.key_path
+			&& key_path.is_relative()
+			&& !key_path.starts_with("~")
+		{
+			*key_path = root.join(&key_path);
+		}
+
+		if let Some(remote_root) = &mut partial.sync.remote_root
+			&& remote_root.is_relative()
+			&& !remote_root.starts_with("~")
+		{
+			*remote_root = root.join(&remote_root);
+		}
+	}
+
+	pub fn template(format: ConfigFormat) -> String {
+		match format {
+			ConfigFormat::Toml => {
+				confique::toml::template::<Self>(confique::toml::FormatOptions::default())
+			}
+			ConfigFormat::Yaml => {
+				confique::yaml::template::<Self>(confique::yaml::FormatOptions::default())
+			}
+			ConfigFormat::Json | ConfigFormat::Json5 => {
+				confique::json5::template::<Self>(confique::json5::FormatOptions::default())
+			}
+		}
 	}
 }
 
@@ -124,7 +199,10 @@ mod tests {
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
 		assert_eq!(config.ssh.user, "z1234567");
-		assert_eq!(config.sync.remote_root, "~/.cache/biwa/projects");
+		assert_eq!(
+			config.sync.remote_root.to_string_lossy(),
+			"~/.cache/biwa/projects"
+		);
 	}
 
 	#[test]
@@ -426,5 +504,126 @@ mod tests {
 		fs::write(root.join(".biwa.toml"), "").unwrap();
 		let result = find_single_config(&[root.join("biwa"), root.join(".biwa")]);
 		assert!(result.is_err());
+	}
+
+	#[test]
+	fn test_nested_path_resolution() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let root = dir.path();
+		let subdir = root.join("subdir");
+		fs::create_dir_all(&subdir).unwrap();
+
+		// Parent config defines a relative path
+		// "libs" should be resolved relative to `root`
+		fs::write(
+			root.join("biwa.toml"),
+			r#"
+[sync]
+remote_root = "libs"
+"#,
+		)
+		.unwrap();
+
+		// Child config overrides something else, but inherits remote_root
+		fs::write(
+			subdir.join("biwa.toml"),
+			r#"
+[ssh]
+host = "child"
+"#,
+		)
+		.unwrap();
+
+		// Load config from subdir
+		// Expected: remote_root should be root/libs
+		// Actual (bug): remote_root is subdir/libs because it resolves relative to the innermost config root
+		let config =
+			Config::load_internal(None, None, Some(&subdir)).expect("Failed to load config");
+
+		let expected_path = root.join("libs");
+
+		// This assertion will fail if the bug exists
+		assert_eq!(
+			config.sync.remote_root, expected_path,
+			"remote_root should be resolved relative to the config file that defined it"
+		);
+	}
+
+	#[test]
+	fn test_local_config_root_dot_config_biwa() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let project = dir.path().join("project");
+		let dot_config = project.join(".config");
+		fs::create_dir_all(&dot_config).unwrap();
+
+		// Local config in .config/biwa.toml should use the project root (`project`)
+		// as its config root, not the .config directory itself.
+		fs::write(
+			dot_config.join("biwa.toml"),
+			r#"
+[sync]
+remote_root = "libs"
+"#,
+		)
+		.unwrap();
+
+		let config = Config::load_internal(None, None, Some(&project)).expect("Failed to load config");
+
+		let expected_path = project.join("libs");
+		assert_eq!(
+			config.sync.remote_root, expected_path,
+			"remote_root from .config/biwa.toml should be resolved relative to the project root"
+		);
+	}
+
+	#[test]
+	fn test_global_config_root_home_and_xdg() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		let config_home = home.join(".config");
+		fs::create_dir_all(&home).unwrap();
+		fs::create_dir_all(config_home.join("biwa")).unwrap();
+
+		// Global config at ~/biwa.toml
+		fs::write(
+			home.join("biwa.toml"),
+			r#"
+[sync]
+remote_root = "global_libs"
+"#,
+		)
+		.unwrap();
+
+		let config = Config::load_internal(Some(&home), Some(&config_home), None)
+			.expect("Failed to load config");
+		assert_eq!(
+			config.sync.remote_root,
+			home.join("global_libs"),
+			"global remote_root from ~/biwa.toml should be resolved relative to ~"
+		);
+
+		// Only one global config is allowed; remove the home config before testing the XDG variant.
+		fs::remove_file(home.join("biwa.toml")).unwrap();
+
+		// Override with XDG-style global config at ~/.config/biwa/config.toml
+		fs::write(
+			config_home.join("biwa/config.toml"),
+			r#"
+[sync]
+remote_root = "xdg_libs"
+"#,
+		)
+		.unwrap();
+
+		let config = Config::load_internal(Some(&home), Some(&config_home), None)
+			.expect("Failed to load config");
+		assert_eq!(
+			config.sync.remote_root,
+			home.join("xdg_libs"),
+			"global remote_root from ~/.config/biwa/config.toml should be resolved relative to ~"
+		);
 	}
 }

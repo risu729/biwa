@@ -4,18 +4,34 @@ expression: content
 ---
 # yaml-language-server: $schema=https://biwa.takuk.me/schema/config.json
 ssh:
-  host: cse.unsw.edu.au
-  port: 22
-  user: z1234567
-  key_path: null
+  # Can also be specified via environment variable `BIWA_SSH__HOST`.
+  # Default value: cse.unsw.edu.au
+  #host: cse.unsw.edu.au
+
+  # Can also be specified via environment variable `BIWA_SSH__PORT`.
+  # Default value: 22
+  #port: 22
+
+  # Can also be specified via environment variable `BIWA_SSH__USER`.
+  # Default value: z1234567
+  #user: z1234567
+
+  # Can also be specified via environment variable `BIWA_SSH__KEY_PATH`.
+  #key_path:
+
 sync:
-  remote_root: ~/.cache/biwa/projects
-  ignore_files:
-  - .git
-  - target
-  - node_modules
+  # Can also be specified via environment variable `BIWA_SYNC__REMOTE_ROOT`.
+  # Default value: ~/.cache/biwa/projects
+  #remote_root: ~/.cache/biwa/projects
+
+  # Default value: [.git, target, node_modules]
+  #ignore_files: [.git, target, node_modules]
+
 env:
-  vars: []
+  # Default value: []
+  #vars: []
+
 hooks:
-  pre_sync: null
-  post_sync: null
+  #pre_sync:
+
+  #post_sync:

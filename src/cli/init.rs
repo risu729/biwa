@@ -31,37 +31,24 @@ impl Init {
 
 	fn generate(&self) -> Result<(String, String)> {
 		let filename = format!("biwa.{}", self.format.to_ascii_lowercase());
-		let config = Config::default();
 		let schema_url = "https://biwa.takuk.me/schema/config.json";
 
 		let format = ConfigFormat::from_extension(&self.format)
 			.ok_or_else(|| eyre::eyre!("Unsupported format: {}", self.format))?;
 
-		let content = match format {
+		let mut content = Config::template(format);
+		match format {
 			ConfigFormat::Toml => {
-				let toml_str = toml::to_string_pretty(&config)?;
-				format!("#:schema {schema_url}\n\n{toml_str}")
-			}
-			ConfigFormat::Json | ConfigFormat::Json5 => {
-				let mut value = serde_json::to_value(&config)?;
-				if let Some(obj) = value.as_object_mut() {
-					obj.insert(
-						"$schema".to_string(),
-						serde_json::Value::String(schema_url.to_string()),
-					);
-				}
-				if format == ConfigFormat::Json {
-					serde_json::to_string_pretty(&value)?
-				} else {
-					json5::to_string(&value)?
-				}
+				content = format!("#:schema {schema_url}\n\n{content}");
 			}
 			ConfigFormat::Yaml => {
-				let value = serde_yaml::to_value(&config)?;
-				let yaml_str = serde_yaml::to_string(&value)?;
-				format!("# yaml-language-server: $schema={schema_url}\n{yaml_str}")
+				content = format!("# yaml-language-server: $schema={schema_url}\n{content}");
 			}
-		};
+			ConfigFormat::Json | ConfigFormat::Json5 => {
+				content = content.lines().skip(1).collect::<Vec<_>>().join("\n");
+				content = format!("{{\n  $schema: {schema_url}\n{content}");
+			}
+		}
 
 		Ok((filename, content))
 	}
