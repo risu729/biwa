@@ -85,21 +85,50 @@ pub async fn execute_command(
 		);
 	}
 
-	let result = client
-		.execute(&full_command)
-		.await
-		.wrap_err("Failed to execute remote command")?;
+	let (stdout_tx, mut stdout_rx) = tokio::sync::mpsc::channel(1024);
+	let (stderr_tx, mut stderr_rx) = tokio::sync::mpsc::channel(1024);
+
+	let exec_future =
+		client.execute_io(&full_command, stdout_tx, Some(stderr_tx), None, false, None);
+	tokio::pin!(exec_future);
+
+	let exit_status = loop {
+		tokio::select! {
+			res = &mut exec_future => {
+				break res.wrap_err("Failed to execute remote command")?;
+			},
+			Some(stdout) = stdout_rx.recv() => {
+				if !silent {
+					use std::io::Write;
+					let mut lock = std::io::stdout().lock();
+					let _ = lock.write_all(&stdout);
+					let _ = lock.flush();
+				}
+			},
+			Some(stderr) = stderr_rx.recv() => {
+				if !silent {
+					use std::io::Write;
+					let mut lock = std::io::stderr().lock();
+					let _ = lock.write_all(&stderr);
+					let _ = lock.flush();
+				}
+			},
+		}
+	};
 
 	if !silent {
-		if !result.stdout.is_empty() {
-			print!("{}", result.stdout);
+		use std::io::Write;
+		while let Some(stdout) = stdout_rx.recv().await {
+			let mut lock = std::io::stdout().lock();
+			let _ = lock.write_all(&stdout);
+			let _ = lock.flush();
 		}
-		if !result.stderr.is_empty() {
-			eprint!("{}", result.stderr);
+		while let Some(stderr) = stderr_rx.recv().await {
+			let mut lock = std::io::stderr().lock();
+			let _ = lock.write_all(&stderr);
+			let _ = lock.flush();
 		}
 	}
-
-	let exit_status = result.exit_status;
 	debug!(exit_status, "Remote command completed");
 
 	if exit_status != 0 && !quiet {
