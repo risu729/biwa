@@ -1,6 +1,7 @@
 use crate::{Result, config::format::ConfigFormat, config::types::Config};
 use clap::Args;
 use eyre::bail;
+use serde_json::json;
 use std::fs;
 use std::path::Path;
 
@@ -31,7 +32,6 @@ impl Init {
 
 	fn generate(&self) -> Result<(String, String)> {
 		let filename = format!("biwa.{}", self.format.to_ascii_lowercase());
-		let config = Config::default();
 		let schema_url = "https://biwa.takuk.me/schema/config.json";
 
 		let format = ConfigFormat::from_extension(&self.format)
@@ -39,32 +39,78 @@ impl Init {
 
 		let content = match format {
 			ConfigFormat::Toml => {
-				let toml_str = toml::to_string_pretty(&config)?;
-				format!("#:schema {schema_url}\n\n{toml_str}")
-			}
-			ConfigFormat::Json | ConfigFormat::Json5 => {
-				let mut value = serde_json::to_value(&config)?;
-				if let Some(obj) = value.as_object_mut() {
-					obj.insert(
-						"$schema".to_string(),
-						serde_json::Value::String(schema_url.to_string()),
-					);
-				}
-				if format == ConfigFormat::Json {
-					serde_json::to_string_pretty(&value)?
-				} else {
-					json5::to_string(&value)?
-				}
+				let template = Config::template(format);
+				format!("#:schema {schema_url}\n\n{template}")
 			}
 			ConfigFormat::Yaml => {
-				let value = serde_yaml::to_value(&config)?;
-				let yaml_str = serde_yaml::to_string(&value)?;
-				format!("# yaml-language-server: $schema={schema_url}\n{yaml_str}")
+				let template = Config::template(format);
+				format!("# yaml-language-server: $schema={schema_url}\n{template}")
+			}
+			ConfigFormat::Json => {
+				let config = Config::default();
+				let mut value = serde_json::to_value(&config)?;
+				if let Some(obj) = value.as_object_mut() {
+					obj.insert("$schema".to_string(), json!(schema_url));
+				}
+				serde_json::to_string_pretty(&value)?
+			}
+			ConfigFormat::Json5 => {
+				// Start from the JSON5 template (with comments)
+				let template = Config::template(format);
+				let body = template.lines().skip(1).collect::<Vec<_>>().join("\n");
+
+				if self.format.eq_ignore_ascii_case("jsonc") {
+					// For JSONC, keep comments but ensure keys are quoted and $schema uses JSON syntax.
+					let body = quote_keys_for_jsonc(&body);
+					format!("{{\n  \"$schema\": \"{schema_url}\",\n{body}")
+				} else {
+					// For JSON5, keep the original JSON5-style keys and schema.
+					format!("{{\n  $schema: \"{schema_url}\",\n{body}")
+				}
 			}
 		};
 
 		Ok((filename, content))
 	}
+}
+
+fn quote_keys_for_jsonc(body: &str) -> String {
+	body.lines()
+		.map(|line| {
+			let trimmed = line.trim_start();
+			if trimmed.is_empty() {
+				return line.to_string();
+			}
+
+			let indent_len = line.len() - trimmed.len();
+			let indent = &line[..indent_len];
+
+			let (prefix, content) = if let Some(comment_body) = trimmed.strip_prefix("//") {
+				let comment_trimmed = comment_body.trim_start();
+				let prefix_len = comment_body.len() - comment_trimmed.len();
+				(
+					format!("//{}", &comment_body[..prefix_len]),
+					comment_trimmed,
+				)
+			} else {
+				(String::new(), trimmed)
+			};
+
+			if let Some(colon_idx) = content.find(':') {
+				let (key, rest) = content.split_at(colon_idx);
+				let is_simple_key = !key.starts_with('"')
+					&& key
+						.chars()
+						.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+				if is_simple_key {
+					return format!(r#"{indent}{prefix}"{key}"{rest}"#);
+				}
+			}
+
+			line.to_string()
+		})
+		.collect::<Vec<_>>()
+		.join("\n")
 }
 
 #[cfg(test)]

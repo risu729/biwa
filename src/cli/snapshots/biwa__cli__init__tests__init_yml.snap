@@ -4,22 +4,56 @@ expression: content
 ---
 # yaml-language-server: $schema=https://biwa.takuk.me/schema/config.json
 ssh:
-  host: cse.unsw.edu.au
-  port: 22
-  user: z5555555
-  key_path: null
-  password: false
+  # Can also be specified via environment variable `BIWA_SSH_HOST`.
+  # Default value: cse.unsw.edu.au
+  #host: cse.unsw.edu.au
+
+  # Can also be specified via environment variable `BIWA_SSH_PORT`.
+  # Default value: 22
+  #port: 22
+
+  # Can also be specified via environment variable `BIWA_SSH_USER`.
+  # Default value: z1234567
+  #user: z1234567
+
+  # Can also be specified via environment variable `BIWA_SSH_KEY_PATH`.
+  #key_path:
+
+  # Password authentication: `false` (default), `true` (prompt), or a string value.
+  #
+  # Can also be specified via environment variable `BIWA_SSH_PASSWORD`.
+  #
+  # Default value: false
+  #password: false
+
 sync:
-  remote_root: .cache/biwa/projects
-  ignore_files:
-  - .git
-  - target
-  - node_modules
+  # Can also be specified via environment variable `BIWA_SYNC_REMOTE_ROOT`.
+  # Default value: ~/.cache/biwa/projects
+  #remote_root: ~/.cache/biwa/projects
+
+  # Default value: [.git, target, node_modules]
+  #ignore_files: [.git, target, node_modules]
+
 env:
-  vars: []
+  # Default value: []
+  #vars: []
+
 hooks:
-  pre_sync: null
-  post_sync: null
+  #pre_sync:
+
+  #post_sync:
+
 log:
-  quiet: false
-  silent: false
+  # Suppresses biwa internal logs; only remote command output is shown.
+  #
+  # Can also be specified via environment variable `BIWA_LOG_QUIET`.
+  #
+  # Default value: false
+  #quiet: false
+
+  # Suppresses all output, including remote command stdout/stderr.
+  #
+  # Can also be specified via environment variable `BIWA_LOG_SILENT`.
+  #
+  # Default value: false
+  #silent: false

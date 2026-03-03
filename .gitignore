@@ -207,3 +207,6 @@ rust-project.json
 # tarpaulin
 tarpaulin-report.html
 cobertura.xml
+
+# biwa
+biwa.toml

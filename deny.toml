@@ -25,6 +25,7 @@ wildcards = "deny"
 skip = [
 	{ name = "console", version = "*" },
 	{ name = "generic-array", version = "*" },
+	{ name = "json5", version = "*" },
 	{ name = "getrandom", version = "*" },
 	{ name = "nix", version = "*" },
 	{ name = "rand", version = "*" },

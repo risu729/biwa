@@ -4,59 +4,42 @@
   "type": "object",
   "properties": {
     "env": {
-      "$ref": "#/$defs/EnvConfig",
-      "default": {
-        "vars": []
-      }
+      "$ref": "#/$defs/EnvConfig"
     },
     "hooks": {
-      "$ref": "#/$defs/HooksConfig",
-      "default": {
-        "post_sync": null,
-        "pre_sync": null
-      }
+      "$ref": "#/$defs/HooksConfig"
     },
     "log": {
-      "$ref": "#/$defs/LogConfig",
-      "default": {
-        "quiet": false,
-        "silent": false
-      }
+      "$ref": "#/$defs/LogConfig"
     },
     "ssh": {
-      "$ref": "#/$defs/SshConfig",
-      "default": {
-        "host": "cse.unsw.edu.au",
-        "key_path": null,
-        "password": false,
-        "port": 22,
-        "user": "z5555555"
-      }
+      "$ref": "#/$defs/SshConfig"
     },
     "sync": {
-      "$ref": "#/$defs/SyncConfig",
-      "default": {
-        "ignore_files": [
-          ".git",
-          "target",
-          "node_modules"
-        ],
-        "remote_root": "~/.cache/biwa/projects"
-      }
+      "$ref": "#/$defs/SyncConfig"
     }
   },
+  "required": [
+    "ssh",
+    "sync",
+    "env",
+    "hooks",
+    "log"
+  ],
   "$defs": {
     "EnvConfig": {
       "type": "object",
       "properties": {
         "vars": {
           "type": "array",
-          "default": [],
           "items": {
             "type": "string"
           }
         }
-      }
+      },
+      "required": [
+        "vars"
+      ]
     },
     "HooksConfig": {
       "type": "object",
@@ -65,15 +48,13 @@
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "pre_sync": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         }
       }
     },
@@ -82,15 +63,17 @@
       "properties": {
         "quiet": {
           "description": "Suppresses biwa internal logs; only remote command output is shown.",
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "silent": {
           "description": "Suppresses all output, including remote command stdout/stderr.",
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         }
-      }
+      },
+      "required": [
+        "quiet",
+        "silent"
+      ]
     },
     "PasswordConfig": {
       "description": "Password authentication configuration.\n\n- `false` (default): No password authentication.\n- `true`: Interactively prompt for a password.\n- `\"string\"`: Use the provided password value.",
@@ -109,53 +92,52 @@
       "type": "object",
       "properties": {
         "host": {
-          "type": "string",
-          "default": "cse.unsw.edu.au"
+          "type": "string"
         },
         "key_path": {
           "type": [
             "string",
             "null"
-          ],
-          "default": null
+          ]
         },
         "password": {
           "description": "Password authentication: `false` (default), `true` (prompt), or a string value.",
-          "$ref": "#/$defs/PasswordConfig",
-          "default": false
+          "$ref": "#/$defs/PasswordConfig"
         },
         "port": {
           "type": "integer",
           "format": "uint16",
-          "default": 22,
           "maximum": 65535,
           "minimum": 0
         },
         "user": {
-          "type": "string",
-          "default": "z5555555"
+          "type": "string"
         }
-      }
+      },
+      "required": [
+        "host",
+        "port",
+        "user",
+        "password"
+      ]
     },
     "SyncConfig": {
       "type": "object",
       "properties": {
         "ignore_files": {
           "type": "array",
-          "default": [
-            ".git",
-            "target",
-            "node_modules"
-          ],
           "items": {
             "type": "string"
           }
         },
         "remote_root": {
-          "type": "string",
-          "default": "~/.cache/biwa/projects"
+          "type": "string"
         }
-      }
+      },
+      "required": [
+        "remote_root",
+        "ignore_files"
+      ]
     }
   }
 }

@@ -1,0 +1,3 @@
+[providers.bun_docs]
+"docs/bun.lock" = "93ecaa39c57ca1fb1865cb2547c2c6a14ddfb834abbc5ca8a572696cad0a970a"
+"docs/package.json" = "a4a58e1c603b9d7e3fb58af6b0bd4dfa99da249b8acff6541f0264dad5969034"

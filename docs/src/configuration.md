@@ -29,7 +29,7 @@ For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will 
 
 3.  **Environment Variables**:
     - Any environment variable prefixed with `BIWA_`.
-    - Use `__` (double underscore) to separate nested keys. (e.g., `BIWA_SSH__HOST=myserver` maps to `ssh.host`).
+    - Nested keys use single underscores (e.g., `BIWA_SSH_HOST=myserver` maps to `ssh.host`).
     - Relative paths in environment variables are resolved relative to the **current working directory**.
 
 ## Supported Formats

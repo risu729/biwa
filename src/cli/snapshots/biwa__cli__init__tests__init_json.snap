@@ -20,7 +20,7 @@ expression: content
     "key_path": null,
     "password": false,
     "port": 22,
-    "user": "z5555555"
+    "user": "z1234567"
   },
   "sync": {
     "ignore_files": [
@@ -28,6 +28,6 @@ expression: content
       "target",
       "node_modules"
     ],
-    "remote_root": ".cache/biwa/projects"
+    "remote_root": "~/.cache/biwa/projects"
   }
 }

@@ -18,9 +18,8 @@ const DEFAULT_KEY_PATHS: &[&str] = &["~/.ssh/id_ed25519", "~/.ssh/id_rsa"];
 pub fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 	let ssh = &config.ssh;
 
-	// 1. Explicit key_path (paths are already resolved natively by Figment's RelativePathBuf)
-	if let Some(key_path) = &ssh.key_path {
-		let path = key_path.relative();
+	// 1. Explicit key_path (paths are already resolved natively by confique)
+	if let Some(path) = &ssh.key_path {
 		if path.exists() {
 			info!(path = %path.display(), "Using configured SSH key file");
 			return Ok(AuthMethod::with_key_file(
@@ -113,15 +112,6 @@ fn resolve_default_key_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::config::SshConfig;
-	use figment::value::magic::RelativePathBuf;
-
-	fn config_with_ssh(ssh: SshConfig) -> Config {
-		Config {
-			ssh,
-			..Default::default()
-		}
-	}
 
 	#[test]
 	fn test_resolve_default_key_path_explicit() {
@@ -129,10 +119,8 @@ mod tests {
 		let key_file = dir.path().join("my_key");
 		std::fs::write(&key_file, "fake key").unwrap();
 
-		let config = config_with_ssh(SshConfig {
-			key_path: Some(RelativePathBuf::from(&key_file)),
-			..Default::default()
-		});
+		let mut config = Config::default();
+		config.ssh.key_path = Some(key_file);
 
 		let result = resolve_auth(&config);
 		assert!(result.is_ok());
@@ -140,10 +128,8 @@ mod tests {
 
 	#[test]
 	fn test_resolve_auth_missing_explicit_key_errors() {
-		let config = config_with_ssh(SshConfig {
-			key_path: Some(RelativePathBuf::from("/nonexistent/path/key".to_string())),
-			..Default::default()
-		});
+		let mut config = Config::default();
+		config.ssh.key_path = Some(PathBuf::from("/nonexistent/path/key"));
 
 		let result = resolve_auth(&config);
 		assert!(result.is_err());
@@ -159,10 +145,8 @@ mod tests {
 		let key_file = dir.path().join("my_key");
 		std::fs::write(&key_file, "fake key").unwrap();
 
-		let config = config_with_ssh(SshConfig {
-			key_path: Some(RelativePathBuf::from(&key_file)),
-			..Default::default()
-		});
+		let mut config = Config::default();
+		config.ssh.key_path = Some(key_file);
 
 		let result = resolve_auth(&config);
 		assert!(result.is_ok());
@@ -180,20 +164,16 @@ mod tests {
 
 	#[test]
 	fn test_password_config_string() {
-		let config = config_with_ssh(SshConfig {
-			password: PasswordConfig::Value("secret".to_string()),
-			..Default::default()
-		});
+		let mut config = Config::default();
+		config.ssh.password = PasswordConfig::Value("secret".to_string());
 		let result = resolve_auth(&config);
 		assert!(result.is_ok());
 	}
 
 	#[test]
 	fn test_password_config_false() {
-		let config = config_with_ssh(SshConfig {
-			password: PasswordConfig::Interactive(false),
-			..Default::default()
-		});
+		let mut config = Config::default();
+		config.ssh.password = PasswordConfig::Interactive(false);
 		let _ = resolve_auth(&config);
 	}
 }

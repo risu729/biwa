@@ -2,6 +2,7 @@ allowed-duplicate-crates = [
 	"generic-array",
 	"getrandom",
 	"hashbrown",
+	"json5",
 	"nix",
 	"rand",
 	"rand_chacha",
