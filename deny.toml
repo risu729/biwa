@@ -21,9 +21,7 @@ skip = [
 	{ name = "rand", version = "*" },
 	{ name = "rand_chacha", version = "*" },
 	{ name = "rand_core", version = "*" },
-	{ name = "serde_spanned", version = "*" },
 	{ name = "toml", version = "*" },
 	{ name = "toml_datetime", version = "*" },
-	{ name = "toml_edit", version = "*" },
 	{ name = "winnow", version = "*" },
 ]

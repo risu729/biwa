@@ -95,9 +95,9 @@ impl Config {
 		path: &Path,
 		format: ConfigFormat,
 		config_root: &Path,
-	) -> Result<<Self as confique::Config>::Partial> {
+	) -> Result<<Self as confique::Config>::Layer> {
 		let content = std::fs::read_to_string(path).wrap_err("Failed to read config file")?;
-		let mut partial: <Self as confique::Config>::Partial = match format {
+		let mut partial: <Self as confique::Config>::Layer = match format {
 			ConfigFormat::Toml => toml::from_str(&content).wrap_err("Failed to parse TOML")?,
 			ConfigFormat::Yaml => {
 				serde_yaml::from_str(&content).wrap_err("Failed to parse YAML")?
@@ -112,7 +112,7 @@ impl Config {
 		Ok(partial)
 	}
 
-	fn resolve_paths_partial(partial: &mut <Self as confique::Config>::Partial, root: &Path) {
+	fn resolve_paths_partial(partial: &mut <Self as confique::Config>::Layer, root: &Path) {
 		let resolve = |path_opt: &mut Option<PathBuf>| {
 			if let Some(path) = path_opt {
 				*path = expand_tilde(path);
