@@ -4,7 +4,7 @@
 - **Usage**: `biwa run <COMMAND> [COMMAND_ARGS]…`
 - **Aliases**: `r`
 
-Run a command on the CSE server
+Run commands on remote host
 
 ## Arguments
 

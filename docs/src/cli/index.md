@@ -11,7 +11,7 @@
 
 ### `-v --verbose…`
 
-Set the verbosity level
+Set the verbosity level.
 
 Can be used multiple times to increase verbosity (e.g., -v, -vv, -vvv).
 By default, only warnings and errors are shown.

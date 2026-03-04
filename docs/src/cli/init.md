@@ -3,7 +3,7 @@
 
 - **Usage**: `biwa init [-f --force] [--format <FORMAT>]`
 
-Initialize a new configuration file
+Initialize a biwa configuration file
 
 ## Flags
 
