@@ -1,44 +1,68 @@
 ---
 source: src/cli/init.rs
-assertion_line: 77
 expression: content
 ---
 {
   $schema: "https://biwa.takuk.me/schema/config.json",
+{
+  // SSH connection configuration.
   ssh: {
+    // Hostname or IP address of the remote host.
+    //
     // Can also be specified via environment variable `BIWA_SSH_HOST`.
+    //
     // Default value: "cse.unsw.edu.au"
     //host: "cse.unsw.edu.au",
 
+    // Port to connect to on the remote host.
+    //
     // Can also be specified via environment variable `BIWA_SSH_PORT`.
+    //
     // Default value: 22
     //port: 22,
 
+    // Username for the SSH connection.
+    //
     // Can also be specified via environment variable `BIWA_SSH_USER`.
+    //
     // Default value: "z1234567"
     //user: "z1234567",
 
+    // Optional path to the SSH private key.
+    //
     // Can also be specified via environment variable `BIWA_SSH_KEY_PATH`.
     //key_path: ,
   },
 
+  // Remote synchronization configuration.
   sync: {
+    // Remote directory to sync the project to.
+    //
     // Can also be specified via environment variable `BIWA_SYNC_REMOTE_ROOT`.
+    //
     // Default value: "~\/.cache\/biwa\/projects"
     //remote_root: "~\/.cache\/biwa\/projects",
 
+    // Files and directories to ignore during synchronization.
+    //
     // Default value: [".git","target","node_modules"]
     //ignore_files: [".git","target","node_modules"],
   },
 
+  // Environment variables configuration.
   env: {
+    // Environment variable keys to inherit/send.
+    //
     // Default value: []
     //vars: [],
   },
 
+  // Lifecycle hooks for synchronization.
   hooks: {
+    // Command to run before synchronization.
     //pre_sync: ,
 
+    // Command to run after synchronization.
     //post_sync: ,
   },
 }
