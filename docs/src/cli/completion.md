@@ -3,9 +3,7 @@
 
 - **Usage**: `biwa completion <SHELL>`
 
-Generate shell completions
-
-Requires the `usage` CLI: &lt;https://usage.jdx.dev>
+Generate shell completion scripts
 
 ## Arguments
 

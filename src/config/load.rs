@@ -1,17 +1,20 @@
 use super::format::ConfigFormat;
 use super::types::Config;
 use confique::Config as _;
-use eyre::{Result, WrapErr};
+use eyre::{Result, WrapErr as _};
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 impl Config {
+	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
 		let home = homedir::my_home().ok().flatten();
-		let xdg = std::env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
-		let cwd = std::env::current_dir().ok();
+		let xdg = env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
+		let cwd = env::current_dir().ok();
 		Self::load_internal(home.as_ref(), xdg.as_ref(), cwd.as_ref())
 	}
 
+	/// Core inner load logic separating the paths.
 	fn load_internal(
 		home: Option<&PathBuf>,
 		xdg: Option<&PathBuf>,
@@ -20,15 +23,14 @@ impl Config {
 		let mut builder = Self::builder().env();
 
 		let mut global_candidates = Vec::new();
-		let mut global_root: Option<PathBuf> = None;
-		if let Some(home_path) = home {
+		let global_root: Option<PathBuf> = home.map(|home_path| {
 			global_candidates.push(home_path.join("biwa"));
 			global_candidates.push(home_path.join(".biwa"));
 			let config_home = xdg.cloned().unwrap_or_else(|| home_path.join(".config"));
 			global_candidates.push(config_home.join("biwa/config"));
 			// All global configs should resolve relative paths from the home dir (~)
-			global_root = Some(home_path.clone());
-		}
+			home_path.clone()
+		});
 
 		if let Some(cwd_path) = cwd {
 			let mut current = Some(cwd_path.as_path());
@@ -91,13 +93,14 @@ impl Config {
 		Ok(config)
 	}
 
+	/// Loads a specific partial configuration file based on format.
 	fn load_partial(
 		path: &Path,
 		format: ConfigFormat,
 		config_root: &Path,
-	) -> Result<<Self as confique::Config>::Partial> {
-		let content = std::fs::read_to_string(path).wrap_err("Failed to read config file")?;
-		let mut partial: <Self as confique::Config>::Partial = match format {
+	) -> Result<<Self as confique::Config>::Layer> {
+		let content = fs::read_to_string(path).wrap_err("Failed to read config file")?;
+		let mut partial: <Self as confique::Config>::Layer = match format {
 			ConfigFormat::Toml => toml::from_str(&content).wrap_err("Failed to parse TOML")?,
 			ConfigFormat::Yaml => {
 				serde_yaml::from_str(&content).wrap_err("Failed to parse YAML")?
@@ -112,7 +115,8 @@ impl Config {
 		Ok(partial)
 	}
 
-	fn resolve_paths_partial(partial: &mut <Self as confique::Config>::Partial, root: &Path) {
+	/// Resolves any relative paths within the configuration layer to be absolute based on the root path.
+	fn resolve_paths_partial(partial: &mut <Self as confique::Config>::Layer, root: &Path) {
 		let resolve = |path_opt: &mut Option<PathBuf>| {
 			if let Some(path) = path_opt {
 				*path = expand_tilde(path);
@@ -126,6 +130,8 @@ impl Config {
 		resolve(&mut partial.sync.remote_root);
 	}
 
+	/// Returns a string template of the default configuration for the specific format.
+	#[expect(clippy::absolute_paths, reason = "use will be confusing here")]
 	pub fn template(format: ConfigFormat) -> String {
 		match format {
 			ConfigFormat::Toml => {
@@ -141,6 +147,7 @@ impl Config {
 	}
 }
 
+/// Expands a tilde (`~`) at the start of a path to the user's home directory.
 fn expand_tilde(path: &Path) -> PathBuf {
 	if let Some(home) = homedir::my_home().ok().flatten()
 		&& let Some(s) = path.to_str()
@@ -155,6 +162,7 @@ fn expand_tilde(path: &Path) -> PathBuf {
 	path.to_path_buf()
 }
 
+/// Tries to find exactly one config file from base path list. Errors on multiple files.
 fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, ConfigFormat)>> {
 	let mut found = Vec::new();
 
@@ -191,6 +199,7 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use assert_matches::assert_matches;
 	use pretty_assertions::assert_eq;
 	use rstest::rstest;
 	use std::fs;
@@ -200,7 +209,7 @@ mod tests {
 	static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 	#[test]
-	fn test_default() {
+	fn default() {
 		let config = Config::default();
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
@@ -209,226 +218,319 @@ mod tests {
 	}
 
 	#[test]
-	fn test_env_override() {
+	fn env_override() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
 
 		// Set env var override
+		// SAFETY: This is a single-threaded test context modifying the environment for current process.
+		// `TEST_MUTEX` enforces serialized test execution to guarantee no race conditions.
 		unsafe {
-			std::env::set_var("BIWA_SSH_HOST", "env");
-			std::env::set_var("BIWA_SSH_PORT", "8080");
+			env::set_var("BIWA_SSH_HOST", "env");
+			env::set_var("BIWA_SSH_PORT", "8080");
 		}
 
 		// Ensure cleanup
 		let _cleanup1 = EnvCleanup("BIWA_SSH_HOST");
 		let _cleanup2 = EnvCleanup("BIWA_SSH_PORT");
 
-		let config = Config::load_internal(
-			Some(&dir.path().to_path_buf()),
-			None,
-			Some(&dir.path().to_path_buf()),
-		)
-		.unwrap();
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
+			.expect("Failed to load config");
 
-		assert_eq!(config.ssh.host, "env"); // Env overrides file
-		assert_eq!(config.ssh.port, 8080); // Env override works
+		assert_eq!(config.ssh.host, "env");
+		assert_eq!(config.ssh.port, 8080);
 	}
 
 	struct EnvCleanup(&'static str);
 	impl Drop for EnvCleanup {
 		fn drop(&mut self) {
+			// SAFETY: Similar to set_var, no race conditions within tests as tests are serialized via `TEST_MUTEX`.
 			unsafe {
-				std::env::remove_var(self.0);
+				env::remove_var(self.0);
 			}
 		}
 	}
 
 	#[test]
-	fn test_strict_global_config() {
-		let dir = tempdir().unwrap();
-		fs::write(dir.path().join("biwa.toml"), "ssh.port = 2222").unwrap();
-
-		let config = Config::load_internal(Some(&dir.path().to_path_buf()), None, None).unwrap();
-		assert_eq!(config.ssh.port, 2222);
-
-		// Now write a competing global config format
-		fs::write(dir.path().join("biwa.json"), r#"{"ssh": {"port": 3333}}"#).unwrap();
-		let result = Config::load_internal(Some(&dir.path().to_path_buf()), None, None);
-		assert!(
-			result.is_err(),
-			"Expected error due to multiple global configs"
-		);
-	}
-
-	#[test]
-	fn test_strict_local_config() {
-		let home = tempdir().unwrap();
-		let cwd = tempdir().unwrap();
-
-		fs::write(cwd.path().join("biwa.yaml"), "ssh:\n  port: 2222").unwrap();
-
-		let config = Config::load_internal(
-			Some(&home.path().to_path_buf()),
-			None,
-			Some(&cwd.path().to_path_buf()),
-		)
-		.unwrap();
-		assert_eq!(config.ssh.port, 2222);
-
-		// Now write a competing local config format
-		fs::write(cwd.path().join("biwa.json"), r#"{"ssh": {"port": 3333}}"#).unwrap();
-		let result = Config::load_internal(
-			Some(&home.path().to_path_buf()),
-			None,
-			Some(&cwd.path().to_path_buf()),
-		);
-		assert!(
-			result.is_err(),
-			"Expected error due to multiple local configs"
-		);
-	}
-
-	#[test]
-	fn test_nested_within_dot_config() {
-		let cwd = tempdir().unwrap();
-		let dot_config = cwd.path().join(".config");
-		fs::create_dir_all(&dot_config).unwrap();
-
-		fs::write(cwd.path().join("biwa.toml"), "ssh.port = 2222").unwrap();
-		fs::write(dot_config.join("biwa.toml"), "ssh.port = 3333").unwrap();
-
-		// If a hierarchy exists like .config/biwa.toml alongside biwa.toml
-		// .config/biwa.toml has HIGHER precedence initially since it's deeper,
-		// but find_single_config checks them sequentially in scope order.
-		let result = Config::load_internal(None, None, Some(&cwd.path().to_path_buf()));
-		assert!(
-			result.is_err(),
-			"Expected error because biwa.toml and .config/biwa.toml are both valid base paths in the same workspace local scope."
-		);
+	fn snapshot() {
+		let config = Config::default();
+		insta::assert_json_snapshot!(config, @r#"
+		{
+		  "ssh": {
+		    "host": "cse.unsw.edu.au",
+		    "port": 22,
+		    "user": "z1234567",
+		    "key_path": null,
+		    "password": false
+		  },
+		  "sync": {
+		    "remote_root": "~/.cache/biwa/projects",
+		    "ignore_files": [
+		      ".git",
+		      "target",
+		      "node_modules"
+		    ]
+		  },
+		  "env": {
+		    "vars": []
+		  },
+		  "hooks": {
+		    "pre_sync": null,
+		    "post_sync": null
+		  },
+		  "log": {
+		    "quiet": false,
+		    "silent": false
+		  }
+		}
+		"#);
 	}
 
 	#[rstest]
-	#[case(true)]
-	#[case(false)]
-	fn test_xdg_precedence(#[case] use_custom_xdg: bool) {
-		let home = tempdir().unwrap();
-		let custom_xdg = tempdir().unwrap();
+	#[case::toml("ssh.host = 'toml'", "toml", "toml")]
+	#[case::json(r#"{ "ssh": { "host": "json" } }"#, "json", "json")]
+	#[case::json5("{ ssh: { host: 'json5' } }", "json5", "json5")]
+	#[case::yaml("ssh:\n  host: yaml", "yaml", "yaml")]
+	fn format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let file_path = dir.path().join(format!("biwa.{ext}"));
+		fs::write(&file_path, content).unwrap();
 
-		// Put identical biwa/config files in both ~/.config and custom XDG
-		let default_config_dir = home.path().join(".config").join("biwa");
-		fs::create_dir_all(&default_config_dir).unwrap();
-		fs::write(default_config_dir.join("config.toml"), "ssh.port = 2222").unwrap();
-
-		let custom_config_dir = custom_xdg.path().join("biwa");
-		fs::create_dir_all(&custom_config_dir).unwrap();
-		fs::write(custom_config_dir.join("config.toml"), "ssh.port = 3333").unwrap();
-
-		let xdg_path = if use_custom_xdg {
-			Some(custom_xdg.path().to_path_buf())
-		} else {
-			None
-		};
-
-		let config =
-			Config::load_internal(Some(&home.path().to_path_buf()), xdg_path.as_ref(), None)
-				.unwrap();
-
-		if use_custom_xdg {
-			assert_eq!(config.ssh.port, 3333);
-		} else {
-			assert_eq!(config.ssh.port, 2222);
-		}
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
+			.expect("Failed to load config");
+		assert_eq!(config.ssh.host, expected);
 	}
 
 	#[test]
-	fn test_traversal_precedence() {
-		let home = tempdir().unwrap();
-		let outer = tempdir().unwrap();
-		let inner = outer.path().join("inner");
-		fs::create_dir_all(&inner).unwrap();
+	fn traversal_precedence() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let root = dir.path();
+		let subdir = root.join("subdir");
+		let nested = subdir.join("nested");
+		fs::create_dir_all(&nested).unwrap();
 
-		fs::write(outer.path().join("biwa.toml"), "ssh.port = 2222").unwrap();
-		fs::write(inner.join("biwa.toml"), "ssh.port = 3333").unwrap();
+		fs::write(root.join("biwa.toml"), r#"ssh.host = "root""#).unwrap();
+		fs::write(subdir.join("biwa.toml"), r#"ssh.host = "subdir""#).unwrap();
 
-		let config =
-			Config::load_internal(Some(&home.path().to_path_buf()), None, Some(&inner.clone()))
-				.unwrap();
-		assert_eq!(
-			config.ssh.port, 3333,
-			"Deeper config should override shallower"
-		);
+		let config = Config::load_internal(None, None, Some(nested).as_ref())
+			.expect("Failed to load config");
+		assert_eq!(config.ssh.host, "subdir");
 	}
 
 	#[test]
-	fn test_traversal_stops_at_home() {
-		// Mock home dir that is inside another tempdir
-		let super_home = tempdir().unwrap();
-		let home = super_home.path().join("user");
+	fn traversal_stops_at_home() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let root = dir.path();
+		let home = root.join("home");
+		let project = home.join("project");
+		fs::create_dir_all(&project).unwrap();
+
+		// Config in root (parent of home) - should NOT be loaded if traversal stops at home
+		fs::write(root.join("biwa.toml"), r#"ssh.host = "outside""#).unwrap();
+
+		// We need to initialize the home dir so it's a valid path for test logic if needed
 		fs::create_dir_all(&home).unwrap();
 
-		// Config outside home SHOULD NOT be loaded
-		fs::write(super_home.path().join("biwa.toml"), "ssh.port = 2222").unwrap();
+		let config = Config::load_internal(Some(&home), None, Some(&project))
+			.expect("Failed to load config");
 
-		let config = Config::load_internal(Some(&home.clone()), None, Some(&home.clone())).unwrap();
-		assert_eq!(
-			config.ssh.port, 22,
-			"Config outside home directory should be ignored"
-		);
+		assert_ne!(config.ssh.host, "outside");
+		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 	}
 
 	#[test]
-	fn test_local_dot_config_support() {
-		let home = tempdir().unwrap();
-		let cwd = tempdir().unwrap();
-		let dot_config = cwd.path().join(".config");
-		fs::create_dir(&dot_config).unwrap();
-
-		// Make sure it loads biwa.toml from .config/biwa.toml
-		fs::write(dot_config.join("biwa.toml"), "ssh.port = 4444").unwrap();
-
-		let config = Config::load_internal(
-			Some(&home.path().to_path_buf()),
-			None,
-			Some(&cwd.path().to_path_buf()),
-		)
-		.unwrap();
-		assert_eq!(
-			config.ssh.port, 4444,
-			"Should load `.config/biwa.toml` as a valid local config candidate"
-		);
-	}
-
-	#[test]
-	fn test_relative_key_path_resolved_against_source_config() {
+	fn xdg_precedence() {
 		let _guard = TEST_MUTEX.lock().unwrap();
-		// Layout:
-		//   /parent/biwa.toml       -> sets ssh.key_path = "my_key"
-		//   /parent/my_key          -> the key file
-		//   /parent/child/biwa.toml -> overrides ssh.host only
-		let parent = tempdir().unwrap();
-		let child = parent.path().join("child");
-		fs::create_dir_all(&child).unwrap();
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		let config_home = home.join(".config");
+		fs::create_dir_all(config_home.join("biwa")).unwrap();
 
-		fs::write(
-			parent.path().join("biwa.toml"),
-			"[ssh]\nkey_path = \"my_key\"\n",
-		)
-		.unwrap();
-		fs::write(parent.path().join("my_key"), "fake key").unwrap();
-		fs::write(child.join("biwa.toml"), "[ssh]\nhost = \"other.host\"\n").unwrap();
+		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#).unwrap();
+
+		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)
+			.expect("Failed to load config");
+		assert_eq!(config.ssh.host, "xdg");
+	}
+
+	#[test]
+	fn cwd_is_dot_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let project = dir.path().join("project");
+		let dot_config = project.join(".config");
+		let biwa_dir = dot_config.join("biwa");
+		fs::create_dir_all(&biwa_dir).unwrap();
+
+		// Standard config locatable from 'project' layer
+		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "standard""#).unwrap();
+
+		// Weird config only locatable if '.config' is a layer
+		fs::write(dot_config.join(".biwa.toml"), r#"ssh.host = "weird""#).unwrap();
+
+		// CWD is .config
+		let config =
+			Config::load_internal(None, None, Some(&dot_config)).expect("Failed to load config");
+
+		// Should skip .config layer and only use project layer -> "standard"
+		assert_eq!(config.ssh.host, "standard");
+	}
+
+	#[test]
+	fn nested_within_dot_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let project = dir.path().join("project");
+		let dot_config = project.join(".config");
+		let subdir = dot_config.join("subdir");
+		fs::create_dir_all(&subdir).unwrap();
+
+		// A config file that would ONLY be found if we treat '.config' as a project layer
+		// layer '.config' -> candidates: .config/biwa, .config/.biwa, ...
+		// matches .config/.biwa.toml
+		//
+		// layer 'project' -> candidates: project/biwa, project/.biwa, project/.config/biwa
+		// does NOT match project/.config/.biwa.toml (only .config/biwa)
+		fs::write(dot_config.join(".biwa.toml"), r#"ssh.host = "weird""#).unwrap();
 
 		let config =
-			Config::load_internal(None, None, Some(&child)).expect("failed to load config");
+			Config::load_internal(None, None, Some(&subdir)).expect("Failed to load config");
 
-		// key_path should be resolved to parent/my_key, not child/my_key
-		let resolved = config.ssh.key_path.expect("key_path should be set");
-		let expected = parent.path().join("my_key");
-		assert_eq!(resolved, expected);
+		// Should NOT load "weird" because .config dir should be skipped as a layer
+		assert_ne!(config.ssh.host, "weird");
+		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 	}
 
 	#[test]
-	fn test_nested_path_resolution() {
+	fn strict_global_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		let config_home = home.join(".config");
+		fs::create_dir_all(config_home.join("biwa")).unwrap();
+
+		// Multiple global configs should fail
+		fs::write(home.join("biwa.toml"), r#"ssh.host = "home""#).unwrap();
+		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#).unwrap();
+
+		let result = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None);
+		assert_matches!(result, Err(_));
+	}
+
+	#[test]
+	fn strict_local_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		// Multiple local configs in same dir should fail
+		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "toml""#).unwrap();
+		fs::write(
+			dir.path().join(".biwa.json"),
+			r#"{"ssh": {"host": "json"}}"#,
+		)
+		.unwrap();
+
+		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		assert_matches!(result, Err(_));
+	}
+
+	#[test]
+	fn conflict_root_and_dot_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		// Test multiple "local" configs (one within .config) should fail
+		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "root""#).unwrap();
+
+		let dot_config = dir.path().join(".config");
+		fs::create_dir_all(&dot_config).unwrap();
+		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "dotconfig""#).unwrap();
+
+		// Should error because we found >1 config for the same dir scope
+		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		assert_matches!(result, Err(_));
+	}
+
+	#[test]
+	fn local_dot_config_support() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let dot_config = dir.path().join(".config");
+		fs::create_dir_all(&dot_config).unwrap();
+
+		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "dotconfig""#).unwrap();
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
+			.expect("Failed to load config");
+		assert_eq!(config.ssh.host, "dotconfig");
+	}
+
+	#[test]
+	fn ignored_xdg_biwa_biwa() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let home = dir.path().join("home");
+		let config_home = home.join(".config");
+		fs::create_dir_all(config_home.join("biwa")).unwrap();
+
+		// This should be ignored: ~/.config/biwa/biwa.toml
+		fs::write(
+			config_home.join("biwa/biwa.toml"),
+			r#"ssh.host = "ignored""#,
+		)
+		.unwrap();
+
+		// This is a valid global config: ~/biwa.toml
+		// We use this to verify that the other one was indeed ignored and didn't conflict/override.
+		fs::write(home.join("biwa.toml"), r#"ssh.host = "fallback""#).unwrap();
+
+		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)
+			.expect("Failed to load config");
+
+		// Should load "fallback", NOT "ignored"
+		assert_eq!(config.ssh.host, "fallback");
+	}
+
+	#[test]
+	fn find_single_config_logic() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let dir = tempdir().unwrap();
+		let root = dir.path();
+
+		// 1. No config
+		let result = find_single_config(&[root.join("biwa")]);
+		assert!(result.unwrap().is_none());
+
+		// 2. Single config
+		fs::write(root.join("biwa.toml"), "").unwrap();
+		let result = find_single_config(&[root.join("biwa")]);
+		let (path, format) = result.unwrap().unwrap();
+		assert_eq!(path, root.join("biwa.toml"));
+		assert_eq!(format, ConfigFormat::Toml);
+
+		// 3. Multiple formats for same base -> Error (Strictness)
+		// Note: find_single_config logic checks across extensions for a single base too?
+		// "Multiple configuration files found in the same scope"
+		fs::write(root.join("biwa.json"), "{}").unwrap();
+		let result = find_single_config(&[root.join("biwa")]);
+		assert_matches!(result, Err(_));
+
+		// Cleanup for next check
+		fs::remove_file(root.join("biwa.toml")).unwrap();
+		fs::remove_file(root.join("biwa.json")).unwrap();
+
+		// 4. Multiple bases in list -> Error if both exist
+		// e.g. biwa.toml and .biwa.toml
+		fs::write(root.join("biwa.toml"), "").unwrap();
+		fs::write(root.join(".biwa.toml"), "").unwrap();
+		let result = find_single_config(&[root.join("biwa"), root.join(".biwa")]);
+		assert_matches!(result, Err(_));
+	}
+
+	#[test]
+	fn nested_path_resolution() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
@@ -472,7 +574,7 @@ host = "child"
 	}
 
 	#[test]
-	fn test_local_config_root_dot_config_biwa() {
+	fn local_config_root_dot_config_biwa() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
@@ -501,7 +603,7 @@ remote_root = "libs"
 	}
 
 	#[test]
-	fn test_global_config_root_home_and_xdg() {
+	fn global_config_root_home_and_xdg() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
@@ -547,6 +649,63 @@ remote_root = "xdg_libs"
 			home.join("xdg_libs"),
 			"global remote_root from ~/.config/biwa/config.toml should be resolved relative to ~"
 		);
+	}
+
+	#[test]
+	fn test_strict_local_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		let home = tempdir().unwrap();
+		let cwd = tempdir().unwrap();
+
+		fs::write(cwd.path().join("biwa.yaml"), "ssh:\n  port: 2222").unwrap();
+
+		let config = Config::load_internal(
+			Some(&home.path().to_path_buf()),
+			None,
+			Some(&cwd.path().to_path_buf()),
+		)
+		.unwrap();
+		assert_eq!(config.ssh.port, 2222);
+
+		// Now write a competing local config format
+		fs::write(cwd.path().join("biwa.json"), r#"{"ssh": {"port": 3333}}"#).unwrap();
+		let result = Config::load_internal(
+			Some(&home.path().to_path_buf()),
+			None,
+			Some(&cwd.path().to_path_buf()),
+		);
+		assert!(
+			result.is_err(),
+			"Expected error due to multiple local configs"
+		);
+	}
+
+	#[test]
+	fn test_relative_key_path_resolved_against_source_config() {
+		let _guard = TEST_MUTEX.lock().unwrap();
+		// Layout:
+		//   /parent/biwa.toml       -> sets ssh.key_path = "my_key"
+		//   /parent/my_key          -> the key file
+		//   /parent/child/biwa.toml -> overrides ssh.host only
+		let parent = tempdir().unwrap();
+		let child = parent.path().join("child");
+		fs::create_dir_all(&child).unwrap();
+
+		fs::write(
+			parent.path().join("biwa.toml"),
+			"[ssh]\nkey_path = \"my_key\"\n",
+		)
+		.unwrap();
+		fs::write(parent.path().join("my_key"), "fake key").unwrap();
+		fs::write(child.join("biwa.toml"), "[ssh]\nhost = \"other.host\"\n").unwrap();
+
+		let config =
+			Config::load_internal(None, None, Some(&child)).expect("failed to load config");
+
+		// key_path should be resolved to parent/my_key, not child/my_key
+		let resolved = config.ssh.key_path.expect("key_path should be set");
+		let expected = parent.path().join("my_key");
+		assert_eq!(resolved, expected);
 	}
 
 	#[test]
@@ -602,13 +761,13 @@ remote_root = "xdg_libs"
 		fs::write(
 			&path,
 			r#"
-		{
-			// This is a comment
-			"ssh": {
-				"port": 2222,
+			{
+				// This is a comment
+				"ssh": {
+					"port": 2222,
+				}
 			}
-		}
-		"#,
+			"#,
 		)
 		.unwrap();
 

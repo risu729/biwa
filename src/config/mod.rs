@@ -1,4 +1,6 @@
+/// Formats available for configuration files.
 pub mod format;
+/// Module for loading configurations from different sources.
 mod load;
-pub use types::*;
+/// Types for the configuration elements.
 pub mod types;

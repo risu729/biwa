@@ -1,5 +1,5 @@
 use super::auth::resolve_auth;
-use crate::config::Config;
+use crate::config::types::Config;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use console::style;
 use eyre::{Context, bail};

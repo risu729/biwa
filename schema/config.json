@@ -1,21 +1,26 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Config",
+  "description": "Root configuration struct for biwa.",
   "type": "object",
   "properties": {
     "env": {
+      "description": "Environment variables configuration.",
       "$ref": "#/$defs/EnvConfig"
     },
     "hooks": {
+      "description": "Lifecycle hooks for synchronization.",
       "$ref": "#/$defs/HooksConfig"
     },
     "log": {
       "$ref": "#/$defs/LogConfig"
     },
     "ssh": {
+      "description": "SSH connection configuration.",
       "$ref": "#/$defs/SshConfig"
     },
     "sync": {
+      "description": "Remote synchronization configuration.",
       "$ref": "#/$defs/SyncConfig"
     }
   },
@@ -28,9 +33,11 @@
   ],
   "$defs": {
     "EnvConfig": {
+      "description": "Environment settings.",
       "type": "object",
       "properties": {
         "vars": {
+          "description": "Environment variable keys to inherit/send.",
           "type": "array",
           "items": {
             "type": "string"
@@ -42,15 +49,18 @@
       ]
     },
     "HooksConfig": {
+      "description": "Hook settings.",
       "type": "object",
       "properties": {
         "post_sync": {
+          "description": "Command to run after synchronization.",
           "type": [
             "string",
             "null"
           ]
         },
         "pre_sync": {
+          "description": "Command to run before synchronization.",
           "type": [
             "string",
             "null"
@@ -89,12 +99,15 @@
       ]
     },
     "SshConfig": {
+      "description": "SSH connection settings.",
       "type": "object",
       "properties": {
         "host": {
+          "description": "Hostname or IP address of the remote host.",
           "type": "string"
         },
         "key_path": {
+          "description": "Optional path to the SSH private key.",
           "type": [
             "string",
             "null"
@@ -105,12 +118,14 @@
           "$ref": "#/$defs/PasswordConfig"
         },
         "port": {
+          "description": "Port to connect to on the remote host.",
           "type": "integer",
           "format": "uint16",
           "maximum": 65535,
           "minimum": 0
         },
         "user": {
+          "description": "Username for the SSH connection.",
           "type": "string"
         }
       },
@@ -122,15 +137,18 @@
       ]
     },
     "SyncConfig": {
+      "description": "Synchronization settings.",
       "type": "object",
       "properties": {
         "ignore_files": {
+          "description": "Files and directories to ignore during synchronization.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "remote_root": {
+          "description": "Remote directory to sync the project to.",
           "type": "string"
         }
       },

@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::types::Config;
 use crate::config::types::PasswordConfig;
 use async_ssh2_tokio::client::AuthMethod;
 use dialoguer::Password;

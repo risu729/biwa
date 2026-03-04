@@ -1,14 +1,25 @@
-#![warn(clippy::all, clippy::pedantic, clippy::cargo)]
+#![cfg_attr(
+	test,
+	allow(clippy::unwrap_used, reason = "too verbose to use expect in tests")
+)]
+#![cfg_attr(
+	test,
+	allow(
+		clippy::shadow_unrelated,
+		reason = "some tests have repeated variable names"
+	)
+)]
 
-pub use eyre::Result;
-
+/// CLI commands and parsing.
 mod cli;
+/// Configuration loading and definitions.
 mod config;
+/// SSH execution logic.
 mod ssh;
 mod ui;
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> eyre::Result<()> {
 	cli::run().await?;
 	Ok(())
 }
