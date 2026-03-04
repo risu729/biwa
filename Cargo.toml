@@ -42,9 +42,52 @@ inherits = "release"
 lto = "thin"
 
 [lints.clippy]
-pedantic = "warn"
-nursery = "warn"
-cargo = "warn"
-# restriction group
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
 # ref: https://rust-lang.github.io/rust-clippy/master/?groups=restriction
-# restriction = "warn"
+restriction = { level = "warn", priority = -1 }
+default_numeric_fallback = "allow"
+default_union_representation = "allow"
+# We don't need to care about breaking changes in non-public APIs
+exhaustive_enums = "allow"
+exhaustive_structs = "allow"
+# We can panic if the error is unrecoverable
+expect_used = "allow"
+# We don't develop neither embedded systems nor kernel
+float_arithmetic = "allow"
+# Conflicts with `indexing_slicing`
+get_unwrap = "allow"
+# We prefer idiomatic Rust code
+implicit_return = "allow"
+# We allow single char identifiers for brevity
+min_ident_chars = "allow"
+# We shouldn't enable globally
+missing_trait_methods = "allow"
+# Conflicts with `self_named_module_files`
+mod_module_files = "allow"
+# We live in the 2020s
+non_ascii_literal = "allow"
+# We can rely on Match Ergonomics
+pattern_type_mismatch = "allow"
+# CLI needs to print to stderr and stdout
+print_stderr = "allow"
+print_stdout = "allow"
+# Conflicts with `pub_without_shorthand`
+pub_with_shorthand = "allow"
+# We can use `?` operator
+question_mark_used = "allow"
+# Conflicts with `semicolon_inside_block`
+semicolon_outside_block = "allow"
+# Conflicts with `unseparated_literal_suffix`
+separated_literal_suffix = "allow"
+# We like shadowing
+shadow_reuse = "allow"
+# We prefer to split into multiple functions
+single_call_fn = "allow"
+# Single char lifetime names are more idiomatic
+single_char_lifetime_names = "allow"
+# mut String is worse than String + "..."
+string_add = "allow"
+# We have some unimplemented features
+unimplemented = "allow"
