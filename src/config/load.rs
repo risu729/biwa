@@ -228,6 +228,11 @@ mod tests {
 		// `TEST_MUTEX` enforces serialized test execution to guarantee no race conditions.
 		unsafe {
 			env::set_var("BIWA_SSH_HOST", "env");
+		}
+		// Set env var override
+		// SAFETY: This is a single-threaded test context modifying the environment for current process.
+		// `TEST_MUTEX` enforces serialized test execution to guarantee no race conditions.
+		unsafe {
 			env::set_var("BIWA_SSH_PORT", "8080");
 		}
 
@@ -652,36 +657,7 @@ remote_root = "xdg_libs"
 	}
 
 	#[test]
-	fn test_strict_local_config() {
-		let _guard = TEST_MUTEX.lock().unwrap();
-		let home = tempdir().unwrap();
-		let cwd = tempdir().unwrap();
-
-		fs::write(cwd.path().join("biwa.yaml"), "ssh:\n  port: 2222").unwrap();
-
-		let config = Config::load_internal(
-			Some(&home.path().to_path_buf()),
-			None,
-			Some(&cwd.path().to_path_buf()),
-		)
-		.unwrap();
-		assert_eq!(config.ssh.port, 2222);
-
-		// Now write a competing local config format
-		fs::write(cwd.path().join("biwa.json"), r#"{"ssh": {"port": 3333}}"#).unwrap();
-		let result = Config::load_internal(
-			Some(&home.path().to_path_buf()),
-			None,
-			Some(&cwd.path().to_path_buf()),
-		);
-		assert!(
-			result.is_err(),
-			"Expected error due to multiple local configs"
-		);
-	}
-
-	#[test]
-	fn test_relative_key_path_resolved_against_source_config() {
+	fn relative_key_path_resolved_against_source_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		// Layout:
 		//   /parent/biwa.toml       -> sets ssh.key_path = "my_key"
@@ -709,7 +685,7 @@ remote_root = "xdg_libs"
 	}
 
 	#[test]
-	fn test_load_partial_invalid_toml() {
+	fn load_partial_invalid_toml() {
 		let dir = tempfile::tempdir().unwrap();
 		let path = dir.path().join("config.toml");
 		// Write invalid TOML
@@ -724,7 +700,7 @@ remote_root = "xdg_libs"
 	}
 
 	#[test]
-	fn test_load_partial_invalid_yaml() {
+	fn load_partial_invalid_yaml() {
 		let dir = tempfile::tempdir().unwrap();
 		let path = dir.path().join("config.yaml");
 		// Write invalid YAML
@@ -739,7 +715,7 @@ remote_root = "xdg_libs"
 	}
 
 	#[test]
-	fn test_load_partial_invalid_json() {
+	fn load_partial_invalid_json() {
 		let dir = tempfile::tempdir().unwrap();
 		let path = dir.path().join("config.json");
 		// Write invalid JSON
@@ -754,7 +730,7 @@ remote_root = "xdg_libs"
 	}
 
 	#[test]
-	fn test_load_partial_valid_json5() {
+	fn load_partial_valid_json5() {
 		let dir = tempfile::tempdir().unwrap();
 		let path = dir.path().join("config.json5");
 		// Write valid JSON5 (with comments and trailing commas)

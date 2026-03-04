@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead as _, BufReader, Read as _};
 
 fn biwa_cmd(args: &[&str]) -> duct::Expression {
 	let mut biwa = duct::cmd(env!("CARGO_BIN_EXE_biwa"), args);
@@ -12,7 +12,7 @@ fn biwa_cmd(args: &[&str]) -> duct::Expression {
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn test_e2e_run_command() {
+fn e2e_run_command() {
 	let output = biwa_cmd(&["run", "echo", "hello e2e from biwa"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
@@ -29,7 +29,7 @@ fn test_e2e_run_command() {
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn test_e2e_run_stdout_stderr() {
+fn e2e_run_stdout_stderr() {
 	let output = biwa_cmd(&["run", "--", "bash", "-c", "echo 'out'; echo 'err' >&2"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
@@ -42,13 +42,13 @@ fn test_e2e_run_stdout_stderr() {
 	let stderr = String::from_utf8_lossy(&output.stderr);
 
 	assert!(output.status.success());
-	assert!(stdout.contains("out"), "stdout: {}", stdout);
-	assert!(stderr.contains("err"), "stderr: {}", stderr);
+	assert!(stdout.contains("out"), "stdout: {stdout}");
+	assert!(stderr.contains("err"), "stderr: {stderr}");
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn test_e2e_run_streaming() {
+fn e2e_run_streaming() {
 	let mut reader = biwa_cmd(&[
 		"run",
 		"--",
@@ -78,7 +78,7 @@ fn test_e2e_run_streaming() {
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn test_e2e_run_quiet() {
+fn e2e_run_quiet() {
 	let output = biwa_cmd(&["--quiet", "run", "echo", "hello quiet"])
 		.stdout_capture()
 		.stderr_capture()
@@ -99,7 +99,7 @@ fn test_e2e_run_quiet() {
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn test_e2e_run_silent() {
+fn e2e_run_silent() {
 	let output = biwa_cmd(&["--silent", "run", "echo", "hello silent"])
 		.stdout_capture()
 		.stderr_capture()
@@ -111,13 +111,13 @@ fn test_e2e_run_silent() {
 	let stderr = String::from_utf8_lossy(&output.stderr);
 
 	assert!(output.status.success());
-	assert!(stdout.trim().is_empty(), "stdout was not empty: {}", stdout);
-	assert!(stderr.trim().is_empty(), "stderr was not empty: {}", stderr);
+	assert!(stdout.trim().is_empty(), "stdout was not empty: {stdout}");
+	assert!(stderr.trim().is_empty(), "stderr was not empty: {stderr}");
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn test_e2e_run_exit_code() {
+fn e2e_run_exit_code() {
 	let output = biwa_cmd(&["run", "--", "bash", "-c", "exit 42"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stderr_capture()

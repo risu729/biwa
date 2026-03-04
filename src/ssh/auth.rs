@@ -2,6 +2,7 @@ use crate::config::types::Config;
 use crate::config::types::PasswordConfig;
 use async_ssh2_tokio::client::AuthMethod;
 use dialoguer::Password;
+use std::env;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
@@ -76,7 +77,7 @@ fn try_agent() -> bool {
 		return false;
 	}
 
-	match std::env::var("SSH_AUTH_SOCK") {
+	match env::var("SSH_AUTH_SOCK") {
 		Ok(sock) if !sock.is_empty() => {
 			debug!(sock = %sock, "SSH agent socket found");
 			true
@@ -114,7 +115,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_resolve_default_key_path_explicit() {
+	fn resolve_default_key_path_explicit() {
 		let dir = tempfile::tempdir().unwrap();
 		let key_file = dir.path().join("my_key");
 		std::fs::write(&key_file, "fake key").unwrap();
@@ -123,11 +124,11 @@ mod tests {
 		config.ssh.key_path = Some(key_file);
 
 		let result = resolve_auth(&config);
-		assert!(result.is_ok());
+		result.unwrap();
 	}
 
 	#[test]
-	fn test_resolve_auth_missing_explicit_key_errors() {
+	fn resolve_auth_missing_explicit_key_errors() {
 		let mut config = Config::default();
 		config.ssh.key_path = Some(PathBuf::from("/nonexistent/path/key"));
 
@@ -138,25 +139,25 @@ mod tests {
 	}
 
 	#[test]
-	fn test_resolve_default_key_path_no_config() {
+	fn resolve_default_key_path_no_config() {
 		let _ = resolve_default_key_path();
 	}
 
 	#[test]
-	fn test_try_agent_checks_env() {
+	fn try_agent_checks_env() {
 		let _ = try_agent();
 	}
 
 	#[test]
-	fn test_password_config_string() {
+	fn password_config_string() {
 		let mut config = Config::default();
-		config.ssh.password = PasswordConfig::Value("secret".to_string());
+		config.ssh.password = PasswordConfig::Value("secret".to_owned());
 		let result = resolve_auth(&config);
-		assert!(result.is_ok());
+		result.unwrap();
 	}
 
 	#[test]
-	fn test_password_config_false() {
+	fn password_config_false() {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Interactive(false);
 		let _ = resolve_auth(&config);

@@ -27,7 +27,7 @@ description = "Run all linters and formatters. Set LINT=true to check formatting
 
 ["check:clippy"]
 run = [
-	"{% if env.LINT is undefined %}cargo clippy --fix --allow-dirty --allow-staged > /dev/null 2>&1{% endif %}",
+	"{% if env.LINT is undefined %}cargo clippy --fix --allow-dirty --allow-staged --all-targets > /dev/null 2>&1{% endif %}",
 	"cargo clippy --all-targets -- --deny warnings",
 ]
 description = "Run Clippy to lint Rust code."

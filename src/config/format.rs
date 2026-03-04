@@ -43,7 +43,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_all_formats() {
+	fn all_formats() {
 		let all = ConfigFormat::all();
 		assert_eq!(all.len(), 4);
 		assert!(all.contains(&ConfigFormat::Toml));
@@ -53,7 +53,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_extensions() {
+	fn extensions() {
 		assert_eq!(ConfigFormat::Toml.extensions(), &["toml"]);
 		assert_eq!(ConfigFormat::Yaml.extensions(), &["yaml", "yml"]);
 		assert_eq!(ConfigFormat::Json.extensions(), &["json"]);
@@ -61,7 +61,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_from_extension() {
+	fn from_extension() {
 		assert_eq!(
 			ConfigFormat::from_extension("toml"),
 			Some(ConfigFormat::Toml)

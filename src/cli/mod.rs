@@ -41,11 +41,11 @@ struct Cli {
 	#[arg(short, long, action = ArgAction::Count, global = true, verbatim_doc_comment)]
 	verbose: u8,
 
-	/// Suppress biwa internal logs, only showing remote command output
+	/// Suppress biwa internal logs, only showing remote command output.
 	#[arg(short, long, global = true)]
 	quiet: bool,
 
-	/// Suppress all output, including remote command stdout/stderr
+	/// Suppress all output, including remote command stdout/stderr.
 	#[arg(short, long, global = true)]
 	silent: bool,
 }
@@ -155,21 +155,21 @@ mod tests {
 	}
 
 	#[test]
-	fn test_cli_quiet() {
+	fn cli_quiet() {
 		let cli = Cli::parse_from(["biwa", "-q", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.run_command_args, vec!["ls"]);
 	}
 
 	#[test]
-	fn test_cli_quiet_long() {
+	fn cli_quiet_long() {
 		let cli = Cli::parse_from(["biwa", "--quiet", "run", "ls"]);
 		assert!(cli.quiet);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
 	}
 
 	#[test]
-	fn test_cli_quiet_with_verbose() {
+	fn cli_quiet_with_verbose() {
 		let cli = Cli::parse_from(["biwa", "-q", "-vv", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.verbose, 2);

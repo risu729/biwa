@@ -153,25 +153,25 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_build_command_no_args() {
+	fn build_command_no_args() {
 		assert_eq!(build_command("ls", &[]), "ls");
 	}
 
 	#[test]
-	fn test_build_command_with_args() {
-		let args = vec!["-la".to_string(), "/tmp".to_string()];
+	fn build_command_with_args() {
+		let args = vec!["-la".to_owned(), "/tmp".to_owned()];
 		assert_eq!(build_command("ls", &args), "ls -la /tmp");
 	}
 
 	#[test]
-	fn test_build_command_quotes_args_with_spaces() {
-		let args = vec!["hello world".to_string()];
+	fn build_command_quotes_args_with_spaces() {
+		let args = vec!["hello world".to_owned()];
 		assert_eq!(build_command("echo", &args), "echo 'hello world'");
 	}
 
 	#[test]
-	fn test_build_command_quotes_args_with_special_chars() {
-		let args = vec!["foo$bar".to_string()];
+	fn build_command_quotes_args_with_special_chars() {
+		let args = vec!["foo$bar".to_owned()];
 		assert_eq!(build_command("echo", &args), "echo 'foo$bar'");
 	}
 }
