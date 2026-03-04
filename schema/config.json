@@ -13,6 +13,7 @@
       "$ref": "#/$defs/HooksConfig"
     },
     "log": {
+      "description": "Logging configuration.",
       "$ref": "#/$defs/LogConfig"
     },
     "ssh": {
@@ -69,6 +70,7 @@
       }
     },
     "LogConfig": {
+      "description": "Logging configuration settings.",
       "type": "object",
       "properties": {
         "quiet": {
