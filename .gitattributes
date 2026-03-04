@@ -1,4 +1,4 @@
 * text=auto
 biwa.usage.kdl linguist-generated
 schema/config.json linguist-generated
-docs/src/cli/ linguist-generated
+docs/src/cli/** linguist-generated
