@@ -65,7 +65,7 @@ pub async fn execute_command(
 	quiet: bool,
 	silent: bool,
 ) -> eyre::Result<u32> {
-	let client = connect(config, silent).await?;
+	let client = connect(config, quiet || silent).await?;
 
 	let full_command = if args.is_empty() {
 		command.to_string()
