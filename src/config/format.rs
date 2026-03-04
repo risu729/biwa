@@ -7,11 +7,11 @@ pub enum ConfigFormat {
 }
 
 impl ConfigFormat {
-	pub fn all() -> &'static [Self] {
+	pub const fn all() -> &'static [Self] {
 		&[Self::Toml, Self::Yaml, Self::Json, Self::Json5]
 	}
 
-	pub fn extensions(self) -> &'static [&'static str] {
+	pub const fn extensions(self) -> &'static [&'static str] {
 		match self {
 			Self::Toml => &["toml"],
 			Self::Yaml => &["yaml", "yml"],

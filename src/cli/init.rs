@@ -85,16 +85,17 @@ fn quote_keys_for_jsonc(body: &str) -> String {
 			let indent_len = line.len() - trimmed.len();
 			let indent = &line[..indent_len];
 
-			let (prefix, content) = if let Some(comment_body) = trimmed.strip_prefix("//") {
-				let comment_trimmed = comment_body.trim_start();
-				let prefix_len = comment_body.len() - comment_trimmed.len();
-				(
-					format!("//{}", &comment_body[..prefix_len]),
-					comment_trimmed,
-				)
-			} else {
-				(String::new(), trimmed)
-			};
+			let (prefix, content) = trimmed.strip_prefix("//").map_or_else(
+				|| (String::new(), trimmed),
+				|comment_body| {
+					let comment_trimmed = comment_body.trim_start();
+					let prefix_len = comment_body.len() - comment_trimmed.len();
+					(
+						format!("//{}", &comment_body[..prefix_len]),
+						comment_trimmed,
+					)
+				},
+			);
 
 			if let Some(colon_idx) = content.find(':') {
 				let (key, rest) = content.split_at(colon_idx);

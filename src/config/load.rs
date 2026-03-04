@@ -20,15 +20,14 @@ impl Config {
 		let mut builder = Self::builder().env();
 
 		let mut global_candidates = Vec::new();
-		let mut global_root: Option<PathBuf> = None;
-		if let Some(home_path) = home {
+		let global_root: Option<PathBuf> = home.map(|home_path| {
 			global_candidates.push(home_path.join("biwa"));
 			global_candidates.push(home_path.join(".biwa"));
 			let config_home = xdg.cloned().unwrap_or_else(|| home_path.join(".config"));
 			global_candidates.push(config_home.join("biwa/config"));
 			// All global configs should resolve relative paths from the home dir (~)
-			global_root = Some(home_path.clone());
-		}
+			home_path.clone()
+		});
 
 		if let Some(cwd_path) = cwd {
 			let mut current = Some(cwd_path.as_path());

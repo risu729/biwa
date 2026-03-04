@@ -42,7 +42,7 @@ tempfile = "3.26.0"
 
 [lints.clippy]
 pedantic = "warn"
-# nursery = "warn"
+nursery = "warn"
 cargo = "warn"
 # restriction group
 # ref: https://rust-lang.github.io/rust-clippy/master/?groups=restriction
