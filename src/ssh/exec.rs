@@ -3,8 +3,6 @@ use crate::config::Config;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use console::style;
 use eyre::{Context, bail};
-use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
 use tracing::{debug, info};
 
 /// Connect to the SSH server using the resolved authentication method.
@@ -15,19 +13,10 @@ async fn connect(config: &Config, silent: bool) -> eyre::Result<Client> {
 	let spinner = if silent {
 		None
 	} else {
-		let sp = ProgressBar::new_spinner();
-		sp.set_style(
-			ProgressStyle::default_spinner()
-				.tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-				.template("{spinner:.cyan} {msg}")
-				.expect("invalid spinner template"),
-		);
-		sp.set_message(format!(
+		Some(crate::ui::create_spinner(format!(
 			"Connecting to {}@{}:{}...",
 			ssh.user, ssh.host, ssh.port
-		));
-		sp.enable_steady_tick(Duration::from_millis(80));
-		Some(sp)
+		)))
 	};
 
 	let client = Client::connect(

@@ -5,6 +5,7 @@ pub use eyre::Result;
 mod cli;
 mod config;
 mod ssh;
+mod ui;
 
 #[tokio::main]
 async fn main() -> Result<()> {
