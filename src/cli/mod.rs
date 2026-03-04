@@ -109,13 +109,6 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_cli_run_subcommand() {
-		let cli = Cli::parse_from(["biwa", "run", "ls", "-la"]);
-		assert!(matches!(cli.command, Some(Commands::Run(_))));
-		assert!(cli.run_command_args.is_empty());
-	}
-
-	#[test]
 	fn test_cli_implicit_run_command() {
 		let cli = Cli::parse_from(["biwa", "ls", "-la"]);
 		assert!(cli.command.is_none());

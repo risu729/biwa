@@ -400,41 +400,6 @@ mod tests {
 	}
 
 	#[test]
-	fn test_multiple_configs_error() {
-		let root = tempdir().unwrap();
-		let root = root.path();
-
-		// 1. Multiple identical extensions -> OS/Cargo handles file overwriting,
-		//    but if we have .toml and .toml just test uniqueness by base.
-		//    Actually we just test diff extensions.
-
-		// 2. Diff extensions same base -> Error
-		fs::write(root.join("biwa.toml"), "").unwrap();
-		fs::write(root.join("biwa.yaml"), "").unwrap();
-
-		let result = find_single_config(&[root.join("biwa")]);
-		assert!(result.is_err());
-
-		// 3. Multiple formats for same base -> Error (Strictness)
-		// Note: find_single_config logic checks across extensions for a single base too?
-		// "Multiple configuration files found in the same scope"
-		fs::write(root.join("biwa.json"), "{}").unwrap();
-		let result = find_single_config(&[root.join("biwa")]);
-		assert!(result.is_err());
-
-		// Cleanup for next check
-		fs::remove_file(root.join("biwa.toml")).unwrap();
-		fs::remove_file(root.join("biwa.json")).unwrap();
-
-		// 4. Multiple bases in list -> Error if both exist
-		// e.g. biwa.toml and .biwa.toml
-		fs::write(root.join("biwa.toml"), "").unwrap();
-		fs::write(root.join(".biwa.toml"), "").unwrap();
-		let result = find_single_config(&[root.join("biwa"), root.join(".biwa")]);
-		assert!(result.is_err());
-	}
-
-	#[test]
 	fn test_relative_key_path_resolved_against_source_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		// Layout:

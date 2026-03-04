@@ -29,6 +29,7 @@ mod tests {
 	#[test]
 	fn test_run_command() {
 		let args = Cli::parse_from(["biwa", "run", "ls", "-la"]);
+		assert!(args.run_command_args.is_empty());
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(run.command, "ls");
 			assert_eq!(run.command_args, vec!["-la"]);

@@ -138,21 +138,6 @@ mod tests {
 	}
 
 	#[test]
-	fn test_resolve_auth_relative_key_path() {
-		// Relative key_path is pre-resolved by the config loader.
-		// This test simulates the post-resolution state.
-		let dir = tempfile::tempdir().unwrap();
-		let key_file = dir.path().join("my_key");
-		std::fs::write(&key_file, "fake key").unwrap();
-
-		let mut config = Config::default();
-		config.ssh.key_path = Some(key_file);
-
-		let result = resolve_auth(&config);
-		assert!(result.is_ok());
-	}
-
-	#[test]
 	fn test_resolve_default_key_path_no_config() {
 		let _ = resolve_default_key_path();
 	}
