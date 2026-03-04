@@ -190,6 +190,7 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use assert_matches::assert_matches;
 	use pretty_assertions::assert_eq;
 	use rstest::rstest;
 	use std::fs;
@@ -397,7 +398,7 @@ mod tests {
 		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#).unwrap();
 
 		let result = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None);
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 	}
 
 	#[test]
@@ -413,7 +414,7 @@ mod tests {
 		.unwrap();
 
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 	}
 
 	#[test]
@@ -429,7 +430,7 @@ mod tests {
 
 		// Should error because we found >1 config for the same dir scope
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 	}
 
 	#[test]
@@ -494,7 +495,7 @@ mod tests {
 		// "Multiple configuration files found in the same scope"
 		fs::write(root.join("biwa.json"), "{}").unwrap();
 		let result = find_single_config(&[root.join("biwa")]);
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 
 		// Cleanup for next check
 		fs::remove_file(root.join("biwa.toml")).unwrap();
@@ -505,7 +506,7 @@ mod tests {
 		fs::write(root.join("biwa.toml"), "").unwrap();
 		fs::write(root.join(".biwa.toml"), "").unwrap();
 		let result = find_single_config(&[root.join("biwa"), root.join(".biwa")]);
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 	}
 
 	#[test]
