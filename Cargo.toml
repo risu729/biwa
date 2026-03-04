@@ -93,3 +93,6 @@ single_char_lifetime_names = "allow"
 string_add = "allow"
 # We have some unimplemented features
 unimplemented = "allow"
+
+# TODO: remove this after merging PRs to avoid conflicts
+arbitrary_source_item_ordering = "allow"

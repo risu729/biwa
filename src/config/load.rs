@@ -1,14 +1,15 @@
 use super::format::ConfigFormat;
 use super::types::Config;
 use confique::Config as _;
-use eyre::{Result, WrapErr};
+use eyre::{Result, WrapErr as _};
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 impl Config {
 	pub fn load() -> Result<Self> {
 		let home = homedir::my_home().ok().flatten();
-		let xdg = std::env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
-		let cwd = std::env::current_dir().ok();
+		let xdg = env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
+		let cwd = env::current_dir().ok();
 		Self::load_internal(home.as_ref(), xdg.as_ref(), cwd.as_ref())
 	}
 
@@ -95,7 +96,7 @@ impl Config {
 		format: ConfigFormat,
 		config_root: &Path,
 	) -> Result<<Self as confique::Config>::Layer> {
-		let content = std::fs::read_to_string(path).wrap_err("Failed to read config file")?;
+		let content = fs::read_to_string(path).wrap_err("Failed to read config file")?;
 		let mut partial: <Self as confique::Config>::Layer = match format {
 			ConfigFormat::Toml => toml::from_str(&content).wrap_err("Failed to parse TOML")?,
 			ConfigFormat::Yaml => {
@@ -125,6 +126,7 @@ impl Config {
 		resolve(&mut partial.sync.remote_root);
 	}
 
+	#[expect(clippy::absolute_paths, reason = "use will be confusing here")]
 	pub fn template(format: ConfigFormat) -> String {
 		match format {
 			ConfigFormat::Toml => {
@@ -200,7 +202,7 @@ mod tests {
 	static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 	#[test]
-	fn test_default() {
+	fn default() {
 		let config = Config::default();
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
@@ -209,14 +211,14 @@ mod tests {
 	}
 
 	#[test]
-	fn test_env_override() {
+	fn env_override() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
 
 		// Set env var override
 		unsafe {
-			std::env::set_var("BIWA_SSH_HOST", "env");
+			env::set_var("BIWA_SSH_HOST", "env");
 		}
 
 		// Ensure cleanup
@@ -232,13 +234,13 @@ mod tests {
 	impl Drop for EnvCleanup {
 		fn drop(&mut self) {
 			unsafe {
-				std::env::remove_var(self.0);
+				env::remove_var(self.0);
 			}
 		}
 	}
 
 	#[test]
-	fn test_snapshot() {
+	fn snapshot() {
 		let config = Config::default();
 		insta::assert_json_snapshot!(config, @r###"
   {
@@ -272,7 +274,7 @@ mod tests {
 	#[case::json(r#"{ "ssh": { "host": "json" } }"#, "json", "json")]
 	#[case::json5("{ ssh: { host: 'json5' } }", "json5", "json5")]
 	#[case::yaml("ssh:\n  host: yaml", "yaml", "yaml")]
-	fn test_format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
+	fn format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let file_path = dir.path().join(format!("biwa.{ext}"));
@@ -284,7 +286,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_traversal_precedence() {
+	fn traversal_precedence() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
@@ -301,7 +303,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_traversal_stops_at_home() {
+	fn traversal_stops_at_home() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
@@ -323,7 +325,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_xdg_precedence() {
+	fn xdg_precedence() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
@@ -338,7 +340,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_cwd_is_dot_config() {
+	fn cwd_is_dot_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
@@ -361,7 +363,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_nested_within_dot_config() {
+	fn nested_within_dot_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
@@ -386,7 +388,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_strict_global_config() {
+	fn strict_global_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
@@ -402,7 +404,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_strict_local_config() {
+	fn strict_local_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Multiple local configs in same dir should fail
@@ -418,7 +420,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_conflict_root_and_dot_config() {
+	fn conflict_root_and_dot_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Test multiple "local" configs (one within .config) should fail
@@ -434,7 +436,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_local_dot_config_support() {
+	fn local_dot_config_support() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let dot_config = dir.path().join(".config");
@@ -448,7 +450,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_ignored_xdg_biwa_biwa() {
+	fn ignored_xdg_biwa_biwa() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
@@ -474,7 +476,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_find_single_config_logic() {
+	fn find_single_config_logic() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
@@ -510,7 +512,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_nested_path_resolution() {
+	fn nested_path_resolution() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
@@ -554,7 +556,7 @@ host = "child"
 	}
 
 	#[test]
-	fn test_local_config_root_dot_config_biwa() {
+	fn local_config_root_dot_config_biwa() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
@@ -583,7 +585,7 @@ remote_root = "libs"
 	}
 
 	#[test]
-	fn test_global_config_root_home_and_xdg() {
+	fn global_config_root_home_and_xdg() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");

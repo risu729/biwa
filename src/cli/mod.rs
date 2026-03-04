@@ -1,4 +1,4 @@
-use crate::{Result, ssh::execute_command};
+use crate::{config::types::Config, ssh::execute_command};
 use clap::{ArgAction, Parser, Subcommand};
 use eyre::bail;
 use tracing::Level;
@@ -13,21 +13,25 @@ mod usage;
 #[command(version, about)]
 #[command(arg_required_else_help = true)]
 struct Cli {
-	/// The command to run on the remote host
+	/// The command to run on the remote host.
 	#[command(subcommand)]
 	command: Option<Commands>,
 
-	/// The arguments for the command to run on the remote host
+	/// The arguments for the command to run on the remote host.
 	#[arg(allow_hyphen_values = true, trailing_var_arg = true, hide = true)]
 	run_command_args: Vec<String>,
 
-	/// Set the verbosity level
+	/// Set the verbosity level.
 	///
 	/// Can be used multiple times to increase verbosity (e.g., -v, -vv, -vvv).
 	/// By default, only warnings and errors are shown.
 	/// -v: info
 	/// -vv: debug
 	/// -vvv: trace
+	#[expect(
+		clippy::doc_paragraphs_missing_punctuation,
+		reason = "no need to add period after the list of options"
+	)]
 	#[arg(short, long, action = ArgAction::Count, global = true, verbatim_doc_comment)]
 	verbose: u8,
 }
@@ -42,7 +46,7 @@ enum Commands {
 }
 
 impl Commands {
-	pub async fn run(self) -> Result<()> {
+	pub async fn run(self) -> eyre::Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run().await,
 			Self::Init(cmd) => cmd.run(),
@@ -53,7 +57,7 @@ impl Commands {
 	}
 }
 
-pub async fn run() -> Result<()> {
+pub async fn run() -> eyre::Result<()> {
 	let cli = Cli::parse();
 
 	let log_level = match cli.verbose {
@@ -71,11 +75,11 @@ pub async fn run() -> Result<()> {
 	if let Some(command) = cli.command {
 		command.run().await?;
 	} else if !cli.run_command_args.is_empty() {
-		let config = crate::config::Config::load()?;
+		let config = Config::load()?;
 		execute_command(
 			&config.ssh,
-			&cli.run_command_args[0],
-			&cli.run_command_args[1..],
+			cli.run_command_args.first().expect("Command is empty"),
+			cli.run_command_args.get(1..).expect("Arguments are empty"),
 		)
 		.await?;
 	} else {
@@ -89,21 +93,21 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_cli_run_subcommand() {
+	fn cli_run_subcommand() {
 		let cli = Cli::parse_from(["biwa", "run", "ls", "-la"]);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
 		assert!(cli.run_command_args.is_empty());
 	}
 
 	#[test]
-	fn test_cli_implicit_run_command() {
+	fn cli_implicit_run_command() {
 		let cli = Cli::parse_from(["biwa", "ls", "-la"]);
 		assert!(cli.command.is_none());
 		assert_eq!(cli.run_command_args, vec!["ls", "-la"]);
 	}
 
 	#[test]
-	fn test_cli_verbose() {
+	fn cli_verbose() {
 		let cli = Cli::parse_from(["biwa", "-v", "ls"]);
 		assert_eq!(cli.verbose, 1);
 
@@ -115,7 +119,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_cli_run_with_verbose() {
+	fn cli_run_with_verbose() {
 		let cli = Cli::parse_from(["biwa", "-vv", "run", "ls"]);
 		assert_eq!(cli.verbose, 2);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));

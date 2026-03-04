@@ -1,24 +1,24 @@
-use crate::{Result, config::format::ConfigFormat, config::types::Config};
+use crate::{config::format::ConfigFormat, config::types::Config};
 use clap::Args;
 use eyre::bail;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
 
-/// Initialize a new configuration file
+/// Initialize a new configuration file.
 #[derive(Args, Debug)]
 pub struct Init {
-	/// Force overwrite if file exists
+	/// Force overwrite if file exists.
 	#[arg(long, short)]
 	force: bool,
 
-	/// Format to generate (toml, json, jsonc, json5, yaml, yml)
+	/// Format to generate (toml, json, jsonc, json5, yaml, yml).
 	#[arg(long, default_value = "toml")]
 	format: String,
 }
 
 impl Init {
-	pub fn run(self) -> Result<()> {
+	pub fn run(self) -> eyre::Result<()> {
 		let (filename, content) = self.generate()?;
 		let path = Path::new(&filename);
 		if path.exists() && !self.force {
@@ -30,7 +30,7 @@ impl Init {
 		Ok(())
 	}
 
-	fn generate(&self) -> Result<(String, String)> {
+	fn generate(&self) -> eyre::Result<(String, String)> {
 		let filename = format!("biwa.{}", self.format.to_ascii_lowercase());
 		let schema_url = "https://biwa.takuk.me/schema/config.json";
 
@@ -50,7 +50,7 @@ impl Init {
 				let config = Config::default();
 				let mut value = serde_json::to_value(&config)?;
 				if let Some(obj) = value.as_object_mut() {
-					obj.insert("$schema".to_string(), json!(schema_url));
+					obj.insert("$schema".to_owned(), json!(schema_url));
 				}
 				serde_json::to_string_pretty(&value)?
 			}
@@ -77,38 +77,44 @@ impl Init {
 fn quote_keys_for_jsonc(body: &str) -> String {
 	body.lines()
 		.map(|line| {
-			let trimmed = line.trim_start();
+			let indent_len = line
+				.char_indices()
+				.find(|(_, c)| !c.is_whitespace())
+				.map_or(line.len(), |(i, _)| i);
+			let (indent, trimmed) = line.split_at(indent_len);
 			if trimmed.is_empty() {
-				return line.to_string();
+				return indent.to_owned();
 			}
 
-			let indent_len = line.len() - trimmed.len();
-			let indent = &line[..indent_len];
-
-			let (prefix, content) = trimmed.strip_prefix("//").map_or_else(
-				|| (String::new(), trimmed),
-				|comment_body| {
-					let comment_trimmed = comment_body.trim_start();
-					let prefix_len = comment_body.len() - comment_trimmed.len();
-					(
-						format!("//{}", &comment_body[..prefix_len]),
-						comment_trimmed,
-					)
-				},
-			);
+			let (prefix, content) =
+				trimmed
+					.strip_prefix("//")
+					.map_or((String::new(), trimmed), |comment_body| {
+						let comment_trimmed = comment_body.trim_start();
+						let prefix_len = comment_body.len().saturating_sub(comment_trimmed.len());
+						#[expect(
+							clippy::string_slice,
+							reason = "Index derived from length difference"
+						)]
+						let comment_prefix = &comment_body[..prefix_len];
+						(format!("//{comment_prefix}"), comment_trimmed)
+					});
 
 			if let Some(colon_idx) = content.find(':') {
 				let (key, rest) = content.split_at(colon_idx);
-				let is_simple_key = !key.starts_with('"')
+
+				let is_simple_key = !key.is_empty()
+					&& !key.starts_with('"')
 					&& key
 						.chars()
 						.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+
 				if is_simple_key {
-					return format!(r#"{indent}{prefix}"{key}"{rest}"#);
+					return format!("{indent}{prefix}\"{key}\"{rest}");
 				}
 			}
 
-			line.to_string()
+			line.to_owned()
 		})
 		.collect::<Vec<_>>()
 		.join("\n")
@@ -127,10 +133,10 @@ mod tests {
 	#[case("json5")]
 	#[case("yaml")]
 	#[case("yml")]
-	fn test_init_generate(#[case] format: &str) {
+	fn init_generate(#[case] format: &str) {
 		let init = Init {
 			force: false,
-			format: format.to_string(),
+			format: format.to_owned(),
 		};
 		let (filename, content) = init.generate().expect("Failed to generate");
 		assert_eq!(filename, format!("biwa.{format}"));

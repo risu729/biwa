@@ -1,3 +1,4 @@
+#[expect(clippy::module_name_repetitions, reason = "No other way to name this")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigFormat {
 	Toml,
