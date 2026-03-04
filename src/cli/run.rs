@@ -15,9 +15,8 @@ pub struct Run {
 }
 
 impl Run {
-	pub async fn run(self, quiet: bool, silent: bool) -> Result<()> {
-		let config = Config::load()?;
-		execute_command(&config, &self.command, &self.command_args, quiet, silent).await?;
+	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
+		execute_command(config, &self.command, &self.command_args, quiet, silent).await?;
 		Ok(())
 	}
 }

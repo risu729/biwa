@@ -22,9 +22,9 @@ biwa does not run natively on Windows. Please use [WSL2](https://learn.microsoft
     - `./.config/biwa.<ext>`
 
 ::: tip Relative Path Resolution
-Any relative paths specified in your configuration (such as `ssh.key_path`) are resolved relative to **the directory containing that specific configuration file**.
+Any relative paths specified in your configuration (such as `ssh.key_path`) are resolved relative to **the project root** (for local configurations) or **your home directory** (for global configurations).
 
-For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will look for the key at `./.config/id_rsa`, _not_ at the project root `./id_rsa`.
+For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will look for the key at the project root `./id_rsa`, _not_ at `./.config/id_rsa`.
 :::
 
 3.  **Environment Variables**:
@@ -54,7 +54,7 @@ For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will 
 | `password` | bool \| string | `false`             | `false`: disabled, `true`: interactive prompt, `"string"`: literal password |
 
 ::: warning Password in Config
-Storing your password in a configuration file is **not recommended** for security reasons. If you must use password authentication, prefer `password = true` for an interactive prompt or use environment variables (`BIWA_SSH__PASSWORD`).
+Storing your password in a configuration file is **not recommended** for security reasons. If you must use password authentication, prefer `password = true` for an interactive prompt or use environment variables (`BIWA_SSH_PASSWORD`).
 :::
 
 ### `[log]` — Log Output Settings

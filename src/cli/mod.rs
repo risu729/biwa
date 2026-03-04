@@ -50,9 +50,14 @@ enum Commands {
 }
 
 impl Commands {
-	pub async fn run(self, quiet: bool, silent: bool) -> Result<()> {
+	pub async fn run(
+		self,
+		config: &crate::config::Config,
+		quiet: bool,
+		silent: bool,
+	) -> Result<()> {
 		match self {
-			Self::Run(cmd) => cmd.run(quiet, silent).await,
+			Self::Run(cmd) => cmd.run(config, quiet, silent).await,
 			Self::Init(cmd) => cmd.run(),
 			Self::Schema(cmd) => cmd.run(),
 			Self::Completion(cmd) => cmd.run(),
@@ -83,7 +88,7 @@ pub async fn run() -> Result<()> {
 	}
 
 	if let Some(command) = cli.command {
-		command.run(quiet, silent).await?;
+		command.run(&config, quiet, silent).await?;
 	} else if !cli.run_command_args.is_empty() {
 		execute_command(
 			&config,
