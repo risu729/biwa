@@ -39,3 +39,11 @@ insta = { version = "1.46.3", features = ["json"] }
 pretty_assertions = "1.4.1"
 rstest = "0.26.1"
 tempfile = "3.26.0"
+
+[lints.clippy]
+# pedantic = "warn"
+# nursery = "warn"
+# cargo = "warn"
+# restriction group
+# ref: https://rust-lang.github.io/rust-clippy/master/?groups=restriction
+# restriction = "warn"
