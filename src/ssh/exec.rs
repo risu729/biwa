@@ -44,33 +44,42 @@ async fn connect(config: &Config, silent: bool) -> eyre::Result<Client> {
 	Ok(client)
 }
 
-/// Execute a command on the remote host via SSH.
+/// Build the full shell command string from a command and its arguments.
 ///
-/// Returns the exit code of the remote command.
-pub async fn execute_command(
-	config: &Config,
-	command: &str,
-	args: &[String],
-	quiet: bool,
-	silent: bool,
-) -> eyre::Result<u32> {
-	let client = connect(config, quiet || silent).await?;
-
-	let full_command = if args.is_empty() {
+/// Arguments are shell-quoted so they round-trip safely.
+pub fn build_command(command: &str, args: &[String]) -> String {
+	if args.is_empty() {
 		command.to_string()
 	} else {
 		let mut parts = vec![command.to_string()];
 		parts.extend(args.iter().map(|a| shell_words::quote(a).into_owned()));
 		parts.join(" ")
-	};
+	}
+}
 
+/// Write bytes to a locked standard stream, ignoring errors.
+fn write_to_stream(mut stream: impl std::io::Write, bytes: &[u8]) {
+	let _ = stream.write_all(bytes);
+	let _ = stream.flush();
+}
+
+/// Run a pre-built command string on an already-connected SSH client.
+///
+/// Returns the remote exit code, printing stdout/stderr as they arrive
+/// unless `silent` is set.
+pub async fn run_command(
+	client: &Client,
+	full_command: &str,
+	quiet: bool,
+	silent: bool,
+) -> eyre::Result<u32> {
 	debug!(command = %full_command, "Executing remote command");
 
 	if !quiet {
 		eprintln!(
 			"{} {}",
 			style("$").cyan().bold(),
-			style(&full_command).bold()
+			style(full_command).bold()
 		);
 	}
 
@@ -78,7 +87,7 @@ pub async fn execute_command(
 	let (stderr_tx, mut stderr_rx) = tokio::sync::mpsc::channel(1024);
 
 	let exec_future =
-		client.execute_io(&full_command, stdout_tx, Some(stderr_tx), None, false, None);
+		client.execute_io(full_command, stdout_tx, Some(stderr_tx), None, false, None);
 	tokio::pin!(exec_future);
 
 	let exit_status = loop {
@@ -88,34 +97,23 @@ pub async fn execute_command(
 			},
 			Some(stdout) = stdout_rx.recv() => {
 				if !silent {
-					use std::io::Write;
-					let mut lock = std::io::stdout().lock();
-					let _ = lock.write_all(&stdout);
-					let _ = lock.flush();
+					write_to_stream(std::io::stdout().lock(), &stdout);
 				}
 			},
 			Some(stderr) = stderr_rx.recv() => {
 				if !silent {
-					use std::io::Write;
-					let mut lock = std::io::stderr().lock();
-					let _ = lock.write_all(&stderr);
-					let _ = lock.flush();
+					write_to_stream(std::io::stderr().lock(), &stderr);
 				}
 			},
 		}
 	};
 
 	if !silent {
-		use std::io::Write;
 		while let Some(stdout) = stdout_rx.recv().await {
-			let mut lock = std::io::stdout().lock();
-			let _ = lock.write_all(&stdout);
-			let _ = lock.flush();
+			write_to_stream(std::io::stdout().lock(), &stdout);
 		}
 		while let Some(stderr) = stderr_rx.recv().await {
-			let mut lock = std::io::stderr().lock();
-			let _ = lock.write_all(&stderr);
-			let _ = lock.flush();
+			write_to_stream(std::io::stderr().lock(), &stderr);
 		}
 	}
 	debug!(exit_status, "Remote command completed");
@@ -133,4 +131,47 @@ pub async fn execute_command(
 	}
 
 	Ok(exit_status)
+}
+
+/// Execute a command on the remote host via SSH.
+///
+/// Returns the exit code of the remote command.
+pub async fn execute_command(
+	config: &Config,
+	command: &str,
+	args: &[String],
+	quiet: bool,
+	silent: bool,
+) -> eyre::Result<u32> {
+	let client = connect(config, quiet || silent).await?;
+	let full_command = build_command(command, args);
+	run_command(&client, &full_command, quiet, silent).await
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_build_command_no_args() {
+		assert_eq!(build_command("ls", &[]), "ls");
+	}
+
+	#[test]
+	fn test_build_command_with_args() {
+		let args = vec!["-la".to_string(), "/tmp".to_string()];
+		assert_eq!(build_command("ls", &args), "ls -la /tmp");
+	}
+
+	#[test]
+	fn test_build_command_quotes_args_with_spaces() {
+		let args = vec!["hello world".to_string()];
+		assert_eq!(build_command("echo", &args), "echo 'hello world'");
+	}
+
+	#[test]
+	fn test_build_command_quotes_args_with_special_chars() {
+		let args = vec!["foo$bar".to_string()];
+		assert_eq!(build_command("echo", &args), "echo 'foo$bar'");
+	}
 }
