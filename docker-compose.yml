@@ -1,0 +1,10 @@
+services:
+  ssh-server:
+    image: lscr.io/linuxserver/openssh-server@sha256:fdd9783e0fa4c52592c8405765c5de04dcf657db1b4d6ab073c14c4b998ca1fa
+    container_name: ssh_test_server
+    ports:
+      - "2222:2222"
+    environment:
+      - USER_NAME=testuser
+      - USER_PASSWORD=password123
+      - PASSWORD_ACCESS=true

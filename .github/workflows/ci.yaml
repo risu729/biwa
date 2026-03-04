@@ -26,6 +26,16 @@ jobs:
       contents: read # for checkout
       id-token: write # for codecov
 
+    services:
+      ssh-server:
+        image: lscr.io/linuxserver/openssh-server@sha256:fdd9783e0fa4c52592c8405765c5de04dcf657db1b4d6ab073c14c4b998ca1fa
+        ports:
+          - 2222:2222
+        env:
+          USER_NAME: testuser
+          USER_PASSWORD: password123
+          PASSWORD_ACCESS: "true"
+
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
