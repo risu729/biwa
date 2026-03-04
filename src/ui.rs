@@ -1,5 +1,5 @@
 use indicatif::{ProgressBar, ProgressStyle};
-use std::time::Duration;
+use core::time::Duration;
 
 /// Creates a new spinner with a consistent style across the application.
 ///

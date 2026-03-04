@@ -2,7 +2,7 @@ use super::auth::resolve_auth;
 use crate::config::types::Config;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use console::style;
-use eyre::{Context, bail};
+use eyre::{Context as _, bail};
 use tracing::{debug, info};
 
 /// Connect to the SSH server using the resolved authentication method.
@@ -49,9 +49,9 @@ async fn connect(config: &Config, silent: bool) -> eyre::Result<Client> {
 /// Arguments are shell-quoted so they round-trip safely.
 pub fn build_command(command: &str, args: &[String]) -> String {
 	if args.is_empty() {
-		command.to_string()
+		command.to_owned()
 	} else {
-		let mut parts = vec![command.to_string()];
+		let mut parts = vec![command.to_owned()];
 		parts.extend(args.iter().map(|a| shell_words::quote(a).into_owned()));
 		parts.join(" ")
 	}
