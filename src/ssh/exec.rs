@@ -1,8 +1,11 @@
 use super::auth::resolve_auth;
 use crate::config::types::Config;
+use crate::ui::create_spinner;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use console::style;
 use eyre::{Context as _, bail};
+use std::io::{Write, stderr, stdout};
+use tokio::sync::mpsc;
 use tracing::{debug, info};
 
 /// Connect to the SSH server using the resolved authentication method.
@@ -13,7 +16,7 @@ async fn connect(config: &Config, silent: bool) -> eyre::Result<Client> {
 	let spinner = if silent {
 		None
 	} else {
-		Some(crate::ui::create_spinner(format!(
+		Some(create_spinner(format!(
 			"Connecting to {}@{}:{}...",
 			ssh.user, ssh.host, ssh.port
 		)))
@@ -58,15 +61,23 @@ pub fn build_command(command: &str, args: &[String]) -> String {
 }
 
 /// Write bytes to a locked standard stream, ignoring errors.
-fn write_to_stream(mut stream: impl std::io::Write, bytes: &[u8]) {
-	let _ = stream.write_all(bytes);
-	let _ = stream.flush();
+fn write_to_stream(mut stream: impl Write, bytes: &[u8]) {
+	if let Err(e) = stream.write_all(bytes) {
+		debug!(error = %e, "Failed to write to stream");
+	}
+	if let Err(e) = stream.flush() {
+		debug!(error = %e, "Failed to flush stream");
+	}
 }
 
 /// Run a pre-built command string on an already-connected SSH client.
 ///
 /// Returns the remote exit code, printing stdout/stderr as they arrive
 /// unless `silent` is set.
+#[expect(
+	clippy::integer_division_remainder_used,
+	reason = "tokio::select! macro expands to use % internally"
+)]
 pub async fn run_command(
 	client: &Client,
 	full_command: &str,
@@ -82,9 +93,8 @@ pub async fn run_command(
 			style(full_command).bold()
 		);
 	}
-
-	let (stdout_tx, mut stdout_rx) = tokio::sync::mpsc::channel(1024);
-	let (stderr_tx, mut stderr_rx) = tokio::sync::mpsc::channel(1024);
+	let (stdout_tx, mut stdout_rx) = mpsc::channel(1024);
+	let (stderr_tx, mut stderr_rx) = mpsc::channel(1024);
 
 	let exec_future =
 		client.execute_io(full_command, stdout_tx, Some(stderr_tx), None, false, None);
@@ -95,25 +105,25 @@ pub async fn run_command(
 			res = &mut exec_future => {
 				break res.wrap_err("Failed to execute remote command")?;
 			},
-			Some(stdout) = stdout_rx.recv() => {
+			Some(stdout_bytes) = stdout_rx.recv() => {
 				if !silent {
-					write_to_stream(std::io::stdout().lock(), &stdout);
+					write_to_stream(stdout().lock(), &stdout_bytes);
 				}
 			},
-			Some(stderr) = stderr_rx.recv() => {
+			Some(stderr_bytes) = stderr_rx.recv() => {
 				if !silent {
-					write_to_stream(std::io::stderr().lock(), &stderr);
+					write_to_stream(stderr().lock(), &stderr_bytes);
 				}
 			},
 		}
 	};
 
 	if !silent {
-		while let Some(stdout) = stdout_rx.recv().await {
-			write_to_stream(std::io::stdout().lock(), &stdout);
+		while let Some(stdout_bytes) = stdout_rx.recv().await {
+			write_to_stream(stdout().lock(), &stdout_bytes);
 		}
-		while let Some(stderr) = stderr_rx.recv().await {
-			write_to_stream(std::io::stderr().lock(), &stderr);
+		while let Some(stderr_bytes) = stderr_rx.recv().await {
+			write_to_stream(stderr().lock(), &stderr_bytes);
 		}
 	}
 	debug!(exit_status, "Remote command completed");

@@ -1,3 +1,7 @@
+#![expect(
+	clippy::tests_outside_test_module,
+	reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
+)]
 use std::io::{BufRead as _, BufReader, Read as _};
 
 fn biwa_cmd(args: &[&str]) -> duct::Expression {
@@ -63,7 +67,9 @@ fn e2e_run_streaming() {
 	let mut buf_reader = BufReader::new(&mut reader);
 
 	let mut first_line = String::new();
-	buf_reader.read_line(&mut first_line).unwrap();
+	buf_reader
+		.read_line(&mut first_line)
+		.expect("failed to read first line");
 
 	// We should read 'start' immediately without waiting for 'end'
 	assert!(
@@ -72,7 +78,9 @@ fn e2e_run_streaming() {
 	);
 
 	let mut rest = String::new();
-	buf_reader.read_to_string(&mut rest).unwrap();
+	buf_reader
+		.read_to_string(&mut rest)
+		.expect("failed to read remaining output");
 	assert!(rest.contains("end"));
 }
 

@@ -17,6 +17,7 @@ pub struct Config {
 	/// Lifecycle hooks for synchronization.
 	#[config(nested)]
 	pub hooks: HooksConfig,
+	/// Logging configuration.
 	#[config(nested)]
 	pub log: LogConfig,
 }
@@ -69,6 +70,7 @@ pub struct SshConfig {
 	pub password: PasswordConfig,
 }
 
+/// Logging configuration settings.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LogConfig {
 	/// Suppresses biwa internal logs; only remote command output is shown.

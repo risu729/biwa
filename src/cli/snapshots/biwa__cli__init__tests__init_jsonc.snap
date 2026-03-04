@@ -73,6 +73,7 @@ expression: content
     //"post_sync": ,
   },
 
+  // Logging configuration.
   "log": {
     // Suppresses biwa internal logs; only remote command output is shown.
     //

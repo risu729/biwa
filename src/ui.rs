@@ -5,7 +5,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 ///
 /// # Panics
 /// Panics if the default spinner template is invalid.
-pub fn create_spinner(message: impl Into<String>) -> ProgressBar {
+pub fn create_spinner<S: Into<String>>(message: S) -> ProgressBar {
 	let sp = ProgressBar::new_spinner();
 	sp.set_style(
 		ProgressStyle::default_spinner()

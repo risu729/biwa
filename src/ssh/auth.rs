@@ -16,6 +16,10 @@ const DEFAULT_KEY_PATHS: &[&str] = &["~/.ssh/id_ed25519", "~/.ssh/id_rsa"];
 /// 2. Explicit password (`ssh.password = "..."` or `ssh.password = true` for prompt)
 /// 3. Default key file discovery (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`)
 /// 4. SSH Agent (fallback for zero-config users)
+#[expect(
+	clippy::module_name_repetitions,
+	reason = "resolve_auth is the idiomatic name for this operation"
+)]
 pub fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 	let ssh = &config.ssh;
 
@@ -72,11 +76,6 @@ pub fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 
 /// Check if an SSH agent is available.
 fn try_agent() -> bool {
-	if !cfg!(unix) {
-		debug!("SSH agent is only supported on Unix");
-		return false;
-	}
-
 	match env::var("SSH_AUTH_SOCK") {
 		Ok(sock) if !sock.is_empty() => {
 			debug!(sock = %sock, "SSH agent socket found");
@@ -94,11 +93,10 @@ fn resolve_default_key_path() -> Option<PathBuf> {
 	let home = homedir::my_home().ok().flatten()?;
 
 	for default_path in DEFAULT_KEY_PATHS {
-		let expanded = if let Some(stripped) = default_path.strip_prefix("~/") {
-			home.join(stripped)
-		} else {
-			PathBuf::from(default_path)
-		};
+		let expanded = default_path.strip_prefix("~/").map_or_else(
+			|| PathBuf::from(default_path),
+			|stripped| home.join(stripped),
+		);
 
 		if expanded.exists() {
 			debug!(path = %expanded.display(), "Found default SSH key");
@@ -113,18 +111,22 @@ fn resolve_default_key_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::testing::ENV_MUTEX;
+	use assert_matches::assert_matches;
+	use std::fs;
 
 	#[test]
-	fn resolve_default_key_path_explicit() {
-		let dir = tempfile::tempdir().unwrap();
+	fn resolve_default_key_path_explicit() -> eyre::Result<()> {
+		let dir = tempfile::tempdir()?;
 		let key_file = dir.path().join("my_key");
-		std::fs::write(&key_file, "fake key").unwrap();
+		fs::write(&key_file, "fake key")?;
 
 		let mut config = Config::default();
 		config.ssh.key_path = Some(key_file);
 
-		let result = resolve_auth(&config);
-		result.unwrap();
+		let method = resolve_auth(&config)?;
+		assert_matches!(method, AuthMethod::PrivateKeyFile { .. });
+		Ok(())
 	}
 
 	#[test]
@@ -140,26 +142,55 @@ mod tests {
 
 	#[test]
 	fn resolve_default_key_path_no_config() {
-		let _ = resolve_default_key_path();
+		// Verify the function runs without panic; it may or may not find a key
+		// depending on the test environment.
+		let _path = resolve_default_key_path();
 	}
 
 	#[test]
 	fn try_agent_checks_env() {
-		let _ = try_agent();
+		let _guard = ENV_MUTEX.lock().unwrap();
+
+		// SAFETY: guarded by TEST_MUTEX; no concurrent env mutation in this module.
+		unsafe {
+			env::set_var("SSH_AUTH_SOCK", "/tmp/fake-agent.sock");
+		}
+		assert!(
+			try_agent(),
+			"expected agent to be detected when SSH_AUTH_SOCK is set"
+		);
+
+		// SAFETY: guarded by TEST_MUTEX; no concurrent env mutation in this module.
+		unsafe {
+			env::remove_var("SSH_AUTH_SOCK");
+		}
+		assert!(
+			!try_agent(),
+			"expected no agent when SSH_AUTH_SOCK is unset"
+		);
 	}
 
 	#[test]
-	fn password_config_string() {
+	fn password_config_string() -> eyre::Result<()> {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Value("secret".to_owned());
-		let result = resolve_auth(&config);
-		result.unwrap();
+		let method = resolve_auth(&config)?;
+		assert_matches!(method, AuthMethod::Password(_));
+		Ok(())
 	}
 
 	#[test]
 	fn password_config_false() {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Interactive(false);
-		let _ = resolve_auth(&config);
+		let result = resolve_auth(&config);
+		// Without explicit password, it may fall back to agent or key, or fail
+		// — but it must not use Password auth (password = false means skip password)
+		if let Ok(method) = result {
+			assert_matches!(
+				method,
+				AuthMethod::PrivateKeyFile { .. } | AuthMethod::Agent
+			);
+		}
 	}
 }

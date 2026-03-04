@@ -1,4 +1,4 @@
+/// SSH authentication processing.
 pub mod auth;
-mod exec;
-
-pub use exec::execute_command;
+/// Remote command execution handling.
+pub mod exec;

@@ -1,4 +1,4 @@
-use crate::{config::types::Config, ssh::execute_command};
+use crate::{config::types::Config, ssh::exec::execute_command};
 use clap::{ArgAction, Parser, Subcommand};
 use eyre::bail;
 use tracing::Level;
