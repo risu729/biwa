@@ -35,6 +35,7 @@ inherits = "release"
 lto = "thin"
 
 [dev-dependencies]
+assert_matches = "1.5.0"
 insta = { version = "1.46.3", features = ["json"] }
 pretty_assertions = "1.4.1"
 rstest = "0.26.1"
