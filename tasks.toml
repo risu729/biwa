@@ -20,30 +20,20 @@ tools = { cargo-insta = "1.46.3" }
 
 [check]
 depends = ["check:*"]
-usage = """
-flag "--lint" env="LINT" help="Check formatting without applying it"
-"""
-env = { LINT = "{% if usage.lint %}true{% endif %}" }
-description = "Run all linters and formatters. Use --lint flag to check formatting without applying it."
+description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
 
 ["check:clippy"]
-usage = """
-flag "--lint" env="LINT" help="Check formatting without applying it"
-"""
 run = [
-	"{% if not usage.lint %}cargo clippy --fix --allow-dirty --allow-staged > /dev/null 2>&1{% endif %}",
+	"{% if env.LINT is undefined %}cargo clippy --fix --allow-dirty --allow-staged > /dev/null 2>&1{% endif %}",
 	"cargo clippy --all-targets -- --deny warnings",
 ]
 description = "Run Clippy to lint Rust code."
 
 ["check:rustfmt"]
-usage = """
-flag "--lint" env="LINT" help="Check formatting without applying it"
-"""
-run = "cargo fmt {% if usage.lint %}--check{% endif %}"
+run = "cargo fmt {% if env.LINT is defined %}--check{% endif %}"
 description = "Run Rustfmt to format Rust code."
 
-["check:deny"]
+["check:cargo-deny"]
 run = "cargo-deny --locked check"
 description = "Run cargo-deny to check for unsafe dependencies."
 
@@ -61,17 +51,11 @@ run = "ghalint run"
 description = "Run ghalint to check GitHub Actions workflows."
 
 ["check:pinact"]
-usage = """
-flag "--lint" env="LINT" help="Check formatting without applying it"
-"""
-run = "pinact run --verify {% if usage.lint %}--check{% endif %}"
+run = "pinact run --verify {% if env.LINT is defined %}--check{% endif %}"
 description = "Run pinact to pin/check pinned GitHub Actions dependencies in workflows."
 
 ["check:zizmor"]
-usage = """
-flag "--lint" env="LINT" help="Check formatting without applying it"
-"""
-run = "zizmor --pedantic {% if not usage.lint %}--fix{% endif %} ."
+run = "zizmor --pedantic {% if env.LINT is undefined %}--fix{% endif %} ."
 env.GH_TOKEN = "{{ env.GITHUB_TOKEN }}"
 description = "Run Zizmor to check GitHub Actions workflows."
 
@@ -80,24 +64,15 @@ run = "yamllint --strict ."
 description = "Run yamllint to lint YAML files."
 
 ["check:oxfmt"]
-usage = """
-flag "--lint" env="LINT" help="Check formatting without applying it"
-"""
-run = "oxfmt {% if usage.lint %}--check{% endif %}"
+run = "oxfmt {% if env.LINT is defined %}--check{% endif %}"
 description = "Run oxfmt to format JS, TS, CSS, Vue, JSON, JSONC, YAML, TOML, and Markdown files."
 
 ["check:typos"]
-usage = """
-flag "--lint" env="LINT" help="Check formatting without applying it"
-"""
-run = "typos {% if not usage.lint %}--write-changes{% endif %}"
+run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
 description = "Run typos to check typo in files."
 
 ["check:oxlint"]
-usage = """
-flag "--lint" env="LINT" help="Check formatting without applying it"
-"""
-run = "oxlint --report-unused-disable-directives-severity error {% if not usage.lint %}--fix{% endif %}"
+run = "oxlint --report-unused-disable-directives-severity error {% if env.LINT is undefined %}--fix{% endif %}"
 dir = "docs"
 description = "Run oxlint to lint VitePress documentation."
 

@@ -83,8 +83,9 @@ jobs:
         run: mise run --jobs 1 --continue-on-error render
 
       - name: Lint
-        run: mise run --jobs 1 --continue-on-error check --lint
+        run: mise run --jobs 1 --continue-on-error check
         env:
+          LINT: true
           GITHUB_TOKEN: ${{ github.token }}
 
   actions-timeline:
