@@ -1,8 +1,7 @@
-use crate::Result;
 use crate::cli::Cli;
-use clap::{Args, CommandFactory};
+use clap::{Args, CommandFactory as _};
 
-/// Generate a usage CLI spec
+/// Generate a usage CLI spec.
 ///
 /// See <https://usage.jdx.dev> for more information.
 #[derive(Args, Debug)]
@@ -10,8 +9,13 @@ use clap::{Args, CommandFactory};
 pub struct Usage;
 
 impl Usage {
-	#[allow(clippy::unnecessary_wraps, clippy::unused_self)]
-	pub fn run(self) -> Result<()> {
+	/// Run the usage spec generation logic.
+	#[expect(clippy::unused_self, reason = "usage subcommand doesn't have flags")]
+	#[expect(
+		clippy::unnecessary_wraps,
+		reason = "usage subcommand doesn't return Err"
+	)]
+	pub fn run(self) -> eyre::Result<()> {
 		let cli = Cli::command();
 		let spec: usage::Spec = cli.into();
 		println!("{}", spec.to_string().trim());
@@ -22,10 +26,10 @@ impl Usage {
 #[cfg(test)]
 mod tests {
 	use crate::cli::Cli;
-	use clap::CommandFactory;
+	use clap::CommandFactory as _;
 
 	#[test]
-	fn test_usage_spec_generation() {
+	fn usage_spec_generation() {
 		let cli = Cli::command();
 		let spec: usage::Spec = cli.into();
 		let output = spec.to_string();

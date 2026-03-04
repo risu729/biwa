@@ -1,26 +1,29 @@
-use crate::Result;
+use std::io;
+
 use clap::Args;
 use clap::builder::PossibleValue;
 use eyre::bail;
 use strum::EnumString;
 
-/// Generate shell completions
+/// Generate shell completions.
 ///
-/// Requires the `usage` CLI: <https://usage.jdx.dev>
+/// Requires the `usage` CLI: <https://usage.jdx.dev>.
 #[derive(Args, Debug)]
 pub struct Completion {
-	/// Shell type to generate completions for
+	/// Shell type to generate completions for.
 	shell: Shell,
 }
 
 impl Completion {
-	pub fn run(self) -> Result<()> {
+	/// Run the completion generation logic.
+	pub fn run(self) -> eyre::Result<()> {
 		let script = self.call_usage()?;
 		println!("{}", script.trim());
 		Ok(())
 	}
 
-	fn call_usage(&self) -> Result<String> {
+	/// Calls usage CLI to generate the shell completion script.
+	fn call_usage(&self) -> eyre::Result<String> {
 		let shell = self.shell.to_string();
 		let result = duct::cmd!(
 			"usage",
@@ -35,7 +38,7 @@ impl Completion {
 
 		match result {
 			Ok(output) => Ok(output),
-			Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+			Err(e) if e.kind() == io::ErrorKind::NotFound => {
 				bail!(
 					"`usage` CLI is required for shell completions but was not found.\n\
 					 Install it via mise: `mise use -g usage`\n\
@@ -49,11 +52,15 @@ impl Completion {
 	}
 }
 
+/// Supported shell types for completion.
 #[derive(Debug, Clone, Copy, EnumString, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 enum Shell {
+	/// Bash shell.
 	Bash,
+	/// Fish shell.
 	Fish,
+	/// Zsh shell.
 	Zsh,
 }
 
@@ -70,22 +77,22 @@ impl clap::ValueEnum for Shell {
 #[cfg(test)]
 mod tests {
 	use crate::cli::{Cli, Commands};
-	use clap::Parser;
+	use clap::Parser as _;
 
 	#[test]
-	fn test_completion_parse_bash() {
+	fn completion_parse_bash() {
 		let cli = Cli::parse_from(["biwa", "completion", "bash"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
 	}
 
 	#[test]
-	fn test_completion_parse_zsh() {
+	fn completion_parse_zsh() {
 		let cli = Cli::parse_from(["biwa", "completion", "zsh"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
 	}
 
 	#[test]
-	fn test_completion_parse_fish() {
+	fn completion_parse_fish() {
 		let cli = Cli::parse_from(["biwa", "completion", "fish"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
 	}

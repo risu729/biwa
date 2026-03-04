@@ -1,17 +1,20 @@
 use super::format::ConfigFormat;
 use super::types::Config;
 use confique::Config as _;
-use eyre::{Result, WrapErr};
+use eyre::{Result, WrapErr as _};
 use std::path::{Path, PathBuf};
+use std::{env, fs};
 
 impl Config {
+	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
 		let home = homedir::my_home().ok().flatten();
-		let xdg = std::env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
-		let cwd = std::env::current_dir().ok();
+		let xdg = env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
+		let cwd = env::current_dir().ok();
 		Self::load_internal(home.as_ref(), xdg.as_ref(), cwd.as_ref())
 	}
 
+	/// Core inner load logic separating the paths.
 	fn load_internal(
 		home: Option<&PathBuf>,
 		xdg: Option<&PathBuf>,
@@ -20,15 +23,14 @@ impl Config {
 		let mut builder = Self::builder().env();
 
 		let mut global_candidates = Vec::new();
-		let mut global_root: Option<PathBuf> = None;
-		if let Some(home_path) = home {
+		let global_root: Option<PathBuf> = home.map(|home_path| {
 			global_candidates.push(home_path.join("biwa"));
 			global_candidates.push(home_path.join(".biwa"));
 			let config_home = xdg.cloned().unwrap_or_else(|| home_path.join(".config"));
 			global_candidates.push(config_home.join("biwa/config"));
 			// All global configs should resolve relative paths from the home dir (~)
-			global_root = Some(home_path.clone());
-		}
+			home_path.clone()
+		});
 
 		if let Some(cwd_path) = cwd {
 			let mut current = Some(cwd_path.as_path());
@@ -91,12 +93,13 @@ impl Config {
 		Ok(config)
 	}
 
+	/// Loads a specific partial configuration file based on format.
 	fn load_partial(
 		path: &Path,
 		format: ConfigFormat,
 		config_root: &Path,
 	) -> Result<<Self as confique::Config>::Layer> {
-		let content = std::fs::read_to_string(path).wrap_err("Failed to read config file")?;
+		let content = fs::read_to_string(path).wrap_err("Failed to read config file")?;
 		let mut partial: <Self as confique::Config>::Layer = match format {
 			ConfigFormat::Toml => toml::from_str(&content).wrap_err("Failed to parse TOML")?,
 			ConfigFormat::Yaml => {
@@ -112,6 +115,7 @@ impl Config {
 		Ok(partial)
 	}
 
+	/// Resolves any relative paths within the configuration layer to be absolute based on the root path.
 	fn resolve_paths_partial(partial: &mut <Self as confique::Config>::Layer, root: &Path) {
 		let resolve = |path_opt: &mut Option<PathBuf>| {
 			if let Some(path) = path_opt {
@@ -126,6 +130,8 @@ impl Config {
 		resolve(&mut partial.sync.remote_root);
 	}
 
+	/// Returns a string template of the default configuration for the specific format.
+	#[expect(clippy::absolute_paths, reason = "use will be confusing here")]
 	pub fn template(format: ConfigFormat) -> String {
 		match format {
 			ConfigFormat::Toml => {
@@ -141,6 +147,7 @@ impl Config {
 	}
 }
 
+/// Expands a tilde (`~`) at the start of a path to the user's home directory.
 fn expand_tilde(path: &Path) -> PathBuf {
 	if let Some(home) = homedir::my_home().ok().flatten()
 		&& let Some(s) = path.to_str()
@@ -155,6 +162,7 @@ fn expand_tilde(path: &Path) -> PathBuf {
 	path.to_path_buf()
 }
 
+/// Tries to find exactly one config file from base path list. Errors on multiple files.
 fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, ConfigFormat)>> {
 	let mut found = Vec::new();
 
@@ -191,6 +199,7 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use assert_matches::assert_matches;
 	use pretty_assertions::assert_eq;
 	use rstest::rstest;
 	use std::fs;
@@ -200,7 +209,7 @@ mod tests {
 	static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
 	#[test]
-	fn test_default() {
+	fn default() {
 		let config = Config::default();
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
@@ -209,14 +218,16 @@ mod tests {
 	}
 
 	#[test]
-	fn test_env_override() {
+	fn env_override() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
 
 		// Set env var override
+		// SAFETY: This is a single-threaded test context modifying the environment for current process.
+		// `TEST_MUTEX` enforces serialized test execution to guarantee no race conditions.
 		unsafe {
-			std::env::set_var("BIWA_SSH_HOST", "env");
+			env::set_var("BIWA_SSH_HOST", "env");
 		}
 
 		// Ensure cleanup
@@ -231,14 +242,15 @@ mod tests {
 	struct EnvCleanup(&'static str);
 	impl Drop for EnvCleanup {
 		fn drop(&mut self) {
+			// SAFETY: Similar to set_var, no race conditions within tests as tests are serialized via `TEST_MUTEX`.
 			unsafe {
-				std::env::remove_var(self.0);
+				env::remove_var(self.0);
 			}
 		}
 	}
 
 	#[test]
-	fn test_snapshot() {
+	fn snapshot() {
 		let config = Config::default();
 		insta::assert_json_snapshot!(config, @r###"
   {
@@ -272,7 +284,7 @@ mod tests {
 	#[case::json(r#"{ "ssh": { "host": "json" } }"#, "json", "json")]
 	#[case::json5("{ ssh: { host: 'json5' } }", "json5", "json5")]
 	#[case::yaml("ssh:\n  host: yaml", "yaml", "yaml")]
-	fn test_format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
+	fn format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let file_path = dir.path().join(format!("biwa.{ext}"));
@@ -284,7 +296,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_traversal_precedence() {
+	fn traversal_precedence() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
@@ -301,7 +313,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_traversal_stops_at_home() {
+	fn traversal_stops_at_home() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
@@ -323,7 +335,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_xdg_precedence() {
+	fn xdg_precedence() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
@@ -338,7 +350,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_cwd_is_dot_config() {
+	fn cwd_is_dot_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
@@ -361,7 +373,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_nested_within_dot_config() {
+	fn nested_within_dot_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
@@ -386,7 +398,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_strict_global_config() {
+	fn strict_global_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
@@ -398,11 +410,11 @@ mod tests {
 		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#).unwrap();
 
 		let result = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None);
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 	}
 
 	#[test]
-	fn test_strict_local_config() {
+	fn strict_local_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Multiple local configs in same dir should fail
@@ -414,11 +426,11 @@ mod tests {
 		.unwrap();
 
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 	}
 
 	#[test]
-	fn test_conflict_root_and_dot_config() {
+	fn conflict_root_and_dot_config() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Test multiple "local" configs (one within .config) should fail
@@ -430,11 +442,11 @@ mod tests {
 
 		// Should error because we found >1 config for the same dir scope
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 	}
 
 	#[test]
-	fn test_local_dot_config_support() {
+	fn local_dot_config_support() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let dot_config = dir.path().join(".config");
@@ -448,7 +460,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_ignored_xdg_biwa_biwa() {
+	fn ignored_xdg_biwa_biwa() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
@@ -474,7 +486,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_find_single_config_logic() {
+	fn find_single_config_logic() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
@@ -495,7 +507,7 @@ mod tests {
 		// "Multiple configuration files found in the same scope"
 		fs::write(root.join("biwa.json"), "{}").unwrap();
 		let result = find_single_config(&[root.join("biwa")]);
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 
 		// Cleanup for next check
 		fs::remove_file(root.join("biwa.toml")).unwrap();
@@ -506,11 +518,11 @@ mod tests {
 		fs::write(root.join("biwa.toml"), "").unwrap();
 		fs::write(root.join(".biwa.toml"), "").unwrap();
 		let result = find_single_config(&[root.join("biwa"), root.join(".biwa")]);
-		assert!(result.is_err());
+		assert_matches!(result, Err(_));
 	}
 
 	#[test]
-	fn test_nested_path_resolution() {
+	fn nested_path_resolution() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
@@ -554,7 +566,7 @@ host = "child"
 	}
 
 	#[test]
-	fn test_local_config_root_dot_config_biwa() {
+	fn local_config_root_dot_config_biwa() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
@@ -583,7 +595,7 @@ remote_root = "libs"
 	}
 
 	#[test]
-	fn test_global_config_root_home_and_xdg() {
+	fn global_config_root_home_and_xdg() {
 		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
