@@ -8,6 +8,7 @@ use schemars::schema_for;
 pub struct Schema;
 
 impl Schema {
+	/// Run the schema generation logic.
 	#[expect(clippy::unused_self, reason = "schema subcommand doesn't have flags")]
 	pub fn run(self) -> eyre::Result<()> {
 		let schema = schema_for!(Config);

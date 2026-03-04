@@ -3,12 +3,18 @@ use clap::{ArgAction, Parser, Subcommand};
 use eyre::bail;
 use tracing::Level;
 
+/// Shell completion generation command.
 mod completion;
+/// Configuration initialization command.
 mod init;
+/// Command execution on remote hosts.
 mod run;
+/// Configuration schema generation command.
 mod schema;
+/// Usage specification generation command.
 mod usage;
 
+/// CLI arguments parser.
 #[derive(Parser, Debug)]
 #[command(version, about)]
 #[command(arg_required_else_help = true)]
@@ -36,16 +42,23 @@ struct Cli {
 	verbose: u8,
 }
 
+/// Supported subcommands for the biwa CLI.
 #[derive(Subcommand, Debug)]
 enum Commands {
+	/// Run commands on remote host.
 	Run(run::Run),
+	/// Initialize a biwa configuration file.
 	Init(init::Init),
+	/// Generate the JSON schema for the configuration.
 	Schema(schema::Schema),
+	/// Generate shell completion scripts.
 	Completion(completion::Completion),
+	/// Generate usage command specifications.
 	Usage(usage::Usage),
 }
 
 impl Commands {
+	/// Executes the specific subcommand logic.
 	pub async fn run(self) -> eyre::Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run().await,
@@ -57,6 +70,7 @@ impl Commands {
 	}
 }
 
+/// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
 pub async fn run() -> eyre::Result<()> {
 	let cli = Cli::parse();
 

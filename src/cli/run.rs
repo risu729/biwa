@@ -15,6 +15,7 @@ pub struct Run {
 }
 
 impl Run {
+	/// Run the execution logic for remote command.
 	pub async fn run(self) -> eyre::Result<()> {
 		let config = Config::load()?;
 		execute_command(&config.ssh, &self.command, &self.command_args).await?;

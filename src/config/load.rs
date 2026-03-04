@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 
 impl Config {
+	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
 		let home = homedir::my_home().ok().flatten();
 		let xdg = env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
@@ -13,6 +14,7 @@ impl Config {
 		Self::load_internal(home.as_ref(), xdg.as_ref(), cwd.as_ref())
 	}
 
+	/// Core inner load logic separating the paths.
 	fn load_internal(
 		home: Option<&PathBuf>,
 		xdg: Option<&PathBuf>,
@@ -91,6 +93,7 @@ impl Config {
 		Ok(config)
 	}
 
+	/// Loads a specific partial configuration file based on format.
 	fn load_partial(
 		path: &Path,
 		format: ConfigFormat,
@@ -112,6 +115,7 @@ impl Config {
 		Ok(partial)
 	}
 
+	/// Resolves any relative paths within the configuration layer to be absolute based on the root path.
 	fn resolve_paths_partial(partial: &mut <Self as confique::Config>::Layer, root: &Path) {
 		let resolve = |path_opt: &mut Option<PathBuf>| {
 			if let Some(path) = path_opt {
@@ -126,6 +130,7 @@ impl Config {
 		resolve(&mut partial.sync.remote_root);
 	}
 
+	/// Returns a string template of the default configuration for the specific format.
 	#[expect(clippy::absolute_paths, reason = "use will be confusing here")]
 	pub fn template(format: ConfigFormat) -> String {
 		match format {
@@ -142,6 +147,7 @@ impl Config {
 	}
 }
 
+/// Expands a tilde (`~`) at the start of a path to the user's home directory.
 fn expand_tilde(path: &Path) -> PathBuf {
 	if let Some(home) = homedir::my_home().ok().flatten()
 		&& let Some(s) = path.to_str()
@@ -156,6 +162,7 @@ fn expand_tilde(path: &Path) -> PathBuf {
 	path.to_path_buf()
 }
 
+/// Tries to find exactly one config file from base path list. Errors on multiple files.
 fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, ConfigFormat)>> {
 	let mut found = Vec::new();
 
@@ -217,6 +224,8 @@ mod tests {
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
 
 		// Set env var override
+		// SAFETY: This is a single-threaded test context modifying the environment for current process.
+		// `TEST_MUTEX` enforces serialized test execution to guarantee no race conditions.
 		unsafe {
 			env::set_var("BIWA_SSH_HOST", "env");
 		}
@@ -233,6 +242,7 @@ mod tests {
 	struct EnvCleanup(&'static str);
 	impl Drop for EnvCleanup {
 		fn drop(&mut self) {
+			// SAFETY: Similar to set_var, no race conditions within tests as tests are serialized via `TEST_MUTEX`.
 			unsafe {
 				env::remove_var(self.0);
 			}

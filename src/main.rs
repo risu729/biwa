@@ -10,8 +10,11 @@
 	)
 )]
 
+/// CLI commands and parsing.
 mod cli;
+/// Configuration loading and definitions.
 mod config;
+/// SSH execution logic.
 mod ssh;
 
 #[tokio::main]

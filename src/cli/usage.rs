@@ -9,6 +9,7 @@ use clap::{Args, CommandFactory as _};
 pub struct Usage;
 
 impl Usage {
+	/// Run the usage spec generation logic.
 	#[expect(clippy::unused_self, reason = "usage subcommand doesn't have flags")]
 	#[expect(
 		clippy::unnecessary_wraps,

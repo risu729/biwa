@@ -15,12 +15,14 @@ pub struct Completion {
 }
 
 impl Completion {
+	/// Run the completion generation logic.
 	pub fn run(self) -> eyre::Result<()> {
 		let script = self.call_usage()?;
 		println!("{}", script.trim());
 		Ok(())
 	}
 
+	/// Calls usage CLI to generate the shell completion script.
 	fn call_usage(&self) -> eyre::Result<String> {
 		let shell = self.shell.to_string();
 		let result = duct::cmd!(
@@ -50,11 +52,15 @@ impl Completion {
 	}
 }
 
+/// Supported shell types for completion.
 #[derive(Debug, Clone, Copy, EnumString, strum::Display)]
 #[strum(serialize_all = "snake_case")]
 enum Shell {
+	/// Bash shell.
 	Bash,
+	/// Fish shell.
 	Fish,
+	/// Zsh shell.
 	Zsh,
 }
 

@@ -18,6 +18,7 @@ pub struct Init {
 }
 
 impl Init {
+	/// Run the initialization logic.
 	pub fn run(self) -> eyre::Result<()> {
 		let (filename, content) = self.generate()?;
 		let path = Path::new(&filename);
@@ -30,6 +31,7 @@ impl Init {
 		Ok(())
 	}
 
+	/// Generates the configuration content based on the selected format.
 	fn generate(&self) -> eyre::Result<(String, String)> {
 		let filename = format!("biwa.{}", self.format.to_ascii_lowercase());
 		let schema_url = "https://biwa.takuk.me/schema/config.json";
@@ -74,6 +76,7 @@ impl Init {
 	}
 }
 
+/// Helper to quote keys for JSONC format, preserving comments.
 fn quote_keys_for_jsonc(body: &str) -> String {
 	body.lines()
 		.map(|line| {
