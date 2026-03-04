@@ -28,3 +28,64 @@ impl ConfigFormat {
 			.copied()
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_all_formats() {
+		let all = ConfigFormat::all();
+		assert_eq!(all.len(), 4);
+		assert!(all.contains(&ConfigFormat::Toml));
+		assert!(all.contains(&ConfigFormat::Yaml));
+		assert!(all.contains(&ConfigFormat::Json));
+		assert!(all.contains(&ConfigFormat::Json5));
+	}
+
+	#[test]
+	fn test_extensions() {
+		assert_eq!(ConfigFormat::Toml.extensions(), &["toml"]);
+		assert_eq!(ConfigFormat::Yaml.extensions(), &["yaml", "yml"]);
+		assert_eq!(ConfigFormat::Json.extensions(), &["json"]);
+		assert_eq!(ConfigFormat::Json5.extensions(), &["json5", "jsonc"]);
+	}
+
+	#[test]
+	fn test_from_extension() {
+		assert_eq!(
+			ConfigFormat::from_extension("toml"),
+			Some(ConfigFormat::Toml)
+		);
+		assert_eq!(
+			ConfigFormat::from_extension("TOML"),
+			Some(ConfigFormat::Toml)
+		);
+		assert_eq!(
+			ConfigFormat::from_extension("yaml"),
+			Some(ConfigFormat::Yaml)
+		);
+		assert_eq!(
+			ConfigFormat::from_extension("yml"),
+			Some(ConfigFormat::Yaml)
+		);
+		assert_eq!(
+			ConfigFormat::from_extension("YML"),
+			Some(ConfigFormat::Yaml)
+		);
+		assert_eq!(
+			ConfigFormat::from_extension("json"),
+			Some(ConfigFormat::Json)
+		);
+		assert_eq!(
+			ConfigFormat::from_extension("json5"),
+			Some(ConfigFormat::Json5)
+		);
+		assert_eq!(
+			ConfigFormat::from_extension("jsonc"),
+			Some(ConfigFormat::Json5)
+		);
+		assert_eq!(ConfigFormat::from_extension("xml"), None);
+		assert_eq!(ConfigFormat::from_extension("txt"), None);
+	}
+}

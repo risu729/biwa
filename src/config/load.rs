@@ -583,4 +583,71 @@ remote_root = "xdg_libs"
 			"global remote_root from ~/.config/biwa/config.toml should be resolved relative to ~"
 		);
 	}
+
+	#[test]
+	fn test_load_partial_invalid_toml() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("config.toml");
+		// Write invalid TOML
+		fs::write(&path, "invalid = = toml").unwrap();
+
+		let result = Config::load_partial(&path, ConfigFormat::Toml, dir.path());
+		let err = match result {
+			Err(e) => e.to_string(),
+			Ok(_) => panic!("Expected parsing error for invalid TOML"),
+		};
+		assert!(err.contains("Failed to parse TOML"));
+	}
+
+	#[test]
+	fn test_load_partial_invalid_yaml() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("config.yaml");
+		// Write invalid YAML
+		fs::write(&path, "invalid:\n  - \n    - :\n").unwrap();
+
+		let result = Config::load_partial(&path, ConfigFormat::Yaml, dir.path());
+		let err = match result {
+			Err(e) => e.to_string(),
+			Ok(_) => panic!("Expected parsing error for invalid YAML"),
+		};
+		assert!(err.contains("Failed to parse YAML"));
+	}
+
+	#[test]
+	fn test_load_partial_invalid_json() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("config.json");
+		// Write invalid JSON
+		fs::write(&path, r#"{"invalid": true"#).unwrap();
+
+		let result = Config::load_partial(&path, ConfigFormat::Json, dir.path());
+		let err = match result {
+			Err(e) => e.to_string(),
+			Ok(_) => panic!("Expected parsing error for invalid JSON"),
+		};
+		assert!(err.contains("Failed to parse JSON"));
+	}
+
+	#[test]
+	fn test_load_partial_valid_json5() {
+		let dir = tempfile::tempdir().unwrap();
+		let path = dir.path().join("config.json5");
+		// Write valid JSON5 (with comments and trailing commas)
+		fs::write(
+			&path,
+			r#"
+		{
+			// This is a comment
+			"ssh": {
+				"port": 2222,
+			}
+		}
+		"#,
+		)
+		.unwrap();
+
+		let result = Config::load_partial(&path, ConfigFormat::Json5, dir.path());
+		assert!(result.is_ok(), "Failed to parse valid JSON5");
+	}
 }
