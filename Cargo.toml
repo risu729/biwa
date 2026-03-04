@@ -45,6 +45,8 @@ lto = "thin"
 pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 cargo = { level = "warn", priority = -1 }
+# We prefer disabling rules than enabling them
+blanket_clippy_restriction_lints = "allow"
 # ref: https://rust-lang.github.io/rust-clippy/master/?groups=restriction
 restriction = { level = "warn", priority = -1 }
 default_numeric_fallback = "allow"
