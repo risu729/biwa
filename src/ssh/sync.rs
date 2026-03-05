@@ -1,5 +1,6 @@
 use super::exec::connect;
 use crate::config::types::{Config, SyncEngine};
+use crate::ssh::sftp::upload_file;
 use crate::ui::create_spinner;
 use console::style;
 use eyre::{Context as _, ContextCompat as _, Result, bail};
@@ -9,7 +10,7 @@ use sha2::{Digest as _, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read as _};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
@@ -287,36 +288,27 @@ pub async fn sync_project(
 	}
 
 	// Upload files and change permissions to match local user permissions (removing group/other)
-	for rel_path in to_upload {
-		let local_path = project_root.join(&rel_path);
-		let remote_path = compute_remote_path(&config.sync.remote_root, &project_name, &rel_path);
+	if !to_upload.is_empty() {
+		let channel = client.get_channel().await.wrap_err("Failed to get SFTP channel")?;
+		channel.request_subsystem(true, "sftp").await.wrap_err("Failed to request SFTP subsystem")?;
+		let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await.wrap_err("Failed to initialize SFTP session")?;
 
-		// Read local permissions
-		let local_mode = std::fs::metadata(&local_path)
-			.wrap_err_with(|| format!("Failed to read metadata for {}", local_path.display()))?
-			.permissions()
-			.mode();
-		// Preserve user permissions but clear group/other permissions
-		let secure_mode = local_mode & 0o700;
+		for rel_path in to_upload {
+			let local_path = project_root.join(&rel_path);
+			let remote_path = compute_remote_path(&config.sync.remote_root, &project_name, &rel_path);
 
-		client
-			.upload_file(
-				local_path.display().to_string(),
-				remote_path.clone(),
-				None,
-				None,
-				false,
-			)
-			.await
-			.wrap_err_with(|| format!("Failed to upload file: {}", local_path.display()))?;
+			// Read local permissions
+			let local_mode = std::fs::metadata(&local_path)
+				.wrap_err_with(|| format!("Failed to read metadata for {}", local_path.display()))?
+				.permissions()
+				.mode();
+			// Preserve user permissions but clear group/other permissions
+			let secure_mode = local_mode & 0o700;
 
-		let chmod_cmd = format!("chmod {:04o} {}", secure_mode, shell_words::quote(&remote_path));
-		client
-			.execute(&chmod_cmd)
-			.await
-			.wrap_err("Failed to set file permissions")?;
+			upload_file(&sftp, &local_path, &remote_path, secure_mode).await?;
 
-		stats.files_uploaded += 1;
+			stats.files_uploaded += 1;
+		}
 	}
 
 	if let Some(s) = spinner {

@@ -35,7 +35,7 @@ serde_yaml = "0.9.34"
 sha2 = "0.10.9"
 shell-words = "1.1.1"
 strum = { version = "0.28.0", features = ["derive"] }
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.50.0", features = ["full", "io-util"] }
 toml = "1.0.3"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
