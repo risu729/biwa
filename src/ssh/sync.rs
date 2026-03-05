@@ -9,6 +9,7 @@ use sha2::{Digest as _, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read as _};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
@@ -285,10 +286,18 @@ pub async fn sync_project(
 			.wrap_err("Failed to create remote directories")?;
 	}
 
-	// Upload files and change permissions to 0600
+	// Upload files and change permissions to match local user permissions (removing group/other)
 	for rel_path in to_upload {
 		let local_path = project_root.join(&rel_path);
 		let remote_path = compute_remote_path(&config.sync.remote_root, &project_name, &rel_path);
+
+		// Read local permissions
+		let local_mode = std::fs::metadata(&local_path)
+			.wrap_err_with(|| format!("Failed to read metadata for {}", local_path.display()))?
+			.permissions()
+			.mode();
+		// Preserve user permissions but clear group/other permissions
+		let secure_mode = local_mode & 0o700;
 
 		client
 			.upload_file(
@@ -301,7 +310,7 @@ pub async fn sync_project(
 			.await
 			.wrap_err_with(|| format!("Failed to upload file: {}", local_path.display()))?;
 
-		let chmod_cmd = format!("chmod 0600 {}", shell_words::quote(&remote_path));
+		let chmod_cmd = format!("chmod {:04o} {}", secure_mode, shell_words::quote(&remote_path));
 		client
 			.execute(&chmod_cmd)
 			.await
