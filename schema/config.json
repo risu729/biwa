@@ -12,6 +12,10 @@
       "description": "Lifecycle hooks for synchronization.",
       "$ref": "#/$defs/HooksConfig"
     },
+    "log": {
+      "description": "Logging configuration.",
+      "$ref": "#/$defs/LogConfig"
+    },
     "ssh": {
       "description": "SSH connection configuration.",
       "$ref": "#/$defs/SshConfig"
@@ -25,7 +29,8 @@
     "ssh",
     "sync",
     "env",
-    "hooks"
+    "hooks",
+    "log"
   ],
   "$defs": {
     "EnvConfig": {
@@ -64,6 +69,37 @@
         }
       }
     },
+    "LogConfig": {
+      "description": "Logging configuration settings.",
+      "type": "object",
+      "properties": {
+        "quiet": {
+          "description": "Suppresses biwa internal logs; only remote command output is shown.",
+          "type": "boolean"
+        },
+        "silent": {
+          "description": "Suppresses all output, including remote command stdout/stderr.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "quiet",
+        "silent"
+      ]
+    },
+    "PasswordConfig": {
+      "description": "Password authentication configuration.\n\n- `false` (default): No password authentication.\n- `true`: Interactively prompt for a password.\n- `\"string\"`: Use the provided password value.",
+      "anyOf": [
+        {
+          "description": "Interactive prompt (`true`) or disabled (`false`).",
+          "type": "boolean"
+        },
+        {
+          "description": "A literal password value.",
+          "type": "string"
+        }
+      ]
+    },
     "SshConfig": {
       "description": "SSH connection settings.",
       "type": "object",
@@ -78,6 +114,10 @@
             "string",
             "null"
           ]
+        },
+        "password": {
+          "description": "Password authentication: `false` (default), `true` (prompt), or a string value.",
+          "$ref": "#/$defs/PasswordConfig"
         },
         "port": {
           "description": "Port to connect to on the remote host.",
@@ -94,7 +134,8 @@
       "required": [
         "host",
         "port",
-        "user"
+        "user",
+        "password"
       ]
     },
     "SyncConfig": {

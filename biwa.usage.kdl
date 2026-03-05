@@ -6,6 +6,8 @@ usage "Usage: biwa [OPTIONS] [COMMAND]"
 flag "-v --verbose" help="Set the verbosity level." var=#true global=#true count=#true {
     long_help "Set the verbosity level.\n\nCan be used multiple times to increase verbosity (e.g., -v, -vv, -vvv).\nBy default, only warnings and errors are shown.\n-v: info\n-vv: debug\n-vvv: trace"
 }
+flag "-q --quiet" help="Suppress biwa internal logs, only showing remote command output" global=#true
+flag "-s --silent" help="Suppress all output, including remote command stdout/stderr" global=#true
 arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true
 cmd run help="Run commands on remote host" {
     alias r

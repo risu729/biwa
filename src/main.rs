@@ -16,6 +16,10 @@ mod cli;
 mod config;
 /// SSH execution logic.
 mod ssh;
+#[cfg(test)]
+mod testing;
+/// UI components.
+mod ui;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {

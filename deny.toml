@@ -7,21 +7,45 @@ targets = [
 	"aarch64-apple-darwin",
 	"x86_64-apple-darwin",
 ]
+all-features = true
+
+[advisories]
+ignore = [
+	# rsa crate timing sidechannel (Marvin Attack) — no fix available upstream.
+	# Transitive dependency from russh via async-ssh2-tokio.
+	"RUSTSEC-2023-0071",
+]
+unused-ignored-advisory = "deny"
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "ISC"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "ISC", "CC0-1.0", "OpenSSL"]
+unused-allowed-license = "deny"
+unused-license-exception = "deny"
 
 [bans]
 multiple-versions = "deny"
 multiple-versions-include-dev = true
 wildcards = "deny"
 skip = [
+	{ name = "console", version = "*" },
+	{ name = "thiserror", version = "*" },
+	{ name = "thiserror-impl", version = "*" },
+	{ name = "generic-array", version = "*" },
 	{ name = "json5", version = "*" },
 	{ name = "getrandom", version = "*" },
+	{ name = "nix", version = "*" },
 	{ name = "rand", version = "*" },
 	{ name = "rand_chacha", version = "*" },
 	{ name = "rand_core", version = "*" },
 	{ name = "toml", version = "*" },
 	{ name = "toml_datetime", version = "*" },
+	{ name = "unicode-width", version = "*" },
+	{ name = "untrusted", version = "*" },
 	{ name = "winnow", version = "*" },
 ]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+required-git-spec = "rev"
+unused-allowed-source = "deny"

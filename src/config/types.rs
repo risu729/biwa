@@ -17,6 +17,29 @@ pub struct Config {
 	/// Lifecycle hooks for synchronization.
 	#[config(nested)]
 	pub hooks: HooksConfig,
+	/// Logging configuration.
+	#[config(nested)]
+	pub log: LogConfig,
+}
+
+/// Password authentication configuration.
+///
+/// - `false` (default): No password authentication.
+/// - `true`: Interactively prompt for a password.
+/// - `"string"`: Use the provided password value.
+#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
+#[serde(untagged)]
+pub enum PasswordConfig {
+	/// Interactive prompt (`true`) or disabled (`false`).
+	Interactive(bool),
+	/// A literal password value.
+	Value(String),
+}
+
+impl Default for PasswordConfig {
+	fn default() -> Self {
+		Self::Interactive(false)
+	}
 }
 
 impl Default for Config {
@@ -42,6 +65,20 @@ pub struct SshConfig {
 	/// Optional path to the SSH private key.
 	#[config(env = "BIWA_SSH_KEY_PATH")]
 	pub key_path: Option<PathBuf>,
+	/// Password authentication: `false` (default), `true` (prompt), or a string value.
+	#[config(default = false, env = "BIWA_SSH_PASSWORD")]
+	pub password: PasswordConfig,
+}
+
+/// Logging configuration settings.
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct LogConfig {
+	/// Suppresses biwa internal logs; only remote command output is shown.
+	#[config(default = false, env = "BIWA_LOG_QUIET")]
+	pub quiet: bool,
+	/// Suppresses all output, including remote command stdout/stderr.
+	#[config(default = false, env = "BIWA_LOG_SILENT")]
+	pub silent: bool,
 }
 
 /// Synchronization settings.

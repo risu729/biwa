@@ -1,4 +1,4 @@
-use crate::{config::types::Config, ssh::execute_command};
+use crate::{config::types::Config, ssh::exec::execute_command};
 use clap::{ArgAction, Parser, Subcommand};
 use eyre::bail;
 use tracing::Level;
@@ -40,6 +40,14 @@ struct Cli {
 	)]
 	#[arg(short, long, action = ArgAction::Count, global = true, verbatim_doc_comment)]
 	verbose: u8,
+
+	/// Suppress biwa internal logs, only showing remote command output.
+	#[arg(short, long, global = true)]
+	quiet: bool,
+
+	/// Suppress all output, including remote command stdout/stderr.
+	#[arg(short, long, global = true)]
+	silent: bool,
 }
 
 /// Supported subcommands for the biwa CLI.
@@ -59,9 +67,9 @@ enum Commands {
 
 impl Commands {
 	/// Executes the specific subcommand logic.
-	pub async fn run(self) -> eyre::Result<()> {
+	async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
 		match self {
-			Self::Run(cmd) => cmd.run().await,
+			Self::Run(cmd) => cmd.run(config, quiet, silent).await,
 			Self::Init(cmd) => cmd.run(),
 			Self::Schema(cmd) => cmd.run(),
 			Self::Completion(cmd) => cmd.run(),
@@ -74,26 +82,33 @@ impl Commands {
 pub async fn run() -> eyre::Result<()> {
 	let cli = Cli::parse();
 
-	let log_level = match cli.verbose {
-		0 => Level::WARN,
-		1 => Level::INFO,
-		2 => Level::DEBUG,
-		_ => Level::TRACE,
-	};
-	tracing_subscriber::fmt()
-		.pretty()
-		.with_max_level(log_level)
-		.without_time()
-		.init();
+	let config = Config::load()?;
+	let silent = cli.silent || config.log.silent;
+	let quiet = silent || cli.quiet || config.log.quiet;
+
+	if !quiet {
+		let log_level = match cli.verbose {
+			0 => Level::WARN,
+			1 => Level::INFO,
+			2 => Level::DEBUG,
+			_ => Level::TRACE,
+		};
+		tracing_subscriber::fmt()
+			.pretty()
+			.with_max_level(log_level)
+			.without_time()
+			.init();
+	}
 
 	if let Some(command) = cli.command {
-		command.run().await?;
+		command.run(&config, quiet, silent).await?;
 	} else if !cli.run_command_args.is_empty() {
-		let config = Config::load()?;
 		execute_command(
-			&config.ssh,
+			&config,
 			cli.run_command_args.first().expect("Command is empty"),
 			cli.run_command_args.get(1..).expect("Arguments are empty"),
+			quiet,
+			silent,
 		)
 		.await?;
 	} else {
@@ -137,5 +152,26 @@ mod tests {
 		let cli = Cli::parse_from(["biwa", "-vv", "run", "ls"]);
 		assert_eq!(cli.verbose, 2);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
+	}
+
+	#[test]
+	fn cli_quiet() {
+		let cli = Cli::parse_from(["biwa", "-q", "ls"]);
+		assert!(cli.quiet);
+		assert_eq!(cli.run_command_args, vec!["ls"]);
+	}
+
+	#[test]
+	fn cli_quiet_long() {
+		let cli = Cli::parse_from(["biwa", "--quiet", "run", "ls"]);
+		assert!(cli.quiet);
+		assert!(matches!(cli.command, Some(Commands::Run(_))));
+	}
+
+	#[test]
+	fn cli_quiet_with_verbose() {
+		let cli = Cli::parse_from(["biwa", "-q", "-vv", "ls"]);
+		assert!(cli.quiet);
+		assert_eq!(cli.verbose, 2);
 	}
 }

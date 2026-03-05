@@ -34,6 +34,13 @@ expression: content
 # Can also be specified via environment variable `BIWA_SSH_KEY_PATH`.
 #key_path =
 
+# Password authentication: `false` (default), `true` (prompt), or a string value.
+#
+# Can also be specified via environment variable `BIWA_SSH_PASSWORD`.
+#
+# Default value: false
+#password = false
+
 # Remote synchronization configuration.
 [sync]
 # Remote directory to sync the project to.
@@ -62,3 +69,19 @@ expression: content
 
 # Command to run after synchronization.
 #post_sync =
+
+# Logging configuration.
+[log]
+# Suppresses biwa internal logs; only remote command output is shown.
+#
+# Can also be specified via environment variable `BIWA_LOG_QUIET`.
+#
+# Default value: false
+#quiet = false
+
+# Suppresses all output, including remote command stdout/stderr.
+#
+# Can also be specified via environment variable `BIWA_LOG_SILENT`.
+#
+# Default value: false
+#silent = false

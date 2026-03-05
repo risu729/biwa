@@ -199,15 +199,15 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::testing::EnvCleanup;
 	use assert_matches::assert_matches;
 	use pretty_assertions::assert_eq;
 	use rstest::rstest;
+	use serial_test::serial;
 	use std::fs;
-	use std::sync::Mutex;
 	use tempfile::tempdir;
 
-	static TEST_MUTEX: Mutex<()> = Mutex::new(());
-
+	#[serial]
 	#[test]
 	fn default() {
 		let config = Config::default();
@@ -217,75 +217,79 @@ mod tests {
 		assert!(config.sync.remote_root.ends_with(".cache/biwa/projects"));
 	}
 
+	#[serial]
 	#[test]
 	fn env_override() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
 
 		// Set env var override
 		// SAFETY: This is a single-threaded test context modifying the environment for current process.
-		// `TEST_MUTEX` enforces serialized test execution to guarantee no race conditions.
+		// `#[serial]` from `serial_test` ensures serialized execution to prevent env races.
 		unsafe {
 			env::set_var("BIWA_SSH_HOST", "env");
 		}
+		// Set env var override
+		// SAFETY: This is a single-threaded test context modifying the environment for current process.
+		// `#[serial]` from `serial_test` ensures serialized execution to prevent env races.
+		unsafe {
+			env::set_var("BIWA_SSH_PORT", "8080");
+		}
 
 		// Ensure cleanup
-		let _cleanup = EnvCleanup("BIWA_SSH_HOST");
+		let _cleanup1 = EnvCleanup("BIWA_SSH_HOST");
+		let _cleanup2 = EnvCleanup("BIWA_SSH_PORT");
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
 			.expect("Failed to load config");
 
 		assert_eq!(config.ssh.host, "env");
+		assert_eq!(config.ssh.port, 8080);
 	}
 
-	struct EnvCleanup(&'static str);
-	impl Drop for EnvCleanup {
-		fn drop(&mut self) {
-			// SAFETY: Similar to set_var, no race conditions within tests as tests are serialized via `TEST_MUTEX`.
-			unsafe {
-				env::remove_var(self.0);
-			}
-		}
-	}
-
+	#[serial]
 	#[test]
 	fn snapshot() {
 		let config = Config::default();
-		insta::assert_json_snapshot!(config, @r###"
-  {
-    "ssh": {
-      "host": "cse.unsw.edu.au",
-      "port": 22,
-      "user": "z1234567",
-      "key_path": null
-    },
-    "sync": {
-      "remote_root": "~/.cache/biwa/projects",
-      "ignore_files": [
-        ".git",
-        "target",
-        "node_modules"
-      ]
-    },
-    "env": {
-      "vars": []
-    },
-    "hooks": {
-      "pre_sync": null,
-      "post_sync": null
-    }
-  }
-  "###);
+		insta::assert_json_snapshot!(config, @r#"
+		{
+		  "ssh": {
+		    "host": "cse.unsw.edu.au",
+		    "port": 22,
+		    "user": "z1234567",
+		    "key_path": null,
+		    "password": false
+		  },
+		  "sync": {
+		    "remote_root": "~/.cache/biwa/projects",
+		    "ignore_files": [
+		      ".git",
+		      "target",
+		      "node_modules"
+		    ]
+		  },
+		  "env": {
+		    "vars": []
+		  },
+		  "hooks": {
+		    "pre_sync": null,
+		    "post_sync": null
+		  },
+		  "log": {
+		    "quiet": false,
+		    "silent": false
+		  }
+		}
+		"#);
 	}
 
 	#[rstest]
+	#[serial]
 	#[case::toml("ssh.host = 'toml'", "toml", "toml")]
 	#[case::json(r#"{ "ssh": { "host": "json" } }"#, "json", "json")]
 	#[case::json5("{ ssh: { host: 'json5' } }", "json5", "json5")]
 	#[case::yaml("ssh:\n  host: yaml", "yaml", "yaml")]
 	fn format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let file_path = dir.path().join(format!("biwa.{ext}"));
 		fs::write(&file_path, content).unwrap();
@@ -295,9 +299,9 @@ mod tests {
 		assert_eq!(config.ssh.host, expected);
 	}
 
+	#[serial]
 	#[test]
 	fn traversal_precedence() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -312,9 +316,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "subdir");
 	}
 
+	#[serial]
 	#[test]
 	fn traversal_stops_at_home() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let home = root.join("home");
@@ -334,9 +338,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 	}
 
+	#[serial]
 	#[test]
 	fn xdg_precedence() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -349,9 +353,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "xdg");
 	}
 
+	#[serial]
 	#[test]
 	fn cwd_is_dot_config() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -372,9 +376,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "standard");
 	}
 
+	#[serial]
 	#[test]
 	fn nested_within_dot_config() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -397,9 +401,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 	}
 
+	#[serial]
 	#[test]
 	fn strict_global_config() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -413,9 +417,9 @@ mod tests {
 		assert_matches!(result, Err(_));
 	}
 
+	#[serial]
 	#[test]
 	fn strict_local_config() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Multiple local configs in same dir should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "toml""#).unwrap();
@@ -429,9 +433,9 @@ mod tests {
 		assert_matches!(result, Err(_));
 	}
 
+	#[serial]
 	#[test]
 	fn conflict_root_and_dot_config() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Test multiple "local" configs (one within .config) should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "root""#).unwrap();
@@ -445,9 +449,9 @@ mod tests {
 		assert_matches!(result, Err(_));
 	}
 
+	#[serial]
 	#[test]
 	fn local_dot_config_support() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let dot_config = dir.path().join(".config");
 		fs::create_dir_all(&dot_config).unwrap();
@@ -459,9 +463,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "dotconfig");
 	}
 
+	#[serial]
 	#[test]
 	fn ignored_xdg_biwa_biwa() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -485,9 +489,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "fallback");
 	}
 
+	#[serial]
 	#[test]
 	fn find_single_config_logic() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 
@@ -521,9 +525,9 @@ mod tests {
 		assert_matches!(result, Err(_));
 	}
 
+	#[serial]
 	#[test]
 	fn nested_path_resolution() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -565,9 +569,9 @@ host = "child"
 		);
 	}
 
+	#[serial]
 	#[test]
 	fn local_config_root_dot_config_biwa() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -594,9 +598,9 @@ remote_root = "libs"
 		);
 	}
 
+	#[serial]
 	#[test]
 	fn global_config_root_home_and_xdg() {
-		let _guard = TEST_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -641,5 +645,119 @@ remote_root = "xdg_libs"
 			home.join("xdg_libs"),
 			"global remote_root from ~/.config/biwa/config.toml should be resolved relative to ~"
 		);
+	}
+
+	#[serial]
+	#[test]
+	fn relative_key_path_resolved_against_source_config() {
+		// Layout:
+		//   /parent/biwa.toml       -> sets ssh.key_path = "my_key"
+		//   /parent/my_key          -> the key file
+		//   /parent/child/biwa.toml -> overrides ssh.host only
+		let parent = tempdir().unwrap();
+		let child = parent.path().join("child");
+		fs::create_dir_all(&child).unwrap();
+
+		fs::write(
+			parent.path().join("biwa.toml"),
+			"[ssh]\nkey_path = \"my_key\"\n",
+		)
+		.unwrap();
+		fs::write(parent.path().join("my_key"), "fake key").unwrap();
+		fs::write(child.join("biwa.toml"), "[ssh]\nhost = \"other.host\"\n").unwrap();
+
+		let config =
+			Config::load_internal(None, None, Some(&child)).expect("failed to load config");
+
+		// key_path should be resolved to parent/my_key, not child/my_key
+		let resolved = config.ssh.key_path.expect("key_path should be set");
+		let expected = parent.path().join("my_key");
+		assert_eq!(resolved, expected);
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_invalid_toml() -> eyre::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let path = dir.path().join("config.toml");
+		// Write invalid TOML
+		fs::write(&path, "invalid = = toml")?;
+
+		let result = Config::load_partial(&path, ConfigFormat::Toml, dir.path());
+		let err = match result {
+			Err(e) => e.to_string(),
+			Ok(_) => eyre::bail!("Expected parsing error for invalid TOML"),
+		};
+		eyre::ensure!(
+			err.contains("Failed to parse TOML"),
+			"Error string mismatch: {}",
+			err
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_invalid_yaml() -> eyre::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let path = dir.path().join("config.yaml");
+		// Write invalid YAML
+		fs::write(&path, "invalid:\n  - \n    - :\n")?;
+
+		let result = Config::load_partial(&path, ConfigFormat::Yaml, dir.path());
+		let err = match result {
+			Err(e) => e.to_string(),
+			Ok(_) => eyre::bail!("Expected parsing error for invalid YAML"),
+		};
+		eyre::ensure!(
+			err.contains("Failed to parse YAML"),
+			"Error string mismatch: {}",
+			err
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_invalid_json() -> eyre::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let path = dir.path().join("config.json");
+		// Write invalid JSON
+		fs::write(&path, r#"{"invalid": true"#)?;
+
+		let result = Config::load_partial(&path, ConfigFormat::Json, dir.path());
+		let err = match result {
+			Err(e) => e.to_string(),
+			Ok(_) => eyre::bail!("Expected parsing error for invalid JSON"),
+		};
+		eyre::ensure!(
+			err.contains("Failed to parse JSON"),
+			"Error string mismatch: {}",
+			err
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_valid_json5() -> eyre::Result<()> {
+		let dir = tempfile::tempdir()?;
+		let path = dir.path().join("config.json5");
+		// Write valid JSON5 (with comments and trailing commas)
+		fs::write(
+			&path,
+			r#"
+			{
+				// This is a comment
+				"ssh": {
+					"port": 2222,
+				}
+			}
+			"#,
+		)?;
+
+		let result = Config::load_partial(&path, ConfigFormat::Json5, dir.path());
+		eyre::ensure!(result.is_ok(), "Failed to parse valid JSON5");
+		Ok(())
 	}
 }

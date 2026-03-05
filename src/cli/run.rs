@@ -1,10 +1,10 @@
-use crate::{config::types::Config, ssh::execute_command};
+use crate::{config::types::Config, ssh::exec::execute_command};
 use clap::Args;
 
 /// Run a command on the CSE server.
 #[derive(Args, Debug)]
 #[clap(visible_alias = "r")]
-pub struct Run {
+pub(super) struct Run {
 	/// The command to run.
 	#[arg(required = true)]
 	command: String,
@@ -16,9 +16,8 @@ pub struct Run {
 
 impl Run {
 	/// Run the execution logic for remote command.
-	pub async fn run(self) -> eyre::Result<()> {
-		let config = Config::load()?;
-		execute_command(&config.ssh, &self.command, &self.command_args).await?;
+	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
+		execute_command(config, &self.command, &self.command_args, quiet, silent).await?;
 		Ok(())
 	}
 }
@@ -32,6 +31,7 @@ mod tests {
 	#[test]
 	fn run_command() {
 		let args = Cli::parse_from(["biwa", "run", "ls", "-la"]);
+		assert!(args.run_command_args.is_empty());
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(run.command, "ls");
 			assert_eq!(run.command_args, vec!["-la"]);

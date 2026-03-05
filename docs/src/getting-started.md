@@ -2,6 +2,10 @@
 
 Get up and running with biwa in minutes.
 
+::: warning Windows Not Supported
+biwa does not run natively on Windows. Please use [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) (Windows Subsystem for Linux). All features work seamlessly inside WSL2.
+:::
+
 ## Installation
 
 ### Via mise (Recommended)
@@ -48,26 +52,24 @@ Run the initialization command to create a configuration file:
 biwa init
 ```
 
-This creates a configuration file (typically `biwa.toml` or `biwa.json`) in your project directory with default settings.
+This creates a `biwa.toml` file in your project directory with default settings.
 
 ### Basic Configuration
 
 Edit the generated configuration file to add your CSE server details:
 
 ```toml
-[remote]
+[ssh]
 host = "cse.unsw.edu.au"
 user = "z5555555"  # Your zID
 port = 22
 
-[ssh]
 # Path to your SSH private key (optional, uses default if not specified)
-# Using password authentication is possible but less secure
-ssh_key = "~/.ssh/id_ed25519"
+# key_path = "~/.ssh/id_ed25519"
 ```
 
-::: warning SSH Key Setup
-Make sure you have SSH key authentication set up for CSE servers. Password authentication works but is less secure and inconvenient for frequent use.
+::: tip SSH Key Authentication
+SSH key authentication is recommended over password authentication. See the [SSH Key Setup](/ssh-key-setup) guide for instructions.
 :::
 
 ## First Run
@@ -87,8 +89,32 @@ biwa run give cs1521 lab02
 If you're in a project directory, biwa will automatically sync your local files to the remote server before executing commands.
 :::
 
+## Log Output
+
+By default, biwa shows internal logs (connection status, etc.) alongside remote command output. You can control this:
+
+```bash
+# Suppress biwa logs, only show remote output
+biwa -q run echo "Hello"
+
+# Suppress all output (including remote stdout/stderr)
+biwa -s run echo "Hello"
+
+# Increase verbosity for debugging
+biwa -vv run echo "Hello"
+```
+
+You can also set these in your config:
+
+```toml
+[log]
+quiet = true   # Suppress biwa internal logs
+silent = true  # Suppress all output
+```
+
 ## Next Steps
 
 - Read about [Configuration](/configuration) options
+- Set up [SSH Key Authentication](/ssh-key-setup)
 - Check [About biwa](/about)
 - Explore advanced features like hooks and mise integration

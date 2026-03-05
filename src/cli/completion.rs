@@ -9,14 +9,14 @@ use strum::EnumString;
 ///
 /// Requires the `usage` CLI: <https://usage.jdx.dev>.
 #[derive(Args, Debug)]
-pub struct Completion {
+pub(super) struct Completion {
 	/// Shell type to generate completions for.
 	shell: Shell,
 }
 
 impl Completion {
 	/// Run the completion generation logic.
-	pub fn run(self) -> eyre::Result<()> {
+	pub(super) fn run(self) -> eyre::Result<()> {
 		let script = self.call_usage()?;
 		println!("{}", script.trim());
 		Ok(())
