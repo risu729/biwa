@@ -106,6 +106,9 @@ pub struct SyncConfig {
 	/// Automatically synchronize the project before running remote commands.
 	#[config(default = true, env = "BIWA_SYNC_AUTO")]
 	pub auto: bool,
+	/// Base directory to start the synchronization from. If not specified, uses the current working directory.
+	#[config(env = "BIWA_SYNC_ROOT")]
+	pub sync_root: Option<PathBuf>,
 	/// Remote directory to sync the project to.
 	#[config(default = "~/.cache/biwa/projects", env = "BIWA_SYNC_REMOTE_ROOT")]
 	pub remote_root: PathBuf,

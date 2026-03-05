@@ -6,6 +6,10 @@ use std::env;
 /// Arguments for synchronization.
 #[derive(Args, Debug, Default, Clone)]
 pub struct SyncArgs {
+	/// Base directory to start the synchronization from. Overrides the current working directory.
+	#[arg(long)]
+	pub sync_root: Option<std::path::PathBuf>,
+
 	/// Force synchronization of all files, ignoring incremental hash checks.
 	#[arg(long, short = 'f')]
 	pub force: bool,
@@ -51,8 +55,10 @@ impl Sync {
 	/// Run the sync logic.
 	pub async fn run(self, config: &Config, quiet: bool, _silent: bool) -> eyre::Result<()> {
 		let current_dir = env::current_dir()?;
-		// Assuming current directory is project root or we can just use current directory.
-		sync_project(config, &current_dir, &self.sync_args.into(), quiet).await?;
+		let sync_root = self.sync_args.sync_root.clone()
+			.or_else(|| config.sync.sync_root.clone())
+			.unwrap_or(current_dir);
+		sync_project(config, &sync_root, &self.sync_args.into(), quiet).await?;
 		Ok(())
 	}
 }

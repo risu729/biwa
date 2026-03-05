@@ -50,6 +50,11 @@ expression: content
 # Default value: true
 #auto = true
 
+# Base directory to start the synchronization from. If not specified, uses the current working directory.
+#
+# Can also be specified via environment variable `BIWA_SYNC_ROOT`.
+#sync_root =
+
 # Remote directory to sync the project to.
 #
 # Can also be specified via environment variable `BIWA_SYNC_REMOTE_ROOT`.

@@ -262,6 +262,7 @@ mod tests {
 		  },
 		  "sync": {
 		    "auto": true,
+		    "sync_root": null,
 		    "remote_root": "~/.cache/biwa/projects",
 		    "ignore_files": [
 		      ".git",
