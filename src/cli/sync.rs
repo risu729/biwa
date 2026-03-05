@@ -1,5 +1,5 @@
 use crate::config::types::Config;
-use crate::ssh::sync::{sync_project, SyncOptions};
+use crate::ssh::sync::{SyncOptions, sync_project};
 use clap::Args;
 use std::env;
 

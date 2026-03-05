@@ -3,6 +3,7 @@ use crate::config::types::{Config, SyncEngine};
 use crate::ui::create_spinner;
 use console::style;
 use eyre::{Context as _, ContextCompat as _, Result, bail};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use sha2::{Digest as _, Sha256};
 use std::collections::HashMap;
@@ -10,11 +11,13 @@ use std::fs::File;
 use std::io::{BufReader, Read as _};
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
-use globset::{Glob, GlobSet, GlobSetBuilder};
 
 /// Statistics for a synchronization operation.
 #[derive(Debug, Default, PartialEq, Eq)]
-#[expect(clippy::module_name_repetitions, reason = "Plan defined it as SyncStats")]
+#[expect(
+	clippy::module_name_repetitions,
+	reason = "Plan defined it as SyncStats"
+)]
 #[expect(clippy::struct_field_names, reason = "Plan defined it as files_*")]
 pub struct SyncStats {
 	/// Number of files uploaded.
@@ -27,7 +30,10 @@ pub struct SyncStats {
 
 /// Options for a synchronization operation.
 #[derive(Debug, Default, Clone)]
-#[expect(clippy::module_name_repetitions, reason = "Plan defined it as SyncOptions")]
+#[expect(
+	clippy::module_name_repetitions,
+	reason = "Plan defined it as SyncOptions"
+)]
 pub struct SyncOptions {
 	/// Force synchronization of all files, ignoring incremental hash checks.
 	pub force: bool,
@@ -212,11 +218,11 @@ pub async fn sync_project(
 
 		if !options.force
 			&& let Some(remote_hash) = remote_hashes.get(&rel_path_str)
-				&& remote_hash == &local_hash
-			{
-				stats.files_unchanged += 1;
-				continue;
-			}
+			&& remote_hash == &local_hash
+		{
+			stats.files_unchanged += 1;
+			continue;
+		}
 		to_upload.push(rel_path);
 	}
 

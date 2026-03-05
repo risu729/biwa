@@ -1,5 +1,5 @@
-use crate::{config::types::Config, ssh::exec::execute_command, ssh::sync::sync_project};
 use crate::cli::sync::SyncArgs;
+use crate::{config::types::Config, ssh::exec::execute_command, ssh::sync::sync_project};
 use clap::Args;
 use std::env;
 
