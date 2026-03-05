@@ -1,5 +1,5 @@
 use crate::config::types::Config;
-use crate::ssh::sync::{SyncOptions, sync_project};
+use crate::ssh::sync::{Options, sync_project};
 use clap::Args;
 use std::env;
 use std::path::PathBuf;
@@ -24,7 +24,7 @@ pub struct SyncArgs {
 	pub include: Vec<String>,
 }
 
-impl From<SyncArgs> for SyncOptions {
+impl From<SyncArgs> for Options {
 	fn from(val: SyncArgs) -> Self {
 		Self {
 			force: val.force,

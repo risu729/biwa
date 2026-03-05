@@ -17,27 +17,18 @@ use tracing::{info, warn};
 
 /// Statistics for a synchronization operation.
 #[derive(Debug, Default, PartialEq, Eq)]
-#[expect(
-	clippy::module_name_repetitions,
-	reason = "Plan defined it as SyncStats"
-)]
-#[expect(clippy::struct_field_names, reason = "Plan defined it as files_*")]
-pub struct SyncStats {
+pub struct Stats {
 	/// Number of files uploaded.
-	pub files_uploaded: usize,
+	pub uploaded: usize,
 	/// Number of files deleted.
-	pub files_deleted: usize,
+	pub deleted: usize,
 	/// Number of files unchanged.
-	pub files_unchanged: usize,
+	pub unchanged: usize,
 }
 
 /// Options for a synchronization operation.
 #[derive(Debug, Default, Clone)]
-#[expect(
-	clippy::module_name_repetitions,
-	reason = "Plan defined it as SyncOptions"
-)]
-pub struct SyncOptions {
+pub struct Options {
 	/// Force synchronization of all files, ignoring incremental hash checks.
 	pub force: bool,
 	/// Exclude files matching these paths or globs.
@@ -74,7 +65,7 @@ pub(super) fn check_remote_root(remote_root: &Path) {
 pub(super) fn collect_local_files(
 	root: &Path,
 	extra_ignores: &[PathBuf],
-	options: &SyncOptions,
+	options: &Options,
 ) -> Result<Vec<(PathBuf, String)>> {
 	let mut builder = WalkBuilder::new(root);
 	builder.standard_filters(true); // .gitignore, .ignore, etc.
@@ -156,16 +147,12 @@ pub(super) fn compute_remote_path(
 )]
 #[expect(clippy::too_many_lines, reason = "Complex sync logic")]
 #[expect(clippy::cognitive_complexity, reason = "Complex sync logic")]
-#[expect(
-	clippy::string_slice,
-	reason = "Hex encoded strings are strictly ASCII, slicing is safe"
-)]
 pub async fn sync_project(
 	config: &Config,
 	project_root: &Path,
-	options: &SyncOptions,
+	options: &Options,
 	quiet: bool,
-) -> Result<SyncStats> {
+) -> Result<Stats> {
 	if config.sync.engine != SyncEngine::Sftp {
 		bail!("Only SFTP sync engine is currently supported");
 	}
@@ -188,6 +175,10 @@ pub async fn sync_project(
 			.as_bytes(),
 	);
 	let hash_hex = hex::encode(hasher.finalize());
+	#[expect(
+		clippy::string_slice,
+		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
+	)]
 	let unique_project_name = format!("{}-{}", project_name, &hash_hex[..8]);
 
 	let local_files = collect_local_files(project_root, &config.sync.ignore_files, options)?;
@@ -236,7 +227,7 @@ pub async fn sync_project(
 		}
 	}
 
-	let mut stats = SyncStats::default();
+	let mut stats = Stats::default();
 
 	let mut to_upload = Vec::new();
 	let mut local_paths_str = HashSet::new();
@@ -249,7 +240,7 @@ pub async fn sync_project(
 			&& let Some(remote_hash) = remote_hashes.get(&rel_path_str)
 			&& remote_hash == &local_hash
 		{
-			stats.files_unchanged = stats.files_unchanged.saturating_add(1);
+			stats.unchanged = stats.unchanged.saturating_add(1);
 			continue;
 		}
 		to_upload.push(rel_path);
@@ -281,7 +272,7 @@ pub async fn sync_project(
 		for path in &to_delete {
 			let full_path = format!("{remote_dir}/{path}");
 			delete_cmds.push(format!("rm -f -- {}", shell_words::quote(&full_path)));
-			stats.files_deleted = stats.files_deleted.saturating_add(1);
+			stats.deleted = stats.deleted.saturating_add(1);
 		}
 		let delete_script = delete_cmds.join(" && ");
 		client
@@ -343,7 +334,7 @@ pub async fn sync_project(
 
 			upload_file(&sftp, &local_path, &remote_path, secure_mode).await?;
 
-			stats.files_uploaded = stats.files_uploaded.saturating_add(1);
+			stats.uploaded = stats.uploaded.saturating_add(1);
 		}
 	}
 
@@ -355,9 +346,9 @@ pub async fn sync_project(
 		eprintln!(
 			"{} Sync completed: {} uploaded, {} deleted, {} unchanged",
 			style("✓").green().bold(),
-			stats.files_uploaded,
-			stats.files_deleted,
-			stats.files_unchanged
+			stats.uploaded,
+			stats.deleted,
+			stats.unchanged
 		);
 	}
 
@@ -377,7 +368,7 @@ mod tests {
 		let file_path = dir.path().join("test.txt");
 		fs::write(&file_path, "hello").unwrap();
 
-		let files = collect_local_files(dir.path(), &[], &SyncOptions::default()).unwrap();
+		let files = collect_local_files(dir.path(), &[], &Options::default()).unwrap();
 		assert_eq!(files.len(), 1);
 		assert_eq!(files[0].0.to_string_lossy(), "test.txt");
 
@@ -393,7 +384,7 @@ mod tests {
 		fs::write(dir.path().join("ignored.txt"), "ignored").unwrap();
 		fs::write(dir.path().join("kept.txt"), "kept").unwrap();
 
-		let files = collect_local_files(dir.path(), &[], &SyncOptions::default()).unwrap();
+		let files = collect_local_files(dir.path(), &[], &Options::default()).unwrap();
 		let names: Vec<_> = files
 			.iter()
 			.map(|(p, _)| p.to_string_lossy().to_string())
