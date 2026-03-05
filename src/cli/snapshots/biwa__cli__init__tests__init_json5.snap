@@ -43,6 +43,13 @@ expression: content
 
   // Remote synchronization configuration.
   sync: {
+    // Automatically synchronize the project before running remote commands.
+    //
+    // Can also be specified via environment variable `BIWA_SYNC_AUTO`.
+    //
+    // Default value: true
+    //auto: true,
+
     // Remote directory to sync the project to.
     //
     // Can also be specified via environment variable `BIWA_SYNC_REMOTE_ROOT`.
@@ -54,6 +61,13 @@ expression: content
     //
     // Default value: [".git","target","node_modules"]
     //ignore_files: [".git","target","node_modules"],
+
+    // The synchronization engine to use.
+    //
+    // Can also be specified via environment variable `BIWA_SYNC_ENGINE`.
+    //
+    // Default value: "sftp"
+    //engine: "sftp",
   },
 
   // Environment variables configuration.

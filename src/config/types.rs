@@ -81,15 +81,32 @@ pub struct LogConfig {
 	pub silent: bool,
 }
 
+/// The synchronization engine to use.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SyncEngine {
+	/// Use SFTP for synchronization.
+	#[default]
+	Sftp,
+	/// Use Mutagen for synchronization.
+	Mutagen,
+}
+
 /// Synchronization settings.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncConfig {
+	/// Automatically synchronize the project before running remote commands.
+	#[config(default = true, env = "BIWA_SYNC_AUTO")]
+	pub auto: bool,
 	/// Remote directory to sync the project to.
 	#[config(default = "~/.cache/biwa/projects", env = "BIWA_SYNC_REMOTE_ROOT")]
 	pub remote_root: PathBuf,
 	/// Files and directories to ignore during synchronization.
 	#[config(default = [".git", "target", "node_modules"])]
 	pub ignore_files: Vec<PathBuf>,
+	/// The synchronization engine to use.
+	#[config(default = "sftp", env = "BIWA_SYNC_ENGINE")]
+	pub engine: SyncEngine,
 }
 
 /// Environment settings.

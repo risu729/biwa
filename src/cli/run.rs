@@ -1,5 +1,6 @@
-use crate::{config::types::Config, ssh::exec::execute_command};
+use crate::{config::types::Config, ssh::exec::execute_command, ssh::sync::sync_project};
 use clap::Args;
+use std::env;
 
 /// Run a command on the CSE server.
 #[derive(Args, Debug)]
@@ -17,6 +18,10 @@ pub(super) struct Run {
 impl Run {
 	/// Run the execution logic for remote command.
 	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
+		if config.sync.auto {
+			let current_dir = env::current_dir()?;
+			sync_project(config, &current_dir, quiet).await?;
+		}
 		execute_command(config, &self.command, &self.command_args, quiet, silent).await?;
 		Ok(())
 	}

@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, info};
 
 /// Connect to the SSH server using the resolved authentication method.
-async fn connect(config: &Config, quiet: bool) -> eyre::Result<Client> {
+pub(super) async fn connect(config: &Config, quiet: bool) -> eyre::Result<Client> {
 	let auth_method = resolve_auth(config)?;
 	let ssh = &config.ssh;
 

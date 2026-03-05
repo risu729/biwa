@@ -23,6 +23,8 @@ expression: content
     "user": "z1234567"
   },
   "sync": {
+    "auto": true,
+    "engine": "sftp",
     "ignore_files": [
       ".git",
       "target",

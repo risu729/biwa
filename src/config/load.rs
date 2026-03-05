@@ -261,12 +261,14 @@ mod tests {
 		    "password": false
 		  },
 		  "sync": {
+		    "auto": true,
 		    "remote_root": "~/.cache/biwa/projects",
 		    "ignore_files": [
 		      ".git",
 		      "target",
 		      "node_modules"
-		    ]
+		    ],
+		    "engine": "sftp"
 		  },
 		  "env": {
 		    "vars": []
