@@ -75,9 +75,9 @@ Storing your password in a configuration file is **not recommended** for securit
 
 #### `[sync.sftp]` — SFTP Engine Settings
 
-| Key                 | Type    | Default | Description                                                                                 |
-| ------------------- | ------- | ------- | ------------------------------------------------------------------------------------------- |
-| `max_files_to_sync` | integer | `100`   | Abort synchronization if the number of files to upload exceeds this limit                   |
+| Key                 | Type    | Default | Description                                                               |
+| ------------------- | ------- | ------- | ------------------------------------------------------------------------- |
+| `max_files_to_sync` | integer | `100`   | Abort synchronization if the number of files to upload exceeds this limit |
 
 ::: warning Absolute Remote Root
 It is strongly recommended to use a relative path starting with `~` for your `remote_root`. Using an absolute path (e.g., `/home/user/cache`) can lead to unexpected directory structures and permissions issues on the remote server. Biwa will emit a warning if an absolute path is detected.
