@@ -44,7 +44,7 @@ Features:\n\
 - Smart Hashing: Computes SHA-256 hash to only upload modified/new files.\n\
 - Cleanup: Automatically deletes remote files that no longer exist locally.\n\
 - Gitignore Support: Respects `.gitignore` and `.ignore` files automatically.\n\
-- Secure Permissions: Enforces `0700` for directories and `0600` for files."
+- Secure Permissions: Enforces `0700` for directories. File permissions are preserved from the local filesystem but restricted to user-only access (e.g. `0644` becomes `0600`, `0755` becomes `0700`)."
 )]
 pub(super) struct Sync {
 	/// Synchronization options.
