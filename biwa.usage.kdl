@@ -12,6 +12,9 @@ arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the re
 cmd run help="Run commands on remote host" {
     alias r
     flag --no-sync help="Skip automatic synchronization before running the command"
+    flag --sync-root help="Base directory to start the synchronization from. Overrides the current working directory" {
+        arg <SYNC_ROOT>
+    }
     flag "-f --force" help="Force synchronization of all files, ignoring incremental hash checks"
     flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
         arg <EXCLUDE>
@@ -24,6 +27,9 @@ cmd run help="Run commands on remote host" {
 }
 cmd sync help="Synchronize files to remote host" {
     alias s
+    flag --sync-root help="Base directory to start the synchronization from. Overrides the current working directory" {
+        arg <SYNC_ROOT>
+    }
     flag "-f --force" help="Force synchronization of all files, ignoring incremental hash checks"
     flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
         arg <EXCLUDE>

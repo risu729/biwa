@@ -22,6 +22,10 @@ The arguments for the command
 
 Skip automatic synchronization before running the command
 
+### `--sync-root <SYNC_ROOT>`
+
+Base directory to start the synchronization from. Overrides the current working directory
+
 ### `-f --force`
 
 Force synchronization of all files, ignoring incremental hash checks

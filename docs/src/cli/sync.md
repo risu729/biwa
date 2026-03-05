@@ -8,6 +8,10 @@ Synchronize files to remote host
 
 ## Flags
 
+### `--sync-root <SYNC_ROOT>`
+
+Base directory to start the synchronization from. Overrides the current working directory
+
 ### `-f --force`
 
 Force synchronization of all files, ignoring incremental hash checks
