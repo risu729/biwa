@@ -5,7 +5,12 @@
 #![expect(clippy::unwrap_used, reason = "Tests can panic")]
 #![expect(clippy::absolute_paths, reason = "Tests can use absolute paths")]
 #![expect(clippy::create_dir, reason = "Tests can use create_dir")]
+#![expect(
+	clippy::string_slice,
+	reason = "Hex encoded strings are strictly ASCII, slicing is safe"
+)]
 
+use sha2::Digest as _;
 use std::fs;
 
 fn biwa_cmd(args: &[&str], current_dir: &std::path::Path) -> duct::Expression {
@@ -53,12 +58,23 @@ fn e2e_sync_basic() {
 	// Wait, the remote path includes the project name. The project name is the directory name.
 	// We don't know the tempdir name.
 	let proj_name = dir.path().file_name().unwrap().to_string_lossy();
+	let mut hasher = sha2::Sha256::new();
+	sha2::Digest::update(
+		&mut hasher,
+		dir.path()
+			.canonicalize()
+			.unwrap()
+			.to_string_lossy()
+			.as_bytes(),
+	);
+	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
+	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
 
 	let output3 = biwa_cmd(
 		&[
 			"run",
 			"cat",
-			&format!("/config/cache/biwa/projects/{proj_name}/hello.txt"),
+			&format!("/config/cache/biwa/projects/{unique_proj_name}/hello.txt"),
 		],
 		dir.path(),
 	)
@@ -132,7 +148,19 @@ fn e2e_sync_permissions() {
 	assert!(output.status.success());
 
 	let proj_name = dir.path().file_name().unwrap().to_string_lossy();
-	let remote_dir = format!("/config/cache/biwa/projects/{proj_name}/subdir");
+	let mut hasher = sha2::Sha256::new();
+	sha2::Digest::update(
+		&mut hasher,
+		dir.path()
+			.canonicalize()
+			.unwrap()
+			.to_string_lossy()
+			.as_bytes(),
+	);
+	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
+	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
+
+	let remote_dir = format!("/config/cache/biwa/projects/{unique_proj_name}/subdir");
 
 	let ls_output = biwa_cmd(&["run", "ls", "-ld", &remote_dir], dir.path())
 		.stdout_capture()

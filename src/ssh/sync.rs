@@ -152,6 +152,10 @@ pub fn compute_remote_path(remote_root: &Path, project_name: &str, relative: &Pa
 )]
 #[expect(clippy::too_many_lines, reason = "Complex sync logic")]
 #[expect(clippy::cognitive_complexity, reason = "Complex sync logic")]
+#[expect(
+	clippy::string_slice,
+	reason = "Hex encoded strings are strictly ASCII, slicing is safe"
+)]
 pub async fn sync_project(
 	config: &Config,
 	project_root: &Path,
@@ -170,6 +174,18 @@ pub async fn sync_project(
 		.to_string_lossy()
 		.into_owned();
 
+	// Create a unique hash based on the absolute path to prevent collisions between projects with the same name
+	let mut hasher = Sha256::new();
+	hasher.update(
+		project_root
+			.canonicalize()
+			.wrap_err("Failed to canonicalize project root")?
+			.to_string_lossy()
+			.as_bytes(),
+	);
+	let hash_hex = hex::encode(hasher.finalize());
+	let unique_project_name = format!("{}-{}", project_name, &hash_hex[..8]);
+
 	let local_files = collect_local_files(project_root, &config.sync.ignore_files, options)?;
 
 	let spinner = if quiet {
@@ -181,7 +197,7 @@ pub async fn sync_project(
 	let client = connect(config, quiet).await?;
 
 	// Compute remote directory base
-	let remote_dir = compute_remote_path(&config.sync.remote_root, &project_name, Path::new(""));
+	let remote_dir = compute_remote_path(&config.sync.remote_root, &unique_project_name, Path::new(""));
 	let quoted_remote_dir = shell_words::quote(&remote_dir);
 
 	// 1. Create remote dir with 0700 and fetch current hashes
@@ -299,9 +315,8 @@ pub async fn sync_project(
 			.wrap_err("Failed to initialize SFTP session")?;
 
 		for rel_path in to_upload {
-			let local_path = project_root.join(&rel_path);
-			let remote_path =
-				compute_remote_path(&config.sync.remote_root, &project_name, &rel_path);
+						let local_path = project_root.join(&rel_path);
+						let remote_path = compute_remote_path(&config.sync.remote_root, &unique_project_name, &rel_path);
 
 			// Read local permissions
 			let local_mode = fs::metadata(&local_path)
