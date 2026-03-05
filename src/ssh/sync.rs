@@ -189,7 +189,7 @@ pub async fn sync_project(
 
 	// 1. Create remote dir with 0700 and fetch current hashes
 	let script = format!(
-		"mkdir -p -m 0700 {quoted_remote_dir} && cd {quoted_remote_dir} 2>/dev/null && (find . -type f -exec sha256sum {{}} + || true)"
+		"mkdir -p -m 0700 -- {quoted_remote_dir} && cd -- {quoted_remote_dir} 2>/dev/null && (find . -type f -exec sha256sum {{}} + || true)"
 	);
 
 	let result = client
@@ -253,7 +253,7 @@ pub async fn sync_project(
 		let mut delete_cmds = Vec::new();
 		for path in &to_delete {
 			let full_path = format!("{remote_dir}/{path}");
-			delete_cmds.push(format!("rm -f {}", shell_words::quote(&full_path)));
+			delete_cmds.push(format!("rm -f -- {}", shell_words::quote(&full_path)));
 			stats.files_deleted += 1;
 		}
 		let delete_script = delete_cmds.join(" && ");
@@ -280,7 +280,7 @@ pub async fn sync_project(
 			.map(|d| shell_words::quote(&d).into_owned())
 			.collect::<Vec<_>>()
 			.join(" ");
-		let mkdir_cmd = format!("mkdir -p -m 0700 {mkdirs}");
+		let mkdir_cmd = format!("mkdir -p -m 0700 -- {mkdirs}");
 		client
 			.execute(&mkdir_cmd)
 			.await
