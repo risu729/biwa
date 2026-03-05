@@ -197,7 +197,11 @@ pub async fn sync_project(
 	let client = connect(config, quiet).await?;
 
 	// Compute remote directory base
-	let remote_dir = compute_remote_path(&config.sync.remote_root, &unique_project_name, Path::new(""));
+	let remote_dir = compute_remote_path(
+		&config.sync.remote_root,
+		&unique_project_name,
+		Path::new(""),
+	);
 	let quoted_remote_dir = shell_words::quote(&remote_dir);
 
 	// 1. Create remote dir with 0700 and fetch current hashes
@@ -315,8 +319,9 @@ pub async fn sync_project(
 			.wrap_err("Failed to initialize SFTP session")?;
 
 		for rel_path in to_upload {
-						let local_path = project_root.join(&rel_path);
-						let remote_path = compute_remote_path(&config.sync.remote_root, &unique_project_name, &rel_path);
+			let local_path = project_root.join(&rel_path);
+			let remote_path =
+				compute_remote_path(&config.sync.remote_root, &unique_project_name, &rel_path);
 
 			// Read local permissions
 			let local_mode = fs::metadata(&local_path)
