@@ -45,6 +45,7 @@ export default withMermaid(
 					items: [
 						{ link: "/cli/", text: "Overview" },
 						{ link: "/cli/run", text: "biwa run" },
+						{ link: "/cli/sync", text: "biwa sync" },
 						{ link: "/cli/init", text: "biwa init" },
 						{ link: "/cli/completion", text: "biwa completion" },
 					],
