@@ -217,12 +217,15 @@ pub async fn sync_project(
 
 	let mut remote_hashes = HashMap::new();
 	for line in output.lines() {
-		let parts: Vec<&str> = line.splitn(2, "  ").collect();
-		if parts.len() == 2
-			&& let (Some(hash), Some(raw_path)) = (parts.first(), parts.get(1))
-		{
+		if let Some((hash, raw_path)) = line.split_once("  ") {
 			let path = raw_path.strip_prefix("./").unwrap_or(raw_path);
-			remote_hashes.insert((*path).to_owned(), (*hash).to_owned());
+			// Validate that the remote path does not contain directory traversal components
+			// to prevent malicious deletion attacks during the sync cleanup phase.
+			if path.split('/').any(|comp| comp == "..") {
+   				warn!("Skipping remote file with invalid path traversal components: {}", path);
+   			} else {
+   				remote_hashes.insert(path.to_owned(), hash.to_owned());
+   			}
 		}
 	}
 
