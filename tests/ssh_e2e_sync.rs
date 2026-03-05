@@ -111,6 +111,17 @@ fn e2e_sync_permissions() {
 	fs::create_dir(&dir_path).unwrap();
 	fs::write(dir_path.join("secret.txt"), "secret").unwrap();
 
+	// Create an executable file
+	let script_path = dir_path.join("script.sh");
+	fs::write(&script_path, "#!/bin/sh\necho hi").unwrap();
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt as _;
+		let mut perms = fs::metadata(&script_path).unwrap().permissions();
+		perms.set_mode(0o755); // rwxr-xr-x
+		fs::set_permissions(&script_path, perms).unwrap();
+	}
+
 	let output = biwa_cmd(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
@@ -143,6 +154,19 @@ fn e2e_sync_permissions() {
 	assert!(
 		ls_file_stdout.contains("-rw-------"),
 		"stdout: {ls_file_stdout}"
+	);
+
+	let remote_script = format!("{remote_dir}/script.sh");
+	let ls_script_output = biwa_cmd(&["run", "ls", "-l", &remote_script], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.run()
+		.unwrap();
+
+	let ls_script_stdout = String::from_utf8_lossy(&ls_script_output.stdout);
+	assert!(
+		ls_script_stdout.contains("-rwx------"),
+		"stdout: {ls_script_stdout}"
 	);
 }
 

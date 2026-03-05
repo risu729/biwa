@@ -6,6 +6,7 @@ use console::style;
 use eyre::{Context as _, ContextCompat as _, Result, bail};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
+use russh_sftp::client::SftpSession;
 use sha2::{Digest as _, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -149,6 +150,8 @@ pub fn compute_remote_path(remote_root: &Path, project_name: &str, relative: &Pa
 	clippy::module_name_repetitions,
 	reason = "Plan defined it as sync_project"
 )]
+#[expect(clippy::too_many_lines, reason = "Complex sync logic")]
+#[expect(clippy::cognitive_complexity, reason = "Complex sync logic")]
 pub async fn sync_project(
 	config: &Config,
 	project_root: &Path,
@@ -291,7 +294,7 @@ pub async fn sync_project(
 			.request_subsystem(true, "sftp")
 			.await
 			.wrap_err("Failed to request SFTP subsystem")?;
-		let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+		let sftp = SftpSession::new(channel.into_stream())
 			.await
 			.wrap_err("Failed to initialize SFTP session")?;
 
