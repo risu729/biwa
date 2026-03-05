@@ -6,7 +6,7 @@ use clap::{Args, CommandFactory as _};
 /// See <https://usage.jdx.dev> for more information.
 #[derive(Args, Debug)]
 #[command(hide = true)]
-pub struct Usage;
+pub(super) struct Usage;
 
 impl Usage {
 	/// Run the usage spec generation logic.
@@ -15,7 +15,7 @@ impl Usage {
 		clippy::unnecessary_wraps,
 		reason = "usage subcommand doesn't return Err"
 	)]
-	pub fn run(self) -> eyre::Result<()> {
+	pub(super) fn run(self) -> eyre::Result<()> {
 		let cli = Cli::command();
 		let spec: usage::Spec = cli.into();
 		println!("{}", spec.to_string().trim());

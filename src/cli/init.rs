@@ -7,7 +7,7 @@ use std::path::Path;
 
 /// Initialize a new configuration file.
 #[derive(Args, Debug)]
-pub struct Init {
+pub(super) struct Init {
 	/// Force overwrite if file exists.
 	#[arg(long, short)]
 	force: bool,
@@ -19,7 +19,7 @@ pub struct Init {
 
 impl Init {
 	/// Run the initialization logic.
-	pub fn run(self) -> eyre::Result<()> {
+	pub(super) fn run(self) -> eyre::Result<()> {
 		let (filename, content) = self.generate()?;
 		let path = Path::new(&filename);
 		if path.exists() && !self.force {

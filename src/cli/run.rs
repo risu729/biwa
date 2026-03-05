@@ -4,7 +4,7 @@ use clap::Args;
 /// Run a command on the CSE server.
 #[derive(Args, Debug)]
 #[clap(visible_alias = "r")]
-pub struct Run {
+pub(super) struct Run {
 	/// The command to run.
 	#[arg(required = true)]
 	command: String,
