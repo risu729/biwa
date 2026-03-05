@@ -18,7 +18,7 @@ ignore = [
 unused-ignored-advisory = "deny"
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "ISC", "CC0-1.0"]
+allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "ISC", "CC0-1.0", "OpenSSL"]
 unused-allowed-license = "deny"
 unused-license-exception = "deny"
 
@@ -40,6 +40,7 @@ skip = [
 	{ name = "toml", version = "*" },
 	{ name = "toml_datetime", version = "*" },
 	{ name = "unicode-width", version = "*" },
+	{ name = "untrusted", version = "*" },
 	{ name = "winnow", version = "*" },
 ]
 

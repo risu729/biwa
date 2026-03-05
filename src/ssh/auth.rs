@@ -2,8 +2,9 @@ use crate::config::types::Config;
 use crate::config::types::PasswordConfig;
 use async_ssh2_tokio::client::AuthMethod;
 use dialoguer::Password;
+use russh::keys::{Error as RusshKeysError, load_secret_key};
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
 /// Default SSH key paths to try when no explicit `key_path` is configured.
@@ -23,10 +24,7 @@ pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 	if let Some(path) = &ssh.key_path {
 		if path.exists() {
 			info!(path = %path.display(), "Using configured SSH key file");
-			return Ok(AuthMethod::with_key_file(
-				path.to_string_lossy().as_ref(),
-				None,
-			));
+			return load_key(path);
 		}
 		eyre::bail!("Configured SSH key file not found: {}", path.display());
 	}
@@ -52,10 +50,7 @@ pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 	// 3. Try default key file paths
 	if let Some(key_path) = resolve_default_key_path() {
 		info!(path = %key_path.display(), "Using default SSH key file");
-		return Ok(AuthMethod::with_key_file(
-			key_path.to_string_lossy().as_ref(),
-			None,
-		));
+		return load_key(&key_path);
 	}
 
 	// 4. SSH Agent as last resort (for zero-config users)
@@ -68,6 +63,28 @@ pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 		"No authentication method available. \
 		Configure ssh.key_path, ssh.password, or set up an SSH agent."
 	)
+}
+
+/// Load an SSH key from the given path, prompting for a passphrase if needed.
+fn load_key(path: &Path) -> eyre::Result<AuthMethod> {
+	let path_str = path.to_string_lossy();
+	match load_secret_key(path_str.as_ref(), None) {
+		Err(RusshKeysError::KeyIsEncrypted) => {
+			info!(path = %path.display(), "SSH key is encrypted, prompting for passphrase");
+			let passphrase = Password::new()
+				.with_prompt(format!("Passphrase for {}", path.display()))
+				.interact()?;
+			Ok(AuthMethod::with_key_file(
+				path_str.as_ref(),
+				Some(&passphrase),
+			))
+		}
+		_ => {
+			// If it succeeds, or fails with any other error (e.g. invalid format),
+			// we let the actual SSH connection attempt handle it and report the error.
+			Ok(AuthMethod::with_key_file(path_str.as_ref(), None))
+		}
+	}
 }
 
 /// Check if an SSH agent is available.
