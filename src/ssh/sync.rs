@@ -129,7 +129,11 @@ pub(super) fn collect_local_files(
 }
 
 /// Computes the absolute remote path for a given local file.
-pub(super) fn compute_remote_path(remote_root: &Path, project_name: &str, relative: &Path) -> String {
+pub(super) fn compute_remote_path(
+	remote_root: &Path,
+	project_name: &str,
+	relative: &Path,
+) -> String {
 	let root_str = remote_root.display().to_string().replace('\\', "/");
 	let mut parts = Vec::new();
 	if !root_str.is_empty() {
