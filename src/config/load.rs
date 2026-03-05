@@ -199,13 +199,15 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::testing::{ENV_MUTEX, EnvCleanup};
+	use crate::testing::EnvCleanup;
 	use assert_matches::assert_matches;
 	use pretty_assertions::assert_eq;
 	use rstest::rstest;
+	use serial_test::serial;
 	use std::fs;
 	use tempfile::tempdir;
 
+	#[serial]
 	#[test]
 	fn default() {
 		let config = Config::default();
@@ -215,21 +217,21 @@ mod tests {
 		assert!(config.sync.remote_root.ends_with(".cache/biwa/projects"));
 	}
 
+	#[serial]
 	#[test]
 	fn env_override() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
 
 		// Set env var override
 		// SAFETY: This is a single-threaded test context modifying the environment for current process.
-		// `ENV_MUTEX` enforces serialized test execution to guarantee no race conditions.
+		// `#[serial]` from `serial_test` ensures serialized execution to prevent env races.
 		unsafe {
 			env::set_var("BIWA_SSH_HOST", "env");
 		}
 		// Set env var override
 		// SAFETY: This is a single-threaded test context modifying the environment for current process.
-		// `ENV_MUTEX` enforces serialized test execution to guarantee no race conditions.
+		// `#[serial]` from `serial_test` ensures serialized execution to prevent env races.
 		unsafe {
 			env::set_var("BIWA_SSH_PORT", "8080");
 		}
@@ -245,6 +247,7 @@ mod tests {
 		assert_eq!(config.ssh.port, 8080);
 	}
 
+	#[serial]
 	#[test]
 	fn snapshot() {
 		let config = Config::default();
@@ -281,12 +284,12 @@ mod tests {
 	}
 
 	#[rstest]
+	#[serial]
 	#[case::toml("ssh.host = 'toml'", "toml", "toml")]
 	#[case::json(r#"{ "ssh": { "host": "json" } }"#, "json", "json")]
 	#[case::json5("{ ssh: { host: 'json5' } }", "json5", "json5")]
 	#[case::yaml("ssh:\n  host: yaml", "yaml", "yaml")]
 	fn format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let file_path = dir.path().join(format!("biwa.{ext}"));
 		fs::write(&file_path, content).unwrap();
@@ -296,9 +299,9 @@ mod tests {
 		assert_eq!(config.ssh.host, expected);
 	}
 
+	#[serial]
 	#[test]
 	fn traversal_precedence() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -313,9 +316,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "subdir");
 	}
 
+	#[serial]
 	#[test]
 	fn traversal_stops_at_home() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let home = root.join("home");
@@ -335,9 +338,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 	}
 
+	#[serial]
 	#[test]
 	fn xdg_precedence() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -350,9 +353,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "xdg");
 	}
 
+	#[serial]
 	#[test]
 	fn cwd_is_dot_config() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -373,9 +376,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "standard");
 	}
 
+	#[serial]
 	#[test]
 	fn nested_within_dot_config() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -398,9 +401,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 	}
 
+	#[serial]
 	#[test]
 	fn strict_global_config() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -414,9 +417,9 @@ mod tests {
 		assert_matches!(result, Err(_));
 	}
 
+	#[serial]
 	#[test]
 	fn strict_local_config() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Multiple local configs in same dir should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "toml""#).unwrap();
@@ -430,9 +433,9 @@ mod tests {
 		assert_matches!(result, Err(_));
 	}
 
+	#[serial]
 	#[test]
 	fn conflict_root_and_dot_config() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		// Test multiple "local" configs (one within .config) should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "root""#).unwrap();
@@ -446,9 +449,9 @@ mod tests {
 		assert_matches!(result, Err(_));
 	}
 
+	#[serial]
 	#[test]
 	fn local_dot_config_support() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let dot_config = dir.path().join(".config");
 		fs::create_dir_all(&dot_config).unwrap();
@@ -460,9 +463,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "dotconfig");
 	}
 
+	#[serial]
 	#[test]
 	fn ignored_xdg_biwa_biwa() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -486,9 +489,9 @@ mod tests {
 		assert_eq!(config.ssh.host, "fallback");
 	}
 
+	#[serial]
 	#[test]
 	fn find_single_config_logic() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 
@@ -522,9 +525,9 @@ mod tests {
 		assert_matches!(result, Err(_));
 	}
 
+	#[serial]
 	#[test]
 	fn nested_path_resolution() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -566,9 +569,9 @@ host = "child"
 		);
 	}
 
+	#[serial]
 	#[test]
 	fn local_config_root_dot_config_biwa() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -595,9 +598,9 @@ remote_root = "libs"
 		);
 	}
 
+	#[serial]
 	#[test]
 	fn global_config_root_home_and_xdg() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -644,9 +647,9 @@ remote_root = "xdg_libs"
 		);
 	}
 
+	#[serial]
 	#[test]
 	fn relative_key_path_resolved_against_source_config() {
-		let _guard = ENV_MUTEX.lock().unwrap();
 		// Layout:
 		//   /parent/biwa.toml       -> sets ssh.key_path = "my_key"
 		//   /parent/my_key          -> the key file
@@ -672,6 +675,7 @@ remote_root = "xdg_libs"
 		assert_eq!(resolved, expected);
 	}
 
+	#[serial]
 	#[test]
 	fn load_partial_invalid_toml() -> eyre::Result<()> {
 		let dir = tempfile::tempdir()?;
@@ -692,6 +696,7 @@ remote_root = "xdg_libs"
 		Ok(())
 	}
 
+	#[serial]
 	#[test]
 	fn load_partial_invalid_yaml() -> eyre::Result<()> {
 		let dir = tempfile::tempdir()?;
@@ -712,6 +717,7 @@ remote_root = "xdg_libs"
 		Ok(())
 	}
 
+	#[serial]
 	#[test]
 	fn load_partial_invalid_json() -> eyre::Result<()> {
 		let dir = tempfile::tempdir()?;
@@ -732,6 +738,7 @@ remote_root = "xdg_libs"
 		Ok(())
 	}
 
+	#[serial]
 	#[test]
 	fn load_partial_valid_json5() -> eyre::Result<()> {
 		let dir = tempfile::tempdir()?;

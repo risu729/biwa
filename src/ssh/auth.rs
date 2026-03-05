@@ -111,10 +111,11 @@ fn resolve_default_key_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::testing::ENV_MUTEX;
 	use assert_matches::assert_matches;
+	use serial_test::serial;
 	use std::fs;
 
+	#[serial]
 	#[test]
 	fn resolve_default_key_path_explicit() -> eyre::Result<()> {
 		let dir = tempfile::tempdir()?;
@@ -129,6 +130,7 @@ mod tests {
 		Ok(())
 	}
 
+	#[serial]
 	#[test]
 	fn resolve_auth_missing_explicit_key_errors() {
 		let mut config = Config::default();
@@ -140,6 +142,7 @@ mod tests {
 		assert!(err_msg.contains("not found"), "Error: {err_msg}");
 	}
 
+	#[serial]
 	#[test]
 	fn resolve_default_key_path_no_config() {
 		// Verify the function runs without panic; it may or may not find a key
@@ -147,11 +150,10 @@ mod tests {
 		let _path = resolve_default_key_path();
 	}
 
+	#[serial]
 	#[test]
 	fn try_agent_checks_env() {
-		let _guard = ENV_MUTEX.lock().unwrap();
-
-		// SAFETY: guarded by TEST_MUTEX; no concurrent env mutation in this module.
+		// SAFETY: `#[serial]` ensures no concurrent env mutation across tests.
 		unsafe {
 			env::set_var("SSH_AUTH_SOCK", "/tmp/fake-agent.sock");
 		}
@@ -160,7 +162,7 @@ mod tests {
 			"expected agent to be detected when SSH_AUTH_SOCK is set"
 		);
 
-		// SAFETY: guarded by TEST_MUTEX; no concurrent env mutation in this module.
+		// SAFETY: `#[serial]` ensures no concurrent env mutation across tests.
 		unsafe {
 			env::remove_var("SSH_AUTH_SOCK");
 		}
@@ -170,6 +172,7 @@ mod tests {
 		);
 	}
 
+	#[serial]
 	#[test]
 	fn password_config_string() -> eyre::Result<()> {
 		let mut config = Config::default();
@@ -179,6 +182,7 @@ mod tests {
 		Ok(())
 	}
 
+	#[serial]
 	#[test]
 	fn password_config_false() {
 		let mut config = Config::default();
