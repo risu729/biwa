@@ -66,12 +66,12 @@ Storing your password in a configuration file is **not recommended** for securit
 
 ### `[sync]` — Synchronization Settings
 
-| Key            | Type           | Default                    | Description                                                                 |
-| -------------- | -------------- | -------------------------- | --------------------------------------------------------------------------- |
-| `auto`         | boolean        | `true`                     | Automatically synchronize the project before running remote commands        |
-| `engine`       | string         | `"sftp"`                   | The synchronization engine to use (`"sftp"` or `"mutagen"`)                 |
-| `remote_root`  | string         | `"~/.cache/biwa/projects"` | Remote directory to sync the project to                                     |
-| `ignore_files` | array          | `[".git", ...]`            | List of files and directories to ignore during synchronization              |
+| Key            | Type    | Default                    | Description                                                          |
+| -------------- | ------- | -------------------------- | -------------------------------------------------------------------- |
+| `auto`         | boolean | `true`                     | Automatically synchronize the project before running remote commands |
+| `engine`       | string  | `"sftp"`                   | The synchronization engine to use (`"sftp"` or `"mutagen"`)          |
+| `remote_root`  | string  | `"~/.cache/biwa/projects"` | Remote directory to sync the project to                              |
+| `ignore_files` | array   | `[".git", ...]`            | List of files and directories to ignore during synchronization       |
 
 ::: warning Absolute Remote Root
 It is strongly recommended to use a relative path starting with `~` for your `remote_root`. Using an absolute path (e.g., `/home/user/cache`) can lead to unexpected directory structures and permissions issues on the remote server. Biwa will emit a warning if an absolute path is detected.

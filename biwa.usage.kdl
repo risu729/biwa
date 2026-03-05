@@ -14,6 +14,9 @@ cmd run help="Run commands on remote host" {
     arg <COMMAND> help="The command to run"
     arg "[COMMAND_ARGS]…" help="The arguments for the command" required=#false double_dash=automatic var=#true
 }
+cmd sync help="Synchronize files to remote host" {
+    alias s
+}
 cmd init help="Initialize a biwa configuration file" {
     flag "-f --force" help="Force overwrite if file exists"
     flag --format help="Format to generate (toml, json, jsonc, json5, yaml, yml)" default=toml {

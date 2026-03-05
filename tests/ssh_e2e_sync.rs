@@ -39,25 +39,35 @@ fn e2e_sync_basic() {
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
 
 	// Run with auto sync
-	let output2 = biwa_cmd(&["run", "cat", "/config/cache/biwa/projects/hello.txt"], dir.path())
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()
-		.expect("failed to execute process");
-		
+	let output2 = biwa_cmd(
+		&["run", "cat", "/config/cache/biwa/projects/hello.txt"],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()
+	.expect("failed to execute process");
+
 	let _stdout2 = String::from_utf8_lossy(&output2.stdout);
 	// Wait, the remote path includes the project name. The project name is the directory name.
 	// We don't know the tempdir name.
 	let proj_name = dir.path().file_name().unwrap().to_string_lossy();
-	
-	let output3 = biwa_cmd(&["run", "cat", &format!("/config/cache/biwa/projects/{proj_name}/hello.txt")], dir.path())
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()
-		.expect("failed to execute process");
-		
+
+	let output3 = biwa_cmd(
+		&[
+			"run",
+			"cat",
+			&format!("/config/cache/biwa/projects/{proj_name}/hello.txt"),
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()
+	.expect("failed to execute process");
+
 	let stdout3 = String::from_utf8_lossy(&output3.stdout);
 	assert!(output3.status.success());
 	assert!(stdout3.contains("world"));
@@ -76,7 +86,7 @@ fn e2e_sync_cleaning() {
 		.unchecked()
 		.run()
 		.unwrap();
-	
+
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	assert!(stderr.contains("1 uploaded"));
 
@@ -107,18 +117,18 @@ fn e2e_sync_permissions() {
 		.unchecked()
 		.run()
 		.unwrap();
-		
+
 	assert!(output.status.success());
 
 	let proj_name = dir.path().file_name().unwrap().to_string_lossy();
 	let remote_dir = format!("/config/cache/biwa/projects/{proj_name}/subdir");
-	
+
 	let ls_output = biwa_cmd(&["run", "ls", "-ld", &remote_dir], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.run()
 		.unwrap();
-	
+
 	let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
 	assert!(ls_stdout.contains("drwx------"), "stdout: {ls_stdout}");
 
@@ -128,9 +138,12 @@ fn e2e_sync_permissions() {
 		.stderr_capture()
 		.run()
 		.unwrap();
-		
+
 	let ls_file_stdout = String::from_utf8_lossy(&ls_file_output.stdout);
-	assert!(ls_file_stdout.contains("-rw-------"), "stdout: {ls_file_stdout}");
+	assert!(
+		ls_file_stdout.contains("-rw-------"),
+		"stdout: {ls_file_stdout}"
+	);
 }
 
 #[test]
@@ -145,7 +158,7 @@ fn e2e_sync_hashing() {
 		.stderr_capture()
 		.run()
 		.unwrap();
-		
+
 	assert!(String::from_utf8_lossy(&output1.stderr).contains("1 uploaded"));
 
 	fs::write(&file_path, "modified").unwrap();
@@ -155,7 +168,7 @@ fn e2e_sync_hashing() {
 		.stderr_capture()
 		.run()
 		.unwrap();
-		
+
 	assert!(String::from_utf8_lossy(&output2.stderr).contains("1 uploaded"));
 	assert!(String::from_utf8_lossy(&output2.stderr).contains("0 unchanged"));
 
@@ -165,7 +178,7 @@ fn e2e_sync_hashing() {
 		.stderr_capture()
 		.run()
 		.unwrap();
-		
+
 	assert!(String::from_utf8_lossy(&output3.stderr).contains("0 uploaded"));
 	assert!(String::from_utf8_lossy(&output3.stderr).contains("1 unchanged"));
 }

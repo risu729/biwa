@@ -13,7 +13,10 @@ use tracing::{info, warn};
 
 /// Statistics for a synchronization operation.
 #[derive(Debug, Default, PartialEq, Eq)]
-#[expect(clippy::module_name_repetitions, reason = "Plan defined it as SyncStats")]
+#[expect(
+	clippy::module_name_repetitions,
+	reason = "Plan defined it as SyncStats"
+)]
 #[expect(clippy::struct_field_names, reason = "Plan defined it as files_*")]
 pub struct SyncStats {
 	/// Number of files uploaded.
@@ -102,15 +105,17 @@ pub fn compute_remote_path(remote_root: &Path, project_name: &str, relative: &Pa
 }
 
 /// Synchronizes a project to a remote server.
-#[expect(clippy::module_name_repetitions, reason = "Plan defined it as sync_project")]
+#[expect(
+	clippy::module_name_repetitions,
+	reason = "Plan defined it as sync_project"
+)]
 #[expect(clippy::too_many_lines, reason = "Complex sync logic")]
 #[expect(clippy::arithmetic_side_effects, reason = "Counters won't overflow")]
-#[expect(clippy::absolute_paths, reason = "Using absolute std::collections paths is fine here")]
-pub async fn sync_project(
-	config: &Config,
-	project_root: &Path,
-	quiet: bool,
-) -> Result<SyncStats> {
+#[expect(
+	clippy::absolute_paths,
+	reason = "Using absolute std::collections paths is fine here"
+)]
+pub async fn sync_project(config: &Config, project_root: &Path, quiet: bool) -> Result<SyncStats> {
 	if config.sync.engine != SyncEngine::Sftp {
 		bail!("Only SFTP sync engine is currently supported");
 	}
@@ -142,17 +147,21 @@ pub async fn sync_project(
 		"mkdir -p -m 0700 {quoted_remote_dir} && cd {quoted_remote_dir} 2>/dev/null && (find . -type f -exec sha256sum {{}} + || true)"
 	);
 
-	let result = client.execute(&script).await.wrap_err("Failed to fetch remote state")?;
+	let result = client
+		.execute(&script)
+		.await
+		.wrap_err("Failed to fetch remote state")?;
 	let output = result.stdout;
 
 	let mut remote_hashes = HashMap::new();
 	for line in output.lines() {
 		let parts: Vec<&str> = line.splitn(2, "  ").collect();
 		if parts.len() == 2
-			&& let (Some(hash), Some(raw_path)) = (parts.first(), parts.get(1)) {
-				let path = raw_path.strip_prefix("./").unwrap_or(raw_path);
-				remote_hashes.insert((*path).to_owned(), (*hash).to_owned());
-			}
+			&& let (Some(hash), Some(raw_path)) = (parts.first(), parts.get(1))
+		{
+			let path = raw_path.strip_prefix("./").unwrap_or(raw_path);
+			remote_hashes.insert((*path).to_owned(), (*hash).to_owned());
+		}
 	}
 
 	let mut stats = SyncStats::default();
@@ -165,10 +174,11 @@ pub async fn sync_project(
 		local_paths_str.insert(rel_path_str.clone());
 
 		if let Some(remote_hash) = remote_hashes.get(&rel_path_str)
-			&& remote_hash == &local_hash {
-				stats.files_unchanged += 1;
-				continue;
-			}
+			&& remote_hash == &local_hash
+		{
+			stats.files_unchanged += 1;
+			continue;
+		}
 		to_upload.push(rel_path);
 	}
 
@@ -190,7 +200,10 @@ pub async fn sync_project(
 			stats.files_deleted += 1;
 		}
 		let delete_script = delete_cmds.join(" && ");
-		client.execute(&delete_script).await.wrap_err("Failed to delete remote files")?;
+		client
+			.execute(&delete_script)
+			.await
+			.wrap_err("Failed to delete remote files")?;
 	}
 
 	// Pre-create subdirectories with 0700 permissions
@@ -211,7 +224,10 @@ pub async fn sync_project(
 			.collect::<Vec<_>>()
 			.join(" ");
 		let mkdir_cmd = format!("mkdir -p -m 0700 {mkdirs}");
-		client.execute(&mkdir_cmd).await.wrap_err("Failed to create remote directories")?;
+		client
+			.execute(&mkdir_cmd)
+			.await
+			.wrap_err("Failed to create remote directories")?;
 	}
 
 	// Upload files and change permissions to 0600
@@ -219,12 +235,22 @@ pub async fn sync_project(
 		let local_path = project_root.join(&rel_path);
 		let remote_path = compute_remote_path(&config.sync.remote_root, &project_name, &rel_path);
 
-		client.upload_file(local_path.display().to_string(), remote_path.clone(), None, None, false).await.wrap_err_with(|| {
-			format!("Failed to upload file: {}", local_path.display())
-		})?;
+		client
+			.upload_file(
+				local_path.display().to_string(),
+				remote_path.clone(),
+				None,
+				None,
+				false,
+			)
+			.await
+			.wrap_err_with(|| format!("Failed to upload file: {}", local_path.display()))?;
 
 		let chmod_cmd = format!("chmod 0600 {}", shell_words::quote(&remote_path));
-		client.execute(&chmod_cmd).await.wrap_err("Failed to set file permissions")?;
+		client
+			.execute(&chmod_cmd)
+			.await
+			.wrap_err("Failed to set file permissions")?;
 
 		stats.files_uploaded += 1;
 	}
@@ -252,35 +278,38 @@ mod tests {
 	use std::fs;
 	use tempfile::tempdir;
 
-		#[test]
-		#[expect(clippy::unwrap_used, reason = "Tests can panic")]
-		#[expect(clippy::indexing_slicing, reason = "Tests can panic")]
-		fn collect_local_files_basic() {
-			let dir = tempdir().unwrap();
-			let file_path = dir.path().join("test.txt");
-			fs::write(&file_path, "hello").unwrap();
-	
-			let files = collect_local_files(dir.path(), &[]).unwrap();
-			assert_eq!(files.len(), 1);
-			assert_eq!(files[0].0.to_string_lossy(), "test.txt");
-	
-			let expected_hash = hex::encode(Sha256::digest(b"hello"));
-			assert_eq!(files[0].1, expected_hash);
-		}
-	
-		#[test]
-		#[expect(clippy::unwrap_used, reason = "Tests can panic")]
-		fn collect_local_files_respects_gitignore() {
-			let dir = tempdir().unwrap();
-			fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
-			fs::write(dir.path().join("ignored.txt"), "ignored").unwrap();
-			fs::write(dir.path().join("kept.txt"), "kept").unwrap();
-	
-			let files = collect_local_files(dir.path(), &[]).unwrap();
-			let names: Vec<_> = files.iter().map(|(p, _)| p.to_string_lossy().to_string()).collect();
-			assert!(!names.contains(&"ignored.txt".to_owned()));
-			assert!(names.contains(&"kept.txt".to_owned()));
-		}
+	#[test]
+	#[expect(clippy::unwrap_used, reason = "Tests can panic")]
+	#[expect(clippy::indexing_slicing, reason = "Tests can panic")]
+	fn collect_local_files_basic() {
+		let dir = tempdir().unwrap();
+		let file_path = dir.path().join("test.txt");
+		fs::write(&file_path, "hello").unwrap();
+
+		let files = collect_local_files(dir.path(), &[]).unwrap();
+		assert_eq!(files.len(), 1);
+		assert_eq!(files[0].0.to_string_lossy(), "test.txt");
+
+		let expected_hash = hex::encode(Sha256::digest(b"hello"));
+		assert_eq!(files[0].1, expected_hash);
+	}
+
+	#[test]
+	#[expect(clippy::unwrap_used, reason = "Tests can panic")]
+	fn collect_local_files_respects_gitignore() {
+		let dir = tempdir().unwrap();
+		fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+		fs::write(dir.path().join("ignored.txt"), "ignored").unwrap();
+		fs::write(dir.path().join("kept.txt"), "kept").unwrap();
+
+		let files = collect_local_files(dir.path(), &[]).unwrap();
+		let names: Vec<_> = files
+			.iter()
+			.map(|(p, _)| p.to_string_lossy().to_string())
+			.collect();
+		assert!(!names.contains(&"ignored.txt".to_owned()));
+		assert!(names.contains(&"kept.txt".to_owned()));
+	}
 	#[test]
 	fn compute_remote_path_relative_check() {
 		let root = Path::new("~/.cache/biwa/projects");
