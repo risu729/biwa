@@ -29,7 +29,10 @@ impl Run {
 	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
 		if config.sync.auto && !self.no_sync {
 			let current_dir = env::current_dir()?;
-			let sync_root = self.sync_args.sync_root.clone()
+			let sync_root = self
+				.sync_args
+				.sync_root
+				.clone()
 				.or_else(|| config.sync.sync_root.clone())
 				.unwrap_or(current_dir);
 			sync_project(config, &sync_root, &self.sync_args.into(), quiet).await?;

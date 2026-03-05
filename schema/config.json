@@ -164,6 +164,13 @@
         "sftp": {
           "description": "SFTP engine specific configuration.",
           "$ref": "#/$defs/SyncSftpConfig"
+        },
+        "sync_root": {
+          "description": "Base directory to start the synchronization from. If not specified, uses the current working directory.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
