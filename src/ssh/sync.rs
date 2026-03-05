@@ -10,13 +10,11 @@ use std::fs::File;
 use std::io::{BufReader, Read as _};
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 
 /// Statistics for a synchronization operation.
 #[derive(Debug, Default, PartialEq, Eq)]
-#[expect(
-	clippy::module_name_repetitions,
-	reason = "Plan defined it as SyncStats"
-)]
+#[expect(clippy::module_name_repetitions, reason = "Plan defined it as SyncStats")]
 #[expect(clippy::struct_field_names, reason = "Plan defined it as files_*")]
 pub struct SyncStats {
 	/// Number of files uploaded.
@@ -25,6 +23,27 @@ pub struct SyncStats {
 	pub files_deleted: usize,
 	/// Number of files unchanged.
 	pub files_unchanged: usize,
+}
+
+/// Options for a synchronization operation.
+#[derive(Debug, Default, Clone)]
+#[expect(clippy::module_name_repetitions, reason = "Plan defined it as SyncOptions")]
+pub struct SyncOptions {
+	/// Force synchronization of all files, ignoring incremental hash checks.
+	pub force: bool,
+	/// Exclude files matching these paths or globs.
+	pub exclude: Vec<String>,
+	/// Only synchronize files matching these paths or globs.
+	pub include: Vec<String>,
+}
+
+/// Builds a `GlobSet` from a slice of pattern strings.
+fn build_globset(patterns: &[String]) -> Result<GlobSet> {
+	let mut builder = GlobSetBuilder::new();
+	for pattern in patterns {
+		builder.add(Glob::new(pattern)?);
+	}
+	builder.build().wrap_err("Failed to build glob set")
 }
 
 /// Checks if the remote root path is absolute and prints a warning.
@@ -46,10 +65,15 @@ pub fn check_remote_root(remote_root: &Path) {
 pub fn collect_local_files(
 	root: &Path,
 	extra_ignores: &[PathBuf],
+	options: &SyncOptions,
 ) -> Result<Vec<(PathBuf, String)>> {
 	let mut builder = WalkBuilder::new(root);
 	builder.standard_filters(true); // .gitignore, .ignore, etc.
 	builder.require_git(false); // Respect .gitignore even outside of git repositories
+
+	let exclude_globs = build_globset(&options.exclude)?;
+	let include_globs = build_globset(&options.include)?;
+	let has_includes = !options.include.is_empty();
 
 	let mut result = Vec::new();
 	for entry in builder.build() {
@@ -66,6 +90,14 @@ pub fn collect_local_files(
 				}
 			}
 			if ignored {
+				continue;
+			}
+
+			if exclude_globs.is_match(relative) {
+				continue;
+			}
+
+			if has_includes && !include_globs.is_match(relative) {
 				continue;
 			}
 
@@ -115,7 +147,12 @@ pub fn compute_remote_path(remote_root: &Path, project_name: &str, relative: &Pa
 	clippy::absolute_paths,
 	reason = "Using absolute std::collections paths is fine here"
 )]
-pub async fn sync_project(config: &Config, project_root: &Path, quiet: bool) -> Result<SyncStats> {
+pub async fn sync_project(
+	config: &Config,
+	project_root: &Path,
+	options: &SyncOptions,
+	quiet: bool,
+) -> Result<SyncStats> {
 	if config.sync.engine != SyncEngine::Sftp {
 		bail!("Only SFTP sync engine is currently supported");
 	}
@@ -128,7 +165,7 @@ pub async fn sync_project(config: &Config, project_root: &Path, quiet: bool) -> 
 		.to_string_lossy()
 		.into_owned();
 
-	let local_files = collect_local_files(project_root, &config.sync.ignore_files)?;
+	let local_files = collect_local_files(project_root, &config.sync.ignore_files, options)?;
 
 	let spinner = if quiet {
 		None
@@ -173,12 +210,13 @@ pub async fn sync_project(config: &Config, project_root: &Path, quiet: bool) -> 
 		let rel_path_str = rel_path.display().to_string().replace('\\', "/");
 		local_paths_str.insert(rel_path_str.clone());
 
-		if let Some(remote_hash) = remote_hashes.get(&rel_path_str)
-			&& remote_hash == &local_hash
-		{
-			stats.files_unchanged += 1;
-			continue;
-		}
+		if !options.force
+			&& let Some(remote_hash) = remote_hashes.get(&rel_path_str)
+				&& remote_hash == &local_hash
+			{
+				stats.files_unchanged += 1;
+				continue;
+			}
 		to_upload.push(rel_path);
 	}
 
@@ -297,7 +335,7 @@ mod tests {
 		let file_path = dir.path().join("test.txt");
 		fs::write(&file_path, "hello").unwrap();
 
-		let files = collect_local_files(dir.path(), &[]).unwrap();
+		let files = collect_local_files(dir.path(), &[], &SyncOptions::default()).unwrap();
 		assert_eq!(files.len(), 1);
 		assert_eq!(files[0].0.to_string_lossy(), "test.txt");
 
@@ -313,7 +351,7 @@ mod tests {
 		fs::write(dir.path().join("ignored.txt"), "ignored").unwrap();
 		fs::write(dir.path().join("kept.txt"), "kept").unwrap();
 
-		let files = collect_local_files(dir.path(), &[]).unwrap();
+		let files = collect_local_files(dir.path(), &[], &SyncOptions::default()).unwrap();
 		let names: Vec<_> = files
 			.iter()
 			.map(|(p, _)| p.to_string_lossy().to_string())

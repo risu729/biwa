@@ -259,6 +259,7 @@ dependencies = [
  "dialoguer",
  "duct",
  "eyre",
+ "globset",
  "hex",
  "homedir",
  "ignore",

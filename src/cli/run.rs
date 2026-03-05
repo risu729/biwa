@@ -1,4 +1,5 @@
 use crate::{config::types::Config, ssh::exec::execute_command, ssh::sync::sync_project};
+use crate::cli::sync::SyncArgs;
 use clap::Args;
 use std::env;
 
@@ -6,6 +7,14 @@ use std::env;
 #[derive(Args, Debug)]
 #[clap(visible_alias = "r")]
 pub(super) struct Run {
+	/// Skip automatic synchronization before running the command.
+	#[arg(long)]
+	no_sync: bool,
+
+	/// Synchronization options.
+	#[clap(flatten)]
+	sync_args: SyncArgs,
+
 	/// The command to run.
 	#[arg(required = true)]
 	command: String,
@@ -18,9 +27,9 @@ pub(super) struct Run {
 impl Run {
 	/// Run the execution logic for remote command.
 	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
-		if config.sync.auto {
+		if config.sync.auto && !self.no_sync {
 			let current_dir = env::current_dir()?;
-			sync_project(config, &current_dir, quiet).await?;
+			sync_project(config, &current_dir, &self.sync_args.into(), quiet).await?;
 		}
 		execute_command(config, &self.command, &self.command_args, quiet, silent).await?;
 		Ok(())
