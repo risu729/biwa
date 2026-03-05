@@ -2,13 +2,14 @@ use crate::config::types::Config;
 use crate::ssh::sync::{SyncOptions, sync_project};
 use clap::Args;
 use std::env;
+use std::path::PathBuf;
 
 /// Arguments for synchronization.
 #[derive(Args, Debug, Default, Clone)]
 pub struct SyncArgs {
 	/// Base directory to start the synchronization from. Overrides the current working directory.
 	#[arg(long)]
-	pub sync_root: Option<std::path::PathBuf>,
+	pub sync_root: Option<PathBuf>,
 
 	/// Force synchronization of all files, ignoring incremental hash checks.
 	#[arg(long, short = 'f')]

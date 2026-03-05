@@ -7,8 +7,8 @@ use eyre::{Context as _, ContextCompat as _, Result, bail};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use sha2::{Digest as _, Sha256};
-use std::collections::HashMap;
-use std::fs::File;
+use std::collections::{HashMap, HashSet};
+use std::fs::{self, File};
 use std::io::{BufReader, Read as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -149,12 +149,6 @@ pub fn compute_remote_path(remote_root: &Path, project_name: &str, relative: &Pa
 	clippy::module_name_repetitions,
 	reason = "Plan defined it as sync_project"
 )]
-#[expect(clippy::too_many_lines, reason = "Complex sync logic")]
-#[expect(clippy::arithmetic_side_effects, reason = "Counters won't overflow")]
-#[expect(
-	clippy::absolute_paths,
-	reason = "Using absolute std::collections paths is fine here"
-)]
 pub async fn sync_project(
 	config: &Config,
 	project_root: &Path,
@@ -212,7 +206,7 @@ pub async fn sync_project(
 	let mut stats = SyncStats::default();
 
 	let mut to_upload = Vec::new();
-	let mut local_paths_str = std::collections::HashSet::new();
+	let mut local_paths_str = HashSet::new();
 
 	for (rel_path, local_hash) in local_files {
 		let rel_path_str = rel_path.display().to_string().replace('\\', "/");
@@ -222,7 +216,7 @@ pub async fn sync_project(
 			&& let Some(remote_hash) = remote_hashes.get(&rel_path_str)
 			&& remote_hash == &local_hash
 		{
-			stats.files_unchanged += 1;
+			stats.files_unchanged = stats.files_unchanged.saturating_add(1);
 			continue;
 		}
 		to_upload.push(rel_path);
@@ -254,7 +248,7 @@ pub async fn sync_project(
 		for path in &to_delete {
 			let full_path = format!("{remote_dir}/{path}");
 			delete_cmds.push(format!("rm -f -- {}", shell_words::quote(&full_path)));
-			stats.files_deleted += 1;
+			stats.files_deleted = stats.files_deleted.saturating_add(1);
 		}
 		let delete_script = delete_cmds.join(" && ");
 		client
@@ -264,7 +258,7 @@ pub async fn sync_project(
 	}
 
 	// Pre-create subdirectories with 0700 permissions
-	let mut dirs_to_create = std::collections::HashSet::new();
+	let mut dirs_to_create = HashSet::new();
 	for rel_path in &to_upload {
 		if let Some(parent) = rel_path.parent() {
 			let p_str = parent.display().to_string().replace('\\', "/");
@@ -307,7 +301,7 @@ pub async fn sync_project(
 				compute_remote_path(&config.sync.remote_root, &project_name, &rel_path);
 
 			// Read local permissions
-			let local_mode = std::fs::metadata(&local_path)
+			let local_mode = fs::metadata(&local_path)
 				.wrap_err_with(|| format!("Failed to read metadata for {}", local_path.display()))?
 				.permissions()
 				.mode();
@@ -316,7 +310,7 @@ pub async fn sync_project(
 
 			upload_file(&sftp, &local_path, &remote_path, secure_mode).await?;
 
-			stats.files_uploaded += 1;
+			stats.files_uploaded = stats.files_uploaded.saturating_add(1);
 		}
 	}
 
@@ -340,7 +334,6 @@ pub async fn sync_project(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::fs;
 	use tempfile::tempdir;
 
 	#[test]

@@ -10,7 +10,6 @@ use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 /// We provide our own upload method because `async-ssh2-tokio`'s `upload_file`
 /// creates a new channel for every file and does not allow specifying file attributes (like permissions)
 /// atomically on creation, leading to race conditions where sensitive files might be readable.
-#[expect(clippy::indexing_slicing, reason = "Buffer slicing is safe here")]
 pub async fn upload_file(
 	sftp: &SftpSession,
 	local_path: &Path,
