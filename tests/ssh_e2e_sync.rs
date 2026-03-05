@@ -182,3 +182,24 @@ fn e2e_sync_hashing() {
 	assert!(String::from_utf8_lossy(&output3.stderr).contains("0 uploaded"));
 	assert!(String::from_utf8_lossy(&output3.stderr).contains("1 unchanged"));
 }
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_abort() {
+	let dir = tempfile::tempdir().unwrap();
+	fs::write(dir.path().join("file1.txt"), "1").unwrap();
+	fs::write(dir.path().join("file2.txt"), "2").unwrap();
+
+	// Set max_files_to_sync to 1
+	let output = biwa_cmd(&["sync"], dir.path())
+		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", "1")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()
+		.unwrap();
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success());
+	assert!(stderr.contains("Aborting synchronization: 2 files to upload exceeds the limit of 1."));
+}

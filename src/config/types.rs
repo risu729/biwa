@@ -92,6 +92,14 @@ pub enum SyncEngine {
 	Mutagen,
 }
 
+/// SFTP synchronization engine settings.
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SyncSftpConfig {
+	/// Abort synchronization if the number of files to upload exceeds this limit.
+	#[config(default = 100, env = "BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC")]
+	pub max_files_to_sync: usize,
+}
+
 /// Synchronization settings.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncConfig {
@@ -107,6 +115,9 @@ pub struct SyncConfig {
 	/// The synchronization engine to use.
 	#[config(default = "sftp", env = "BIWA_SYNC_ENGINE")]
 	pub engine: SyncEngine,
+	/// SFTP engine specific configuration.
+	#[config(nested)]
+	pub sftp: SyncSftpConfig,
 }
 
 /// Environment settings.

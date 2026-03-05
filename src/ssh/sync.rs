@@ -182,6 +182,17 @@ pub async fn sync_project(config: &Config, project_root: &Path, quiet: bool) -> 
 		to_upload.push(rel_path);
 	}
 
+	if to_upload.len() > config.sync.sftp.max_files_to_sync {
+		if let Some(s) = spinner {
+			s.finish_and_clear();
+		}
+		bail!(
+			"Aborting synchronization: {} files to upload exceeds the limit of {}.\nIf this is expected, increase `sync.sftp.max_files_to_sync` in your configuration.",
+			to_upload.len(),
+			config.sync.sftp.max_files_to_sync
+		);
+	}
+
 	// Remove deleted files
 	let mut to_delete = Vec::new();
 	let mut remote_paths: Vec<_> = remote_hashes.keys().cloned().collect();

@@ -268,7 +268,10 @@ mod tests {
 		      "target",
 		      "node_modules"
 		    ],
-		    "engine": "sftp"
+		    "engine": "sftp",
+		    "sftp": {
+		      "max_files_to_sync": 100
+		    }
 		  },
 		  "env": {
 		    "vars": []

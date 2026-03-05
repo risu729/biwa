@@ -30,6 +30,9 @@ expression: content
       "target",
       "node_modules"
     ],
-    "remote_root": "~/.cache/biwa/projects"
+    "remote_root": "~/.cache/biwa/projects",
+    "sftp": {
+      "max_files_to_sync": 100
+    }
   }
 }

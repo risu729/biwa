@@ -68,6 +68,15 @@ sync:
   # Default value: sftp
   #engine: sftp
 
+  # SFTP engine specific configuration.
+  sftp:
+    # Abort synchronization if the number of files to upload exceeds this limit.
+    #
+    # Can also be specified via environment variable `BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC`.
+    #
+    # Default value: 100
+    #max_files_to_sync: 100
+
 # Environment variables configuration.
 env:
   # Environment variable keys to inherit/send.
