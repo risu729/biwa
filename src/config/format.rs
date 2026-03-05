@@ -14,12 +14,12 @@ pub enum ConfigFormat {
 
 impl ConfigFormat {
 	/// Returns a list of all supported formats.
-	pub const fn all() -> &'static [Self] {
+	pub(super) const fn all() -> &'static [Self] {
 		&[Self::Toml, Self::Yaml, Self::Json, Self::Json5]
 	}
 
 	/// Returns a list of extensions corresponding to the format.
-	pub const fn extensions(self) -> &'static [&'static str] {
+	pub(super) const fn extensions(self) -> &'static [&'static str] {
 		match self {
 			Self::Toml => &["toml"],
 			Self::Yaml => &["yaml", "yml"],

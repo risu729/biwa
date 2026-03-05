@@ -16,11 +16,7 @@ const DEFAULT_KEY_PATHS: &[&str] = &["~/.ssh/id_ed25519", "~/.ssh/id_rsa"];
 /// 2. Explicit password (`ssh.password = "..."` or `ssh.password = true` for prompt)
 /// 3. Default key file discovery (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`)
 /// 4. SSH Agent (fallback for zero-config users)
-#[expect(
-	clippy::module_name_repetitions,
-	reason = "resolve_auth is the idiomatic name for this operation"
-)]
-pub fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
+pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 	let ssh = &config.ssh;
 
 	// 1. Explicit key_path (paths are already resolved natively by confique)

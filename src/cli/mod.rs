@@ -67,7 +67,7 @@ enum Commands {
 
 impl Commands {
 	/// Executes the specific subcommand logic.
-	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
+	async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run(config, quiet, silent).await,
 			Self::Init(cmd) => cmd.run(),

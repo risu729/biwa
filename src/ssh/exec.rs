@@ -50,7 +50,7 @@ async fn connect(config: &Config, quiet: bool) -> eyre::Result<Client> {
 /// Build the full shell command string from a command and its arguments.
 ///
 /// Arguments are shell-quoted so they round-trip safely.
-pub fn build_command(command: &str, args: &[String]) -> String {
+fn build_command(command: &str, args: &[String]) -> String {
 	if args.is_empty() {
 		command.to_owned()
 	} else {
@@ -78,7 +78,7 @@ fn write_to_stream(mut stream: impl Write, bytes: &[u8]) {
 	clippy::integer_division_remainder_used,
 	reason = "tokio::select! macro expands to use % internally"
 )]
-pub async fn run_command(
+async fn run_command(
 	client: &Client,
 	full_command: &str,
 	quiet: bool,
