@@ -289,13 +289,22 @@ pub async fn sync_project(
 
 	// Upload files and change permissions to match local user permissions (removing group/other)
 	if !to_upload.is_empty() {
-		let channel = client.get_channel().await.wrap_err("Failed to get SFTP channel")?;
-		channel.request_subsystem(true, "sftp").await.wrap_err("Failed to request SFTP subsystem")?;
-		let sftp = russh_sftp::client::SftpSession::new(channel.into_stream()).await.wrap_err("Failed to initialize SFTP session")?;
+		let channel = client
+			.get_channel()
+			.await
+			.wrap_err("Failed to get SFTP channel")?;
+		channel
+			.request_subsystem(true, "sftp")
+			.await
+			.wrap_err("Failed to request SFTP subsystem")?;
+		let sftp = russh_sftp::client::SftpSession::new(channel.into_stream())
+			.await
+			.wrap_err("Failed to initialize SFTP session")?;
 
 		for rel_path in to_upload {
 			let local_path = project_root.join(&rel_path);
-			let remote_path = compute_remote_path(&config.sync.remote_root, &project_name, &rel_path);
+			let remote_path =
+				compute_remote_path(&config.sync.remote_root, &project_name, &rel_path);
 
 			// Read local permissions
 			let local_mode = std::fs::metadata(&local_path)
