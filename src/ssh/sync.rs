@@ -222,10 +222,13 @@ pub async fn sync_project(
 			// Validate that the remote path does not contain directory traversal components
 			// to prevent malicious deletion attacks during the sync cleanup phase.
 			if path.split('/').any(|comp| comp == "..") {
-   				warn!("Skipping remote file with invalid path traversal components: {}", path);
-   			} else {
-   				remote_hashes.insert(path.to_owned(), hash.to_owned());
-   			}
+				warn!(
+					"Skipping remote file with invalid path traversal components: {}",
+					path
+				);
+			} else {
+				remote_hashes.insert(path.to_owned(), hash.to_owned());
+			}
 		}
 	}
 
