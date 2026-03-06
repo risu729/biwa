@@ -13,16 +13,12 @@
 use sha2::Digest as _;
 use std::fs;
 
+mod common;
+
 fn biwa_cmd(args: &[&str], current_dir: &std::path::Path) -> duct::Expression {
-	let mut biwa = duct::cmd(env!("CARGO_BIN_EXE_biwa"), args);
-	biwa = biwa
-		.env("BIWA_SSH_HOST", "127.0.0.1")
-		.env("BIWA_SSH_PORT", "2222")
-		.env("BIWA_SSH_USER", "testuser")
-		.env("BIWA_SSH_PASSWORD", "password123")
+	common::biwa_cmd(args)
 		.env("BIWA_SYNC_REMOTE_ROOT", "/config/cache/biwa/projects")
-		.dir(current_dir);
-	biwa
+		.dir(current_dir)
 }
 
 #[test]

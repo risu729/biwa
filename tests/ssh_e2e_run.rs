@@ -4,15 +4,8 @@
 )]
 use std::io::{BufRead as _, BufReader, Read as _};
 
-fn biwa_cmd(args: &[&str]) -> duct::Expression {
-	let mut biwa = duct::cmd(env!("CARGO_BIN_EXE_biwa"), args);
-	biwa = biwa
-		.env("BIWA_SSH_HOST", "127.0.0.1")
-		.env("BIWA_SSH_PORT", "2222")
-		.env("BIWA_SSH_USER", "testuser")
-		.env("BIWA_SSH_PASSWORD", "password123");
-	biwa
-}
+mod common;
+use common::biwa_cmd;
 
 #[test]
 #[ignore = "requires running SSH server"]
