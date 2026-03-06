@@ -255,3 +255,67 @@ fn e2e_sync_abort() {
 	assert!(!output.status.success());
 	assert!(stderr.contains("Aborting synchronization: 2 files to upload exceeds the limit of 1."));
 }
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_ignore_gitignore() {
+	let dir = tempfile::tempdir().unwrap();
+	fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+	fs::write(dir.path().join("ignored.txt"), "this should not sync").unwrap();
+	fs::write(dir.path().join("kept.txt"), "this should sync").unwrap();
+
+	let output = biwa_cmd(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()
+		.unwrap();
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success());
+	assert!(stderr.contains("2 uploaded")); // .gitignore and kept.txt
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_force() {
+	let dir = tempfile::tempdir().unwrap();
+	fs::write(dir.path().join("file.txt"), "content").unwrap();
+
+	let output1 = biwa_cmd(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.run()
+		.unwrap();
+	assert!(String::from_utf8_lossy(&output1.stderr).contains("1 uploaded"));
+
+	let output2 = biwa_cmd(&["sync", "--force"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.run()
+		.unwrap();
+
+	let stderr2 = String::from_utf8_lossy(&output2.stderr);
+	assert!(stderr2.contains("1 uploaded"));
+	assert!(!stderr2.contains("unchanged"));
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_large_file() {
+	let dir = tempfile::tempdir().unwrap();
+	// 1MB file
+	let large_content = vec![b'a'; 1024 * 1024];
+	fs::write(dir.path().join("large.bin"), &large_content).unwrap();
+
+	let output = biwa_cmd(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()
+		.unwrap();
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success());
+	assert!(stderr.contains("1 uploaded"));
+}

@@ -17,7 +17,7 @@ fn biwa_cmd(args: &[&str]) -> duct::Expression {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_command() {
-	let output = biwa_cmd(&["run", "echo", "hello e2e from biwa"])
+	let output = biwa_cmd(&["run", "--no-sync", "echo", "hello e2e from biwa"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
 		.stderr_capture()
@@ -34,13 +34,20 @@ fn e2e_run_command() {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_stdout_stderr() {
-	let output = biwa_cmd(&["run", "--", "bash", "-c", "echo 'out'; echo 'err' >&2"])
-		.env("BIWA_LOG_QUIET", "true")
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()
-		.expect("failed to execute process");
+	let output = biwa_cmd(&[
+		"run",
+		"--no-sync",
+		"--",
+		"bash",
+		"-c",
+		"echo 'out'; echo 'err' >&2",
+	])
+	.env("BIWA_LOG_QUIET", "true")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()
+	.expect("failed to execute process");
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 	let stderr = String::from_utf8_lossy(&output.stderr);
@@ -55,6 +62,7 @@ fn e2e_run_stdout_stderr() {
 fn e2e_run_streaming() {
 	let mut reader = biwa_cmd(&[
 		"run",
+		"--no-sync",
 		"--",
 		"bash",
 		"-c",
@@ -87,7 +95,7 @@ fn e2e_run_streaming() {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_quiet() {
-	let output = biwa_cmd(&["--quiet", "run", "echo", "hello quiet"])
+	let output = biwa_cmd(&["--quiet", "run", "--no-sync", "echo", "hello quiet"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -108,7 +116,7 @@ fn e2e_run_quiet() {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_silent() {
-	let output = biwa_cmd(&["--silent", "run", "echo", "hello silent"])
+	let output = biwa_cmd(&["--silent", "run", "--no-sync", "echo", "hello silent"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -126,7 +134,7 @@ fn e2e_run_silent() {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_exit_code() {
-	let output = biwa_cmd(&["run", "--", "bash", "-c", "exit 42"])
+	let output = biwa_cmd(&["run", "--no-sync", "--", "bash", "-c", "exit 42"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stderr_capture()
 		.unchecked()
