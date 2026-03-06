@@ -4,7 +4,6 @@
 )]
 #![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
 
-use sha2::Digest as _;
 use std::{fs, path::Path};
 
 mod common;
@@ -44,31 +43,10 @@ fn e2e_sync_basic() -> Result<()> {
 	.run()?;
 
 	let _stdout2 = String::from_utf8_lossy(&output2.stdout);
-	// Wait, the remote path includes the project name. The project name is the directory name.
-	// We don't know the tempdir name.
-	let proj_name = dir
-		.path()
-		.file_name()
-		.ok_or_else(|| color_eyre::eyre::eyre!("no file name"))?
-		.to_string_lossy();
-	let mut hasher = sha2::Sha256::new();
-	sha2::Digest::update(
-		&mut hasher,
-		dir.path().canonicalize()?.to_string_lossy().as_bytes(),
-	);
-	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
-	#[expect(
-		clippy::string_slice,
-		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
-	)]
-	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 
 	let output3 = biwa_cmd(
-		&[
-			"run",
-			"cat",
-			&format!("/config/cache/biwa/projects/{unique_proj_name}/hello.txt"),
-		],
+		&["run", "cat", &format!("{remote_proj_dir}/hello.txt")],
 		dir.path(),
 	)
 	.stdout_capture()
@@ -138,24 +116,8 @@ fn e2e_sync_permissions() -> Result<()> {
 
 	assert!(output.status.success());
 
-	let proj_name = dir
-		.path()
-		.file_name()
-		.ok_or_else(|| color_eyre::eyre::eyre!("no file name"))?
-		.to_string_lossy();
-	let mut hasher = sha2::Sha256::new();
-	sha2::Digest::update(
-		&mut hasher,
-		dir.path().canonicalize()?.to_string_lossy().as_bytes(),
-	);
-	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
-	#[expect(
-		clippy::string_slice,
-		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
-	)]
-	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
-
-	let remote_dir = format!("/config/cache/biwa/projects/{unique_proj_name}/subdir");
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_dir = format!("{remote_proj_dir}/subdir");
 
 	let ls_output = biwa_cmd(&["run", "ls", "-ld", &remote_dir], dir.path())
 		.stdout_capture()
@@ -314,31 +276,10 @@ fn e2e_sync_large_file() -> Result<()> {
 #[ignore = "requires running SSH server"]
 fn e2e_sync_remote_symlink() -> Result<()> {
 	let dir = tempfile::tempdir()?;
-	let proj_name = dir
-		.path()
-		.file_name()
-		.ok_or_else(|| color_eyre::eyre::eyre!("no file name"))?
-		.to_string_lossy();
-	let mut hasher = sha2::Sha256::new();
-	sha2::Digest::update(
-		&mut hasher,
-		dir.path().canonicalize()?.to_string_lossy().as_bytes(),
-	);
-	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
-	#[expect(
-		clippy::string_slice,
-		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
-	)]
-	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
-
-	let remote_dir = format!("/config/cache/biwa/projects/{unique_proj_name}");
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
 
 	// Create a dummy dir to point the symlink to
-	#[expect(
-		clippy::string_slice,
-		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
-	)]
-	let dummy_dir = format!("/config/cache/biwa/projects/dummy_{}", &hash_hex[..8]);
+	let dummy_dir = format!("{remote_dir}_dummy");
 	biwa_cmd(&["run", "mkdir", "-p", &dummy_dir], dir.path())
 		.stdout_capture()
 		.stderr_capture()
@@ -387,23 +328,8 @@ fn e2e_sync_shell_injection() -> Result<()> {
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
 
 	// Compute unique project name
-	let proj_name = proj_dir
-		.file_name()
-		.ok_or_else(|| color_eyre::eyre::eyre!("no file name"))?
-		.to_string_lossy();
-	let mut hasher = sha2::Sha256::new();
-	sha2::Digest::update(
-		&mut hasher,
-		proj_dir.canonicalize()?.to_string_lossy().as_bytes(),
-	);
-	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
-	#[expect(
-		clippy::string_slice,
-		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
-	)]
-	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
-
-	let remote_file = format!("/config/cache/biwa/projects/{unique_proj_name}/test.txt");
+	let remote_proj_dir = common::get_remote_project_dir(&proj_dir)?;
+	let remote_file = format!("{remote_proj_dir}/test.txt");
 
 	let output_cat = biwa_cmd(&["run", "cat", &remote_file], &proj_dir)
 		.stdout_capture()
