@@ -19,7 +19,6 @@ confique = { version = "0.4.0", features = ["toml", "yaml", "json5"] }
 console = "0.16.2"
 dialoguer = "0.12.0"
 duct = "1.1.1"
-eyre = "0.6.12"
 globset = "0.4.18"
 hex = "0.4.3"
 homedir = "0.3.6"
@@ -45,10 +44,10 @@ tracing-subscriber = "0.3.22"
 usage-lib = { version = "2.18.2", features = ["clap", "docs"] }
 
 [dev-dependencies]
-assert_matches = "1.5.0"
+ctor = "0.2.8"
 duct = "1.1.1"
 insta = { version = "1.46.3", features = ["json"] }
-pretty_assertions = "1.4.1"
+pretty_assertions = { version = "1.4.1", features = ["unstable"] }
 rstest = "0.26.1"
 serial_test = "3.4.0"
 tempfile = "3.26.0"

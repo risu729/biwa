@@ -1,10 +1,11 @@
 use super::auth::resolve_auth;
+use crate::Result;
 use crate::config::types::Config;
 use crate::ui::create_spinner;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use bytes::Bytes;
+use color_eyre::eyre::{Context as _, bail};
 use console::style;
-use eyre::{Context as _, bail};
 use std::io::Error as IoError;
 use tokio::io::{copy, stderr, stdout};
 use tokio::sync::mpsc;
@@ -14,7 +15,7 @@ use tokio_util::io::StreamReader;
 use tracing::{debug, info};
 
 /// Connect to the SSH server using the resolved authentication method.
-pub(super) async fn connect(config: &Config, quiet: bool) -> eyre::Result<Client> {
+pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 	let auth_method = resolve_auth(config)?;
 	let ssh = &config.ssh;
 
@@ -74,7 +75,7 @@ async fn run_command(
 	full_command: &str,
 	quiet: bool,
 	silent: bool,
-) -> eyre::Result<u32> {
+) -> Result<u32> {
 	debug!(command = %full_command, "Executing remote command");
 
 	if !quiet {
@@ -137,7 +138,7 @@ pub async fn execute_command(
 	args: &[String],
 	quiet: bool,
 	silent: bool,
-) -> eyre::Result<u32> {
+) -> Result<u32> {
 	let client = connect(config, quiet || silent).await?;
 	let full_command = build_command(command, args);
 	run_command(&client, &full_command, quiet, silent).await
@@ -146,6 +147,7 @@ pub async fn execute_command(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use pretty_assertions::assert_eq;
 
 	#[test]
 	fn build_command_no_args() {

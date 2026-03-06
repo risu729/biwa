@@ -3,7 +3,8 @@ use crate::config::types::{Config, SyncEngine};
 use crate::ssh::sftp::upload_file;
 use crate::ui::create_spinner;
 use console::style;
-use eyre::{Context as _, ContextCompat as _, Result, bail};
+use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
+use crate::Result;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use russh_sftp::client::SftpSession;
@@ -378,6 +379,7 @@ mod tests {
 	use super::*;
 	use std::fs;
 	use tempfile::tempdir;
+	use pretty_assertions::assert_eq;
 
 	#[test]
 	#[expect(clippy::unwrap_used, reason = "Tests can panic")]

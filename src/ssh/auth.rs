@@ -1,6 +1,8 @@
+use crate::Result;
 use crate::config::types::Config;
 use crate::config::types::PasswordConfig;
 use async_ssh2_tokio::client::AuthMethod;
+use color_eyre::eyre::bail;
 use dialoguer::Password;
 use russh::keys::{Error as RusshKeysError, load_secret_key};
 use std::env;
@@ -17,7 +19,7 @@ const DEFAULT_KEY_PATHS: &[&str] = &["~/.ssh/id_ed25519", "~/.ssh/id_rsa"];
 /// 2. Explicit password (`ssh.password = "..."` or `ssh.password = true` for prompt)
 /// 3. Default key file discovery (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`)
 /// 4. SSH Agent (fallback for zero-config users)
-pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
+pub(super) fn resolve_auth(config: &Config) -> Result<AuthMethod> {
 	let ssh = &config.ssh;
 
 	// 1. Explicit key_path (paths are already resolved natively by confique)
@@ -26,7 +28,7 @@ pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 			info!(path = %path.display(), "Using configured SSH key file");
 			return load_key(path);
 		}
-		eyre::bail!("Configured SSH key file not found: {}", path.display());
+		bail!("Configured SSH key file not found: {}", path.display());
 	}
 
 	// 2. Explicit password (string value or interactive prompt)
@@ -59,14 +61,14 @@ pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 		return Ok(AuthMethod::with_agent());
 	}
 
-	eyre::bail!(
+	bail!(
 		"No authentication method available. \
 		Configure ssh.key_path, ssh.password, or set up an SSH agent."
 	)
 }
 
 /// Load an SSH key from the given path, prompting for a passphrase if needed.
-fn load_key(path: &Path) -> eyre::Result<AuthMethod> {
+fn load_key(path: &Path) -> Result<AuthMethod> {
 	let path_str = path.to_string_lossy();
 	match load_secret_key(path_str.as_ref(), None) {
 		Err(RusshKeysError::KeyIsEncrypted) => {
@@ -124,13 +126,13 @@ fn resolve_default_key_path() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use assert_matches::assert_matches;
+	use pretty_assertions::assert_matches;
 	use serial_test::serial;
 	use std::fs;
 
 	#[serial]
 	#[test]
-	fn resolve_default_key_path_explicit() -> eyre::Result<()> {
+	fn resolve_default_key_path_explicit() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let key_file = dir.path().join("my_key");
 		fs::write(&key_file, "fake key")?;
@@ -187,7 +189,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn password_config_string() -> eyre::Result<()> {
+	fn password_config_string() -> Result<()> {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Value("secret".to_owned());
 		let method = resolve_auth(&config)?;

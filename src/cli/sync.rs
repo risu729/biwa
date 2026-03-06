@@ -1,4 +1,5 @@
 use crate::config::types::Config;
+use crate::Result;
 use crate::ssh::sync::{Options, sync_project};
 use clap::Args;
 use std::env;
@@ -54,7 +55,7 @@ pub(super) struct Sync {
 
 impl Sync {
 	/// Run the sync logic.
-	pub async fn run(self, config: &Config, quiet: bool, _silent: bool) -> eyre::Result<()> {
+	pub async fn run(self, config: &Config, quiet: bool, _silent: bool) -> Result<()> {
 		let current_dir = env::current_dir()?;
 		let sync_root = self
 			.sync_args

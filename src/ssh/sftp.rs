@@ -1,4 +1,5 @@
-use eyre::{Context as _, Result};
+use color_eyre::eyre::Context as _;
+use crate::Result;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use std::path::Path;
