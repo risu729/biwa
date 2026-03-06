@@ -13,6 +13,7 @@ use std::fs::File;
 use std::io::{BufReader, Read as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
+use tokio::fs::metadata;
 use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 
@@ -319,7 +320,7 @@ pub async fn sync_project(
 				compute_remote_path(&config.sync.remote_root, &unique_project_name, &rel_path);
 
 			// Read local permissions
-			let local_mode = tokio::fs::metadata(&local_path)
+			let local_mode = metadata(&local_path)
 				.await
 				.wrap_err_with(|| format!("Failed to read metadata for {}", local_path.display()))?
 				.permissions()

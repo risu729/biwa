@@ -4,7 +4,7 @@ use crate::ui::create_spinner;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use console::style;
 use eyre::{Context as _, bail};
-use std::io::{Write, stderr, stdout};
+use tokio::io::{AsyncWrite, AsyncWriteExt as _, stderr, stdout};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
@@ -60,12 +60,12 @@ fn build_command(command: &str, args: &[String]) -> String {
 	}
 }
 
-/// Write bytes to a locked standard stream, ignoring errors.
-fn write_to_stream(mut stream: impl Write, bytes: &[u8]) {
-	if let Err(e) = stream.write_all(bytes) {
+/// Write bytes to an async stream, ignoring errors.
+async fn write_to_stream(mut stream: impl AsyncWrite + Unpin, bytes: &[u8]) {
+	if let Err(e) = stream.write_all(bytes).await {
 		debug!(error = %e, "Failed to write to stream");
 	}
-	if let Err(e) = stream.flush() {
+	if let Err(e) = stream.flush().await {
 		debug!(error = %e, "Failed to flush stream");
 	}
 }
@@ -107,12 +107,12 @@ async fn run_command(
 			},
 			Some(stdout_bytes) = stdout_rx.recv() => {
 				if !silent {
-					write_to_stream(stdout().lock(), &stdout_bytes);
+					write_to_stream(stdout(), &stdout_bytes).await;
 				}
 			},
 			Some(stderr_bytes) = stderr_rx.recv() => {
 				if !silent {
-					write_to_stream(stderr().lock(), &stderr_bytes);
+					write_to_stream(stderr(), &stderr_bytes).await;
 				}
 			},
 		}
@@ -120,10 +120,10 @@ async fn run_command(
 
 	if !silent {
 		while let Some(stdout_bytes) = stdout_rx.recv().await {
-			write_to_stream(stdout().lock(), &stdout_bytes);
+			write_to_stream(stdout(), &stdout_bytes).await;
 		}
 		while let Some(stderr_bytes) = stderr_rx.recv().await {
-			write_to_stream(stderr().lock(), &stderr_bytes);
+			write_to_stream(stderr(), &stderr_bytes).await;
 		}
 	}
 	debug!(exit_status, "Remote command completed");
