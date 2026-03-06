@@ -127,7 +127,7 @@ fn resolve_default_key_path() -> Option<PathBuf> {
 mod tests {
 	use super::*;
 	use pretty_assertions::assert_matches;
-use serial_test::serial;
+	use serial_test::serial;
 	use std::fs;
 
 	#[serial]
