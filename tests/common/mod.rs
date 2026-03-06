@@ -1,4 +1,7 @@
-#[expect(clippy::disallowed_types, reason = "This is the Result type for integration tests.")]
+#[expect(
+	clippy::disallowed_types,
+	reason = "This is the Result type for integration tests."
+)]
 pub type Result<T> = color_eyre::Result<T>;
 
 #[cfg(test)]

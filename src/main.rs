@@ -14,7 +14,10 @@
 	allow(clippy::panic_in_result_fn, reason = "color_eyre handles panics")
 )]
 
-#[expect(clippy::disallowed_types, reason = "This is the crate's central Result type definition.")]
+#[expect(
+	clippy::disallowed_types,
+	reason = "This is the crate's central Result type definition."
+)]
 pub type Result<T> = color_eyre::Result<T>;
 
 /// CLI commands and parsing.
