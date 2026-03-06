@@ -1,10 +1,10 @@
 use super::exec::connect;
+use crate::Result;
 use crate::config::types::{Config, SyncEngine};
 use crate::ssh::sftp::upload_file;
 use crate::ui::create_spinner;
-use console::style;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
-use crate::Result;
+use console::style;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use russh_sftp::client::SftpSession;
@@ -377,9 +377,9 @@ fn parse_remote_hashes(output: &str) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use pretty_assertions::assert_eq;
 	use std::fs;
 	use tempfile::tempdir;
-	use pretty_assertions::assert_eq;
 
 	#[test]
 	#[expect(clippy::unwrap_used, reason = "Tests can panic")]

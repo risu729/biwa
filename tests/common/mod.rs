@@ -2,7 +2,10 @@
 	clippy::disallowed_types,
 	reason = "This is the Result type for integration tests."
 )]
-#[allow(clippy::allow_attributes, reason = "May not be used in all integration tests.")]
+#[allow(
+	clippy::allow_attributes,
+	reason = "May not be used in all integration tests."
+)]
 #[allow(dead_code, reason = "May not be used in all integration tests.")]
 pub type Result<T> = color_eyre::Result<T>;
 
