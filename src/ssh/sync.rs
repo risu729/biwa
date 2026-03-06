@@ -8,6 +8,7 @@ use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
 use console::style;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
+use indicatif::ProgressBar;
 use russh_sftp::client::SftpSession;
 use sha2::{Digest as _, Sha256};
 use std::collections::{HashMap, HashSet};
@@ -247,6 +248,7 @@ async fn apply_sync_actions(
 	remote_dir: &str,
 	actions: SyncActions,
 	stats: &mut Stats,
+	spinner: Option<&ProgressBar>,
 ) -> Result<()> {
 	if actions.to_delete.is_empty() && actions.to_upload.is_empty() {
 		return Ok(());
@@ -298,7 +300,15 @@ async fn apply_sync_actions(
 	}
 
 	// Upload files and change permissions to match local user permissions (removing group/other)
-	for rel_path in actions.to_upload {
+	let total_to_upload = actions.to_upload.len();
+	for (i, rel_path) in actions.to_upload.into_iter().enumerate() {
+		if let Some(s) = spinner {
+			s.set_message(format!(
+				"Synchronizing files... ({}/{total_to_upload})",
+				i.saturating_add(1)
+			));
+		}
+
 		let local_path = project_root.join(&rel_path);
 		let remote_path =
 			compute_remote_path(&config.sync.remote_root, unique_project_name, &rel_path);
@@ -391,6 +401,7 @@ pub async fn sync_project(
 		&remote_dir,
 		actions,
 		&mut stats,
+		spinner.as_ref(),
 	)
 	.await?;
 
