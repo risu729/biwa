@@ -141,10 +141,7 @@ pub(super) fn compute_remote_path(
 }
 
 /// Synchronizes a project to a remote server.
-#[expect(
-	clippy::module_name_repetitions,
-	reason = "No better name exists"
-)]
+#[expect(clippy::module_name_repetitions, reason = "No better name exists")]
 #[expect(clippy::too_many_lines, reason = "Complex sync logic")]
 #[expect(clippy::cognitive_complexity, reason = "Complex sync logic")]
 pub async fn sync_project(
