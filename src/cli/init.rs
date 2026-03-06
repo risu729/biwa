@@ -128,6 +128,7 @@ fn quote_keys_for_jsonc(body: &str) -> String {
 mod tests {
 	use super::*;
 	use insta::assert_snapshot;
+	use pretty_assertions::assert_eq;
 	use rstest::rstest;
 
 	#[rstest]

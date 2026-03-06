@@ -27,7 +27,7 @@ impl Run {
 mod tests {
 	use crate::cli::{Cli, Commands};
 	use clap::Parser as _;
-	use pretty_assertions::assert_matches;
+	use pretty_assertions::{assert_eq, assert_matches};
 
 	#[test]
 	fn run_command() {
