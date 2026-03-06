@@ -4,9 +4,14 @@ use crate::ui::create_spinner;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use console::style;
 use eyre::{Context as _, bail};
-use tokio::io::{AsyncWrite, AsyncWriteExt as _, stderr, stdout};
+use tokio::io::{copy, stderr, stdout};
 use tokio::sync::mpsc;
+use tokio_util::io::StreamReader;
 use tracing::{debug, info};
+use tokio_stream::wrappers::ReceiverStream;
+use std::io::Error as IoError;
+use tokio_stream::StreamExt as _;
+use bytes::Bytes;
 
 /// Connect to the SSH server using the resolved authentication method.
 pub(super) async fn connect(config: &Config, quiet: bool) -> eyre::Result<Client> {
@@ -60,24 +65,11 @@ fn build_command(command: &str, args: &[String]) -> String {
 	}
 }
 
-/// Write bytes to an async stream, ignoring errors.
-async fn write_to_stream(mut stream: impl AsyncWrite + Unpin, bytes: &[u8]) {
-	if let Err(e) = stream.write_all(bytes).await {
-		debug!(error = %e, "Failed to write to stream");
-	}
-	if let Err(e) = stream.flush().await {
-		debug!(error = %e, "Failed to flush stream");
-	}
-}
 
 /// Run a pre-built command string on an already-connected SSH client.
 ///
 /// Returns the remote exit code, printing stdout/stderr as they arrive
 /// unless `silent` is set.
-#[expect(
-	clippy::integer_division_remainder_used,
-	reason = "tokio::select! macro expands to use % internally"
-)]
 async fn run_command(
 	client: &Client,
 	full_command: &str,
@@ -93,39 +85,29 @@ async fn run_command(
 			style(full_command).bold()
 		);
 	}
-	let (stdout_tx, mut stdout_rx) = mpsc::channel(1024);
-	let (stderr_tx, mut stderr_rx) = mpsc::channel(1024);
+	let (stdout_tx, stdout_rx) = mpsc::channel(1024);
+	let (stderr_tx, stderr_rx) = mpsc::channel(1024);
+
+	let stdout_stream = ReceiverStream::new(stdout_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
+	let stderr_stream = ReceiverStream::new(stderr_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
+
+	let mut stdout_reader = StreamReader::new(stdout_stream);
+	let mut stderr_reader = StreamReader::new(stderr_stream);
 
 	let exec_future =
 		client.execute_io(full_command, stdout_tx, Some(stderr_tx), None, false, None);
-	tokio::pin!(exec_future);
-
-	let exit_status = loop {
-		tokio::select! {
-			res = &mut exec_future => {
-				break res.wrap_err("Failed to execute remote command")?;
-			},
-			Some(stdout_bytes) = stdout_rx.recv() => {
-				if !silent {
-					write_to_stream(stdout(), &stdout_bytes).await;
-				}
-			},
-			Some(stderr_bytes) = stderr_rx.recv() => {
-				if !silent {
-					write_to_stream(stderr(), &stderr_bytes).await;
-				}
-			},
-		}
+	
+	let stdout_task = async {
+		if !silent { copy(&mut stdout_reader, &mut stdout()).await.unwrap_or(0); }
 	};
 
-	if !silent {
-		while let Some(stdout_bytes) = stdout_rx.recv().await {
-			write_to_stream(stdout(), &stdout_bytes).await;
-		}
-		while let Some(stderr_bytes) = stderr_rx.recv().await {
-			write_to_stream(stderr(), &stderr_bytes).await;
-		}
-	}
+	let stderr_task = async {
+		if !silent { copy(&mut stderr_reader, &mut stderr()).await.unwrap_or(0); }
+	};
+
+	let (exit_status, (), ()) = tokio::join!(exec_future, stdout_task, stderr_task);
+	let exit_status = exit_status.wrap_err("Failed to execute remote command")?;
+	
 	debug!(exit_status, "Remote command completed");
 
 	if exit_status != 0 && !quiet {
