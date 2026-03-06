@@ -34,12 +34,13 @@ pub(super) async fn upload_file(
 
 			// Check existing file permissions
 			if let Ok(attrs) = sftp.metadata(remote_path).await
-				&& let Some(perms) = attrs.permissions {
-					// Compare only the permission bits (mask 0o777)
-					if (perms & 0o777) == secure_mode {
-						needs_recreate = false;
-					}
+				&& let Some(perms) = attrs.permissions
+			{
+				// Compare only the permission bits (mask 0o777)
+				if (perms & 0o777) == secure_mode {
+					needs_recreate = false;
 				}
+			}
 
 			if needs_recreate {
 				// Remove any pre-existing file first so that `open_with_flags_and_attributes` creates a
