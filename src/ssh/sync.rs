@@ -9,7 +9,7 @@ use ignore::WalkBuilder;
 use russh_sftp::client::SftpSession;
 use sha2::{Digest as _, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{BufReader, Read as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
@@ -319,7 +319,8 @@ pub async fn sync_project(
 				compute_remote_path(&config.sync.remote_root, &unique_project_name, &rel_path);
 
 			// Read local permissions
-			let local_mode = fs::metadata(&local_path)
+			let local_mode = tokio::fs::metadata(&local_path)
+				.await
 				.wrap_err_with(|| format!("Failed to read metadata for {}", local_path.display()))?
 				.permissions()
 				.mode();
@@ -374,6 +375,7 @@ fn parse_remote_hashes(output: &str) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::fs;
 	use tempfile::tempdir;
 
 	#[test]
