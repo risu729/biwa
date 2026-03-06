@@ -16,14 +16,8 @@ pub(super) async fn upload_file(
 	remote_path: &str,
 	secure_mode: u32,
 ) -> Result<()> {
-	// Include S_IFREG (0x8000) for file creation — required by open_with_flags_and_attributes
 	let create_attrs = FileAttributes {
-		permissions: Some(secure_mode | 0x8000),
-		..Default::default()
-	};
-	// Permission-only attributes for setstat/fsetstat — file type bits must NOT be included
-	let perm_attrs = FileAttributes {
-		permissions: Some(secure_mode),
+		permissions: Some(secure_mode | 0x8000), // S_IFREG | permission bits
 		..Default::default()
 	};
 
@@ -32,26 +26,22 @@ pub(super) async fn upload_file(
 		.wrap_err_with(|| format!("Failed to open local file: {}", local_path.display()))?;
 	let mut local_file_buffered = BufReader::new(&mut local_file);
 
+	// Remove any pre-existing file first so that `open_with_flags_and_attributes` creates a
+	// brand-new file with the requested permissions. Without this, OpenSSH ignores the attrs
+	// on an existing file and many SFTP servers reject setstat, which could leave sensitive
+	// files (e.g. .env) with overly broad permissions from a previous upload or manual edit.
+	if let Err(e) = sftp.remove_file(remote_path).await {
+		tracing::debug!(error = %e, path = remote_path, "No pre-existing file to remove (expected for first upload)");
+	}
+
 	let mut remote_file = sftp
 		.open_with_flags_and_attributes(
 			remote_path,
-			OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE | OpenFlags::READ,
+			OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::READ,
 			create_attrs,
 		)
 		.await
 		.wrap_err_with(|| format!("Failed to open remote file: {remote_path}"))?;
-
-	// Explicitly set permissions after opening to ensure they are strictly enforced
-	// even if the file was pre-existing (which causes `open_with_flags_and_attributes` to ignore `attrs`).
-	// This is a best-effort fallback: some SFTP servers (e.g. OpenSSH's internal-sftp) may reject
-	// fsetstat/setstat. Since permissions are already set atomically during creation, a failure here
-	// only affects pre-existing files being overwritten.
-	if let Err(e) = remote_file.set_metadata(perm_attrs.clone()).await {
-		tracing::debug!(error = %e, "Failed to fsetstat, falling back to setstat on session");
-		if let Err(e2) = sftp.set_metadata(remote_path, perm_attrs).await {
-			tracing::warn!(error = %e2, path = remote_path, "Failed to enforce file permissions via setstat; permissions were set during file creation");
-		}
-	}
 
 	copy(&mut local_file_buffered, &mut remote_file)
 		.await
