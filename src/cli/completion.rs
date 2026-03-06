@@ -80,20 +80,23 @@ mod tests {
 	use clap::Parser as _;
 
 	#[test]
-	fn completion_parse_bash() {
+	fn completion_parse_bash() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "completion", "bash"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
+		Ok(())
 	}
 
 	#[test]
-	fn completion_parse_zsh() {
+	fn completion_parse_zsh() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "completion", "zsh"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
+		Ok(())
 	}
 
 	#[test]
-	fn completion_parse_fish() {
+	fn completion_parse_fish() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "completion", "fish"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
+		Ok(())
 	}
 }

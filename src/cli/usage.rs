@@ -29,12 +29,13 @@ mod tests {
 	use clap::CommandFactory as _;
 
 	#[test]
-	fn usage_spec_generation() {
+	fn usage_spec_generation() -> color_eyre::Result<()> {
 		let cli = Cli::command();
 		let spec: usage::Spec = cli.into();
 		let output = spec.to_string();
 		assert!(!output.is_empty());
 		// Should contain the biwa command
 		assert!(output.contains("biwa"));
+		Ok(())
 	}
 }

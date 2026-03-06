@@ -122,21 +122,23 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn cli_run_subcommand() {
+	fn cli_run_subcommand() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "run", "ls", "-la"]);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
 		assert!(cli.run_command_args.is_empty());
+		Ok(())
 	}
 
 	#[test]
-	fn cli_implicit_run_command() {
+	fn cli_implicit_run_command() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "ls", "-la"]);
 		assert!(cli.command.is_none());
 		assert_eq!(cli.run_command_args, vec!["ls", "-la"]);
+		Ok(())
 	}
 
 	#[test]
-	fn cli_verbose() {
+	fn cli_verbose() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "-v", "ls"]);
 		assert_eq!(cli.verbose, 1);
 
@@ -145,33 +147,38 @@ mod tests {
 
 		let cli = Cli::parse_from(["biwa", "-vvv", "ls"]);
 		assert_eq!(cli.verbose, 3);
+		Ok(())
 	}
 
 	#[test]
-	fn cli_run_with_verbose() {
+	fn cli_run_with_verbose() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "-vv", "run", "ls"]);
 		assert_eq!(cli.verbose, 2);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
+		Ok(())
 	}
 
 	#[test]
-	fn cli_quiet() {
+	fn cli_quiet() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "-q", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.run_command_args, vec!["ls"]);
+		Ok(())
 	}
 
 	#[test]
-	fn cli_quiet_long() {
+	fn cli_quiet_long() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "--quiet", "run", "ls"]);
 		assert!(cli.quiet);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
+		Ok(())
 	}
 
 	#[test]
-	fn cli_quiet_with_verbose() {
+	fn cli_quiet_with_verbose() -> color_eyre::Result<()> {
 		let cli = Cli::parse_from(["biwa", "-q", "-vv", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.verbose, 2);
+		Ok(())
 	}
 }

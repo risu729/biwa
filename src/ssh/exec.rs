@@ -163,25 +163,29 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn build_command_no_args() {
+	fn build_command_no_args() -> color_eyre::Result<()> {
 		assert_eq!(build_command("ls", &[]), "ls");
+		Ok(())
 	}
 
 	#[test]
-	fn build_command_with_args() {
+	fn build_command_with_args() -> color_eyre::Result<()> {
 		let args = vec!["-la".to_owned(), "/tmp".to_owned()];
 		assert_eq!(build_command("ls", &args), "ls -la /tmp");
+		Ok(())
 	}
 
 	#[test]
-	fn build_command_quotes_args_with_spaces() {
+	fn build_command_quotes_args_with_spaces() -> color_eyre::Result<()> {
 		let args = vec!["hello world".to_owned()];
 		assert_eq!(build_command("echo", &args), "echo 'hello world'");
+		Ok(())
 	}
 
 	#[test]
-	fn build_command_quotes_args_with_special_chars() {
+	fn build_command_quotes_args_with_special_chars() -> color_eyre::Result<()> {
 		let args = vec!["foo$bar".to_owned()];
 		assert_eq!(build_command("echo", &args), "echo 'foo$bar'");
+		Ok(())
 	}
 }

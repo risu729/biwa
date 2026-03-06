@@ -22,7 +22,14 @@ mod testing;
 mod ui;
 
 #[tokio::main]
-async fn main() -> eyre::Result<()> {
+async fn main() -> color_eyre::Result<()> {
+	color_eyre::install()?;
 	cli::run().await?;
 	Ok(())
+}
+
+#[cfg(test)]
+#[ctor::ctor]
+fn init_test_env() {
+	color_eyre::install().ok();
 }

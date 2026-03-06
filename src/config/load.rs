@@ -209,17 +209,18 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn default() {
+	fn default() -> color_eyre::Result<()> {
 		let config = Config::default();
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
 		assert_eq!(config.ssh.user, "z1234567");
 		assert!(config.sync.remote_root.ends_with(".cache/biwa/projects"));
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn env_override() {
+	fn env_override() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
 
@@ -245,11 +246,12 @@ mod tests {
 
 		assert_eq!(config.ssh.host, "env");
 		assert_eq!(config.ssh.port, 8080);
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn snapshot() {
+	fn snapshot() -> color_eyre::Result<()> {
 		let config = Config::default();
 		insta::assert_json_snapshot!(config, @r#"
 		{
@@ -281,6 +283,7 @@ mod tests {
 		  }
 		}
 		"#);
+		Ok(())
 	}
 
 	#[rstest]
@@ -301,7 +304,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn traversal_precedence() {
+	fn traversal_precedence() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -314,11 +317,12 @@ mod tests {
 		let config = Config::load_internal(None, None, Some(nested).as_ref())
 			.expect("Failed to load config");
 		assert_eq!(config.ssh.host, "subdir");
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn traversal_stops_at_home() {
+	fn traversal_stops_at_home() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let home = root.join("home");
@@ -336,11 +340,12 @@ mod tests {
 
 		assert_ne!(config.ssh.host, "outside");
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn xdg_precedence() {
+	fn xdg_precedence() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -351,11 +356,12 @@ mod tests {
 		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)
 			.expect("Failed to load config");
 		assert_eq!(config.ssh.host, "xdg");
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn cwd_is_dot_config() {
+	fn cwd_is_dot_config() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -374,11 +380,12 @@ mod tests {
 
 		// Should skip .config layer and only use project layer -> "standard"
 		assert_eq!(config.ssh.host, "standard");
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn nested_within_dot_config() {
+	fn nested_within_dot_config() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -399,11 +406,12 @@ mod tests {
 		// Should NOT load "weird" because .config dir should be skipped as a layer
 		assert_ne!(config.ssh.host, "weird");
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn strict_global_config() {
+	fn strict_global_config() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -415,11 +423,12 @@ mod tests {
 
 		let result = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None);
 		assert_matches!(result, Err(_));
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn strict_local_config() {
+	fn strict_local_config() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		// Multiple local configs in same dir should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "toml""#).unwrap();
@@ -431,11 +440,12 @@ mod tests {
 
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
 		assert_matches!(result, Err(_));
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn conflict_root_and_dot_config() {
+	fn conflict_root_and_dot_config() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		// Test multiple "local" configs (one within .config) should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "root""#).unwrap();
@@ -447,11 +457,12 @@ mod tests {
 		// Should error because we found >1 config for the same dir scope
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
 		assert_matches!(result, Err(_));
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn local_dot_config_support() {
+	fn local_dot_config_support() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let dot_config = dir.path().join(".config");
 		fs::create_dir_all(&dot_config).unwrap();
@@ -461,11 +472,12 @@ mod tests {
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
 			.expect("Failed to load config");
 		assert_eq!(config.ssh.host, "dotconfig");
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn ignored_xdg_biwa_biwa() {
+	fn ignored_xdg_biwa_biwa() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -487,11 +499,12 @@ mod tests {
 
 		// Should load "fallback", NOT "ignored"
 		assert_eq!(config.ssh.host, "fallback");
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn find_single_config_logic() {
+	fn find_single_config_logic() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 
@@ -523,11 +536,12 @@ mod tests {
 		fs::write(root.join(".biwa.toml"), "").unwrap();
 		let result = find_single_config(&[root.join("biwa"), root.join(".biwa")]);
 		assert_matches!(result, Err(_));
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn nested_path_resolution() {
+	fn nested_path_resolution() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -567,11 +581,12 @@ host = "child"
 			config.sync.remote_root, expected_path,
 			"remote_root should be resolved relative to the config file that defined it"
 		);
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn local_config_root_dot_config_biwa() {
+	fn local_config_root_dot_config_biwa() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -596,11 +611,12 @@ remote_root = "libs"
 			config.sync.remote_root, expected_path,
 			"remote_root from .config/biwa.toml should be resolved relative to the project root"
 		);
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn global_config_root_home_and_xdg() {
+	fn global_config_root_home_and_xdg() -> color_eyre::Result<()> {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -645,11 +661,12 @@ remote_root = "xdg_libs"
 			home.join("xdg_libs"),
 			"global remote_root from ~/.config/biwa/config.toml should be resolved relative to ~"
 		);
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn relative_key_path_resolved_against_source_config() {
+	fn relative_key_path_resolved_against_source_config() -> color_eyre::Result<()> {
 		// Layout:
 		//   /parent/biwa.toml       -> sets ssh.key_path = "my_key"
 		//   /parent/my_key          -> the key file
@@ -673,11 +690,12 @@ remote_root = "xdg_libs"
 		let resolved = config.ssh.key_path.expect("key_path should be set");
 		let expected = parent.path().join("my_key");
 		assert_eq!(resolved, expected);
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_toml() -> eyre::Result<()> {
+	fn load_partial_invalid_toml() -> color_eyre::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.toml");
 		// Write invalid TOML
@@ -698,7 +716,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_yaml() -> eyre::Result<()> {
+	fn load_partial_invalid_yaml() -> color_eyre::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.yaml");
 		// Write invalid YAML
@@ -719,7 +737,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_json() -> eyre::Result<()> {
+	fn load_partial_invalid_json() -> color_eyre::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.json");
 		// Write invalid JSON
@@ -740,7 +758,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_valid_json5() -> eyre::Result<()> {
+	fn load_partial_valid_json5() -> color_eyre::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.json5");
 		// Write valid JSON5 (with comments and trailing commas)

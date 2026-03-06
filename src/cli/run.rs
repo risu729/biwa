@@ -29,7 +29,7 @@ mod tests {
 	use clap::Parser as _;
 
 	#[test]
-	fn run_command() {
+	fn run_command() -> color_eyre::Result<()> {
 		let args = Cli::parse_from(["biwa", "run", "ls", "-la"]);
 		assert!(args.run_command_args.is_empty());
 		if let Some(Commands::Run(run)) = args.command {
@@ -38,10 +38,11 @@ mod tests {
 		} else {
 			assert_matches!(args.command, Some(Commands::Run(_)));
 		}
+		Ok(())
 	}
 
 	#[test]
-	fn run_command_alias() {
+	fn run_command_alias() -> color_eyre::Result<()> {
 		let args = Cli::parse_from(["biwa", "r", "pwd"]);
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(run.command, "pwd");
@@ -49,5 +50,6 @@ mod tests {
 		} else {
 			assert_matches!(args.command, Some(Commands::Run(_)));
 		}
+		Ok(())
 	}
 }
