@@ -17,7 +17,7 @@ pub(super) async fn upload_file(
 	secure_mode: u32,
 ) -> Result<()> {
 	let attrs = FileAttributes {
-		permissions: Some(secure_mode),
+		permissions: Some(secure_mode | 0x8000), // Append S_IFREG (regular file)
 		..Default::default()
 	};
 
@@ -30,10 +30,19 @@ pub(super) async fn upload_file(
 		.open_with_flags_and_attributes(
 			remote_path,
 			OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE | OpenFlags::READ,
-			attrs,
+			attrs.clone(),
 		)
 		.await
 		.wrap_err_with(|| format!("Failed to open remote file: {remote_path}"))?;
+
+	// Explicitly set permissions after opening to ensure they are strictly enforced
+	// even if the file was pre-existing (which causes `open_with_flags_and_attributes` to ignore `attrs`)
+	if let Err(e) = remote_file.set_metadata(attrs.clone()).await {
+		tracing::debug!(error = %e, "Failed to fsetstat, falling back to setstat on session");
+		sftp.set_metadata(remote_path, attrs)
+			.await
+			.wrap_err("Failed to enforce secure file permissions")?;
+	}
 
 	let mut buffer = vec![0; 8192];
 

@@ -13,6 +13,7 @@ use std::fs::{self, File};
 use std::io::{BufReader, Read as _};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
+use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 
 /// Statistics for a synchronization operation.
@@ -178,7 +179,14 @@ pub async fn sync_project(
 	)]
 	let unique_project_name = format!("{}-{}", project_name, &hash_hex[..8]);
 
-	let local_files = collect_local_files(project_root, &config.sync.ignore_files, options)?;
+	let local_files = {
+		let project_root = project_root.to_path_buf();
+		let ignore_files = config.sync.ignore_files.clone();
+		let options = options.clone();
+		spawn_blocking(move || collect_local_files(&project_root, &ignore_files, &options))
+			.await
+			.wrap_err("Failed to join blocking task")??
+	};
 
 	let spinner = if quiet {
 		None
@@ -211,22 +219,7 @@ pub async fn sync_project(
 		.wrap_err("Failed to fetch remote state")?;
 	let output = result.stdout;
 
-	let mut remote_hashes = HashMap::new();
-	for line in output.lines() {
-		if let Some((hash, raw_path)) = line.split_once("  ") {
-			let path = raw_path.strip_prefix("./").unwrap_or(raw_path);
-			// Validate that the remote path does not contain directory traversal components
-			// to prevent malicious deletion attacks during the sync cleanup phase.
-			if path.split('/').any(|comp| comp == "..") {
-				warn!(
-					"Skipping remote file with invalid path traversal components: {}",
-					path
-				);
-			} else {
-				remote_hashes.insert(path.to_owned(), hash.to_owned());
-			}
-		}
-	}
+	let remote_hashes = parse_remote_hashes(&output);
 
 	let mut stats = Stats::default();
 
@@ -356,6 +349,28 @@ pub async fn sync_project(
 	Ok(stats)
 }
 
+/// Parses the output of `find . -type f -exec sha256sum {} +` into a `HashMap` mapping paths to hashes.
+/// Validates paths to prevent directory traversal attacks during sync.
+fn parse_remote_hashes(output: &str) -> HashMap<String, String> {
+	let mut remote_hashes = HashMap::new();
+	for line in output.lines() {
+		if let Some((hash, raw_path)) = line.split_once("  ") {
+			let path = raw_path.strip_prefix("./").unwrap_or(raw_path);
+			// Validate that the remote path does not contain directory traversal components
+			// to prevent malicious deletion attacks during the sync cleanup phase.
+			if path.split('/').any(|comp| comp == "..") {
+				tracing::warn!(
+					"Skipping remote file with invalid path traversal components: {}",
+					path
+				);
+			} else {
+				remote_hashes.insert(path.to_owned(), hash.to_owned());
+			}
+		}
+	}
+	remote_hashes
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -393,6 +408,16 @@ mod tests {
 		assert!(!names.contains(&"ignored.txt".to_owned()));
 		assert!(names.contains(&"kept.txt".to_owned()));
 	}
+	#[test]
+	fn parse_remote_hashes_traversal() {
+		let output = "hash1  ./valid/path.txt\nhash2  ./../invalid/path.txt\nhash3  valid2.txt";
+		let hashes = parse_remote_hashes(output);
+		assert_eq!(hashes.len(), 2);
+		assert_eq!(hashes.get("valid/path.txt").unwrap(), "hash1");
+		assert_eq!(hashes.get("valid2.txt").unwrap(), "hash3");
+		assert!(hashes.get("../invalid/path.txt").is_none());
+	}
+
 	#[test]
 	fn compute_remote_path_relative_check() {
 		let root = Path::new("~/.cache/biwa/projects");
