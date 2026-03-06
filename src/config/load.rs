@@ -220,7 +220,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn env_override() -> crate::Result<()> {
+	fn env_override() -> Result<()> {
 		let dir = tempdir()?;
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#)?;
 
@@ -294,7 +294,7 @@ mod tests {
 		#[case] content: &str,
 		#[case] ext: &str,
 		#[case] expected: &str,
-	) -> crate::Result<()> {
+	) -> Result<()> {
 		let dir = tempdir()?;
 		let file_path = dir.path().join(format!("biwa.{ext}"));
 		fs::write(&file_path, content)?;
@@ -306,7 +306,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn traversal_precedence() -> crate::Result<()> {
+	fn traversal_precedence() -> Result<()> {
 		let dir = tempdir()?;
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -323,7 +323,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn traversal_stops_at_home() -> crate::Result<()> {
+	fn traversal_stops_at_home() -> Result<()> {
 		let dir = tempdir()?;
 		let root = dir.path();
 		let home = root.join("home");
@@ -345,7 +345,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn xdg_precedence() -> crate::Result<()> {
+	fn xdg_precedence() -> Result<()> {
 		let dir = tempdir()?;
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -360,7 +360,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn cwd_is_dot_config() -> crate::Result<()> {
+	fn cwd_is_dot_config() -> Result<()> {
 		let dir = tempdir()?;
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -383,7 +383,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn nested_within_dot_config() -> crate::Result<()> {
+	fn nested_within_dot_config() -> Result<()> {
 		let dir = tempdir()?;
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -408,7 +408,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn strict_global_config() -> crate::Result<()> {
+	fn strict_global_config() -> Result<()> {
 		let dir = tempdir()?;
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -425,7 +425,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn strict_local_config() -> crate::Result<()> {
+	fn strict_local_config() -> Result<()> {
 		let dir = tempdir()?;
 		// Multiple local configs in same dir should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "toml""#)?;
@@ -441,7 +441,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn conflict_root_and_dot_config() -> crate::Result<()> {
+	fn conflict_root_and_dot_config() -> Result<()> {
 		let dir = tempdir()?;
 		// Test multiple "local" configs (one within .config) should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "root""#)?;
@@ -458,7 +458,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn local_dot_config_support() -> crate::Result<()> {
+	fn local_dot_config_support() -> Result<()> {
 		let dir = tempdir()?;
 		let dot_config = dir.path().join(".config");
 		fs::create_dir_all(&dot_config)?;
@@ -472,7 +472,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn ignored_xdg_biwa_biwa() -> crate::Result<()> {
+	fn ignored_xdg_biwa_biwa() -> Result<()> {
 		let dir = tempdir()?;
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -497,7 +497,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn find_single_config_logic() -> crate::Result<()> {
+	fn find_single_config_logic() -> Result<()> {
 		let dir = tempdir()?;
 		let root = dir.path();
 
@@ -534,7 +534,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn nested_path_resolution() -> crate::Result<()> {
+	fn nested_path_resolution() -> Result<()> {
 		let dir = tempdir()?;
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -576,7 +576,7 @@ host = "child"
 
 	#[serial]
 	#[test]
-	fn local_config_root_dot_config_biwa() -> crate::Result<()> {
+	fn local_config_root_dot_config_biwa() -> Result<()> {
 		let dir = tempdir()?;
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -604,7 +604,7 @@ remote_root = "libs"
 
 	#[serial]
 	#[test]
-	fn global_config_root_home_and_xdg() -> crate::Result<()> {
+	fn global_config_root_home_and_xdg() -> Result<()> {
 		let dir = tempdir()?;
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -650,7 +650,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn relative_key_path_resolved_against_source_config() -> crate::Result<()> {
+	fn relative_key_path_resolved_against_source_config() -> Result<()> {
 		// Layout:
 		//   /parent/biwa.toml       -> sets ssh.key_path = "my_key"
 		//   /parent/my_key          -> the key file
@@ -680,7 +680,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_toml() -> crate::Result<()> {
+	fn load_partial_invalid_toml() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.toml");
 		// Write invalid TOML
@@ -700,7 +700,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_yaml() -> crate::Result<()> {
+	fn load_partial_invalid_yaml() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.yaml");
 		// Write invalid YAML
@@ -720,7 +720,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_json() -> crate::Result<()> {
+	fn load_partial_invalid_json() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.json");
 		// Write invalid JSON

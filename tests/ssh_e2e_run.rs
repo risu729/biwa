@@ -43,8 +43,7 @@ fn e2e_run_stdout_stderr() -> Result<()> {
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
-		.run()
-		?;
+		.run()?;
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 	let stderr = String::from_utf8_lossy(&output.stderr);
@@ -66,15 +65,12 @@ fn e2e_run_streaming() -> Result<()> {
 		"echo 'start'; sleep 0.5; echo 'end'",
 	])
 	.env("BIWA_LOG_QUIET", "true")
-	.reader()
-	?;
+	.reader()?;
 
 	let mut buf_reader = BufReader::new(&mut reader);
 
 	let mut first_line = String::new();
-	buf_reader
-		.read_line(&mut first_line)
-		?;
+	buf_reader.read_line(&mut first_line)?;
 
 	// We should read 'start' immediately without waiting for 'end'
 	assert!(
@@ -83,9 +79,7 @@ fn e2e_run_streaming() -> Result<()> {
 	);
 
 	let mut rest = String::new();
-	buf_reader
-		.read_to_string(&mut rest)
-		?;
+	buf_reader.read_to_string(&mut rest)?;
 	assert!(rest.contains("end"));
 	Ok(())
 }
@@ -97,8 +91,7 @@ fn e2e_run_quiet() -> Result<()> {
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
-		.run()
-		?;
+		.run()?;
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 	let stderr = String::from_utf8_lossy(&output.stderr);
@@ -119,8 +112,7 @@ fn e2e_run_silent() -> Result<()> {
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
-		.run()
-		?;
+		.run()?;
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 	let stderr = String::from_utf8_lossy(&output.stderr);
@@ -138,8 +130,7 @@ fn e2e_run_exit_code() -> Result<()> {
 		.env("BIWA_LOG_QUIET", "true")
 		.stderr_capture()
 		.unchecked()
-		.run()
-		?;
+		.run()?;
 
 	assert!(!output.status.success());
 
@@ -150,4 +141,3 @@ fn e2e_run_exit_code() -> Result<()> {
 	);
 	Ok(())
 }
-

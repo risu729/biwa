@@ -16,7 +16,7 @@ pub(super) struct Completion {
 
 impl Completion {
 	/// Run the completion generation logic.
-	pub(super) fn run(self) -> crate::Result<()> {
+	pub(super) fn run(self) -> Result<()> {
 		let script = self.call_usage()?;
 		println!("{}", script.trim());
 		Ok(())

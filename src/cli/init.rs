@@ -137,7 +137,7 @@ mod tests {
 	#[case("json5")]
 	#[case("yaml")]
 	#[case("yml")]
-	fn init_generate(#[case] format: &str) -> crate::Result<()> {
+	fn init_generate(#[case] format: &str) -> Result<()> {
 		let init = Init {
 			force: false,
 			format: format.to_owned(),

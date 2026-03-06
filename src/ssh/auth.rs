@@ -132,7 +132,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn resolve_default_key_path_explicit() -> crate::Result<()> {
+	fn resolve_default_key_path_explicit() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let key_file = dir.path().join("my_key");
 		fs::write(&key_file, "fake key")?;
@@ -189,7 +189,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn password_config_string() -> crate::Result<()> {
+	fn password_config_string() -> Result<()> {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Value("secret".to_owned());
 		let method = resolve_auth(&config)?;
