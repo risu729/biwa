@@ -239,17 +239,33 @@ fn calculate_sync_actions(
 	}
 }
 
+/// Target and actions for a synchronization operation.
+struct SyncTarget<'a> {
+	/// The local project root directory.
+	project_root: &'a Path,
+	/// The unique name of the project.
+	unique_project_name: &'a str,
+	/// The remote directory path.
+	remote_dir: &'a str,
+	/// The synchronization actions to execute.
+	actions: SyncActions,
+}
+
 /// Executes the synchronization actions by uploading and deleting files via SFTP.
 async fn apply_sync_actions(
 	client: &Client,
 	config: &Config,
-	project_root: &Path,
-	unique_project_name: &str,
-	remote_dir: &str,
-	actions: SyncActions,
+	target: SyncTarget<'_>,
 	stats: &mut Stats,
 	spinner: Option<&ProgressBar>,
 ) -> Result<()> {
+	let SyncTarget {
+		project_root,
+		unique_project_name,
+		remote_dir,
+		actions,
+	} = target;
+
 	if actions.to_delete.is_empty() && actions.to_upload.is_empty() {
 		return Ok(());
 	}
@@ -396,10 +412,12 @@ pub async fn sync_project(
 	apply_sync_actions(
 		&client,
 		config,
-		project_root,
-		&unique_project_name,
-		&remote_dir,
-		actions,
+		SyncTarget {
+			project_root,
+			unique_project_name: &unique_project_name,
+			remote_dir: &remote_dir,
+			actions,
+		},
 		&mut stats,
 		spinner.as_ref(),
 	)
