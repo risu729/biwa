@@ -59,7 +59,7 @@ pub(super) struct Sync {
 
 impl Sync {
 	/// Run the sync logic.
-	pub async fn run(self, config: &Config, quiet: bool, _silent: bool) -> Result<()> {
+	pub async fn run(self, config: &Config, quiet: bool) -> Result<()> {
 		let sync_root = self.sync_args.resolve_sync_root(config)?;
 		sync_project(config, &sync_root, &self.sync_args.into(), quiet).await?;
 		Ok(())

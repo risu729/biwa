@@ -75,7 +75,7 @@ impl Commands {
 	async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run(config, quiet, silent).await,
-			Self::Sync(cmd) => cmd.run(config, quiet, silent).await,
+			Self::Sync(cmd) => cmd.run(config, quiet).await,
 			Self::Init(cmd) => cmd.run(),
 			Self::Schema(cmd) => cmd.run(),
 			Self::Completion(cmd) => cmd.run(),
