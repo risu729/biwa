@@ -162,6 +162,7 @@ pub async fn execute_command(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use pretty_assertions::assert_eq;
 
 	#[test]
 	fn build_command_no_args() {

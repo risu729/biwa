@@ -41,6 +41,7 @@ impl ConfigFormat {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use pretty_assertions::assert_eq;
 
 	#[test]
 	fn all_formats() {
