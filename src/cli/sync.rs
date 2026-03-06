@@ -1,5 +1,5 @@
-use crate::config::types::Config;
 use crate::Result;
+use crate::config::types::Config;
 use crate::ssh::sync::{Options, sync_project};
 use clap::Args;
 use std::env;
@@ -23,6 +23,19 @@ pub struct SyncArgs {
 	/// Only synchronize files matching these paths or globs.
 	#[arg(long, short = 'i')]
 	pub include: Vec<String>,
+}
+
+impl SyncArgs {
+	/// Resolve the sync root directory.
+	///
+	/// Priority: CLI flag > config file > current working directory.
+	pub fn resolve_sync_root(&self, config: &Config) -> Result<PathBuf> {
+		Ok(self
+			.sync_root
+			.clone()
+			.or_else(|| config.sync.sync_root.clone())
+			.map_or_else(env::current_dir, Ok)?)
+	}
 }
 
 impl From<SyncArgs> for Options {
@@ -56,13 +69,7 @@ pub(super) struct Sync {
 impl Sync {
 	/// Run the sync logic.
 	pub async fn run(self, config: &Config, quiet: bool, _silent: bool) -> Result<()> {
-		let current_dir = env::current_dir()?;
-		let sync_root = self
-			.sync_args
-			.sync_root
-			.clone()
-			.or_else(|| config.sync.sync_root.clone())
-			.unwrap_or(current_dir);
+		let sync_root = self.sync_args.resolve_sync_root(config)?;
 		sync_project(config, &sync_root, &self.sync_args.into(), quiet).await?;
 		Ok(())
 	}

@@ -2,7 +2,6 @@ use crate::Result;
 use crate::cli::sync::SyncArgs;
 use crate::{config::types::Config, ssh::exec::execute_command, ssh::sync::sync_project};
 use clap::Args;
-use std::env;
 
 /// Run a command on the CSE server.
 #[derive(Args, Debug)]
@@ -27,19 +26,13 @@ pub(super) struct Run {
 
 impl Run {
 	/// Run the execution logic for remote command.
-        pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
-                if config.sync.auto && !self.no_sync {
-                        let current_dir = env::current_dir()?;
-                        let sync_root = self
-                                .sync_args
-                                .sync_root
-                                .clone()
-                                .or_else(|| config.sync.sync_root.clone())
-                                .unwrap_or(current_dir);
-                                                sync_project(config, &sync_root, &self.sync_args.into(), quiet).await?;
-                                        }
-                                        execute_command(config, &self.command, &self.command_args, quiet, silent).await?;
-                                        Ok(())
+	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
+		if config.sync.auto && !self.no_sync {
+			let sync_root = self.sync_args.resolve_sync_root(config)?;
+			sync_project(config, &sync_root, &self.sync_args.into(), quiet).await?;
+		}
+		execute_command(config, &self.command, &self.command_args, quiet, silent).await?;
+		Ok(())
 	}
 }
 
