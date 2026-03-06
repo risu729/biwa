@@ -329,7 +329,14 @@ pub async fn sync_project(
 			// Preserve user permissions but clear group/other permissions
 			let secure_mode = local_mode & 0o700;
 
-			upload_file(&sftp, &local_path, &remote_path, secure_mode).await?;
+			upload_file(
+				&sftp,
+				&local_path,
+				&remote_path,
+				secure_mode,
+				&config.sync.sftp.permissions,
+			)
+			.await?;
 
 			stats.uploaded = stats.uploaded.saturating_add(1);
 		}

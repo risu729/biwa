@@ -100,6 +100,21 @@
         }
       ]
     },
+    "SftpPermissions": {
+      "description": "Strategy for enforcing file permissions during SFTP upload.",
+      "oneOf": [
+        {
+          "description": "Delete the file before creating it with the correct permissions.\nThis is the most compatible strategy as it works on all SFTP servers.",
+          "type": "string",
+          "const": "recreate"
+        },
+        {
+          "description": "Use the SFTP `setstat` operation to set permissions after writing.\nSome servers (e.g. UNSW CSE) reject this operation.",
+          "type": "string",
+          "const": "setstat"
+        }
+      ]
+    },
     "SshConfig": {
       "description": "SSH connection settings.",
       "type": "object",
@@ -205,10 +220,15 @@
           "type": "integer",
           "format": "uint",
           "minimum": 0
+        },
+        "permissions": {
+          "description": "Strategy for enforcing file permissions on uploaded files.",
+          "$ref": "#/$defs/SftpPermissions"
         }
       },
       "required": [
-        "max_files_to_sync"
+        "max_files_to_sync",
+        "permissions"
       ]
     }
   }

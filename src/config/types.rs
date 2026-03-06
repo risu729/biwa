@@ -92,12 +92,28 @@ pub enum SyncEngine {
 	Mutagen,
 }
 
+/// Strategy for enforcing file permissions during SFTP upload.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SftpPermissions {
+	/// Delete the file before creating it with the correct permissions.
+	/// This is the most compatible strategy as it works on all SFTP servers.
+	#[default]
+	Recreate,
+	/// Use the SFTP `setstat` operation to set permissions after writing.
+	/// Some servers (e.g. UNSW CSE) reject this operation.
+	Setstat,
+}
+
 /// SFTP synchronization engine settings.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncSftpConfig {
 	/// Abort synchronization if the number of files to upload exceeds this limit.
 	#[config(default = 100, env = "BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC")]
 	pub max_files_to_sync: usize,
+	/// Strategy for enforcing file permissions on uploaded files.
+	#[config(default = "recreate", env = "BIWA_SYNC_SFTP_PERMISSIONS")]
+	pub permissions: SftpPermissions,
 }
 
 /// Synchronization settings.

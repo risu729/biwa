@@ -82,6 +82,13 @@ expression: content
       //
       // Default value: 100
       //"max_files_to_sync": 100,
+
+      // Strategy for enforcing file permissions on uploaded files.
+      //
+      // Can also be specified via environment variable `BIWA_SYNC_SFTP_PERMISSIONS`.
+      //
+      // Default value: "recreate"
+      //"permissions": "recreate",
     },
   },
 
