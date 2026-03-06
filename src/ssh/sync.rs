@@ -143,7 +143,7 @@ pub(super) fn compute_remote_path(
 /// Synchronizes a project to a remote server.
 #[expect(
 	clippy::module_name_repetitions,
-	reason = "Plan defined it as sync_project"
+	reason = "No better name exists"
 )]
 #[expect(clippy::too_many_lines, reason = "Complex sync logic")]
 #[expect(clippy::cognitive_complexity, reason = "Complex sync logic")]
@@ -201,7 +201,11 @@ pub async fn sync_project(
 
 	// 1. Create remote dir with 0700 and fetch current hashes
 	let script = format!(
-		"mkdir -p -m 0700 -- {quoted_remote_dir} && cd -- {quoted_remote_dir} 2>/dev/null && (find . -type f -exec sha256sum {{}} + || true)"
+		"mkdir -p -m 0700 -- {quoted_remote_dir} && \
+		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
+		 chmod 0700 -- {quoted_remote_dir} && \
+		 cd -- {quoted_remote_dir} 2>/dev/null && \
+		 (find . -type f -exec sha256sum {{}} + || true)"
 	);
 
 	let result = client
@@ -298,7 +302,7 @@ pub async fn sync_project(
 			.map(|d| shell_words::quote(&d).into_owned())
 			.collect::<Vec<_>>()
 			.join(" ");
-		let mkdir_cmd = format!("mkdir -p -m 0700 -- {mkdirs}");
+		let mkdir_cmd = format!("mkdir -p -m 0700 -- {mkdirs} && chmod 0700 -- {mkdirs}");
 		client
 			.execute(&mkdir_cmd)
 			.await
