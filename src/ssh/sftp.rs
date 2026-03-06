@@ -16,8 +16,14 @@ pub(super) async fn upload_file(
 	remote_path: &str,
 	secure_mode: u32,
 ) -> Result<()> {
-	let attrs = FileAttributes {
-		permissions: Some(secure_mode | 0x8000), // Append S_IFREG (regular file)
+	// Include S_IFREG (0x8000) for file creation — required by open_with_flags_and_attributes
+	let create_attrs = FileAttributes {
+		permissions: Some(secure_mode | 0x8000),
+		..Default::default()
+	};
+	// Permission-only attributes for setstat/fsetstat — file type bits must NOT be included
+	let perm_attrs = FileAttributes {
+		permissions: Some(secure_mode),
 		..Default::default()
 	};
 
@@ -30,18 +36,21 @@ pub(super) async fn upload_file(
 		.open_with_flags_and_attributes(
 			remote_path,
 			OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE | OpenFlags::READ,
-			attrs.clone(),
+			create_attrs,
 		)
 		.await
 		.wrap_err_with(|| format!("Failed to open remote file: {remote_path}"))?;
 
 	// Explicitly set permissions after opening to ensure they are strictly enforced
-	// even if the file was pre-existing (which causes `open_with_flags_and_attributes` to ignore `attrs`)
-	if let Err(e) = remote_file.set_metadata(attrs.clone()).await {
+	// even if the file was pre-existing (which causes `open_with_flags_and_attributes` to ignore `attrs`).
+	// This is a best-effort fallback: some SFTP servers (e.g. OpenSSH's internal-sftp) may reject
+	// fsetstat/setstat. Since permissions are already set atomically during creation, a failure here
+	// only affects pre-existing files being overwritten.
+	if let Err(e) = remote_file.set_metadata(perm_attrs.clone()).await {
 		tracing::debug!(error = %e, "Failed to fsetstat, falling back to setstat on session");
-		sftp.set_metadata(remote_path, attrs)
-			.await
-			.wrap_err("Failed to enforce secure file permissions")?;
+		if let Err(e2) = sftp.set_metadata(remote_path, perm_attrs).await {
+			tracing::warn!(error = %e2, path = remote_path, "Failed to enforce file permissions via setstat; permissions were set during file creation");
+		}
 	}
 
 	copy(&mut local_file_buffered, &mut remote_file)

@@ -3,7 +3,6 @@
 	reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
 )]
 #![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
-
 #![expect(clippy::absolute_paths, reason = "Tests can use absolute paths")]
 #![expect(clippy::create_dir, reason = "Tests can use create_dir")]
 #![expect(
@@ -261,8 +260,8 @@ fn e2e_sync_ignore_gitignore() -> Result<()> {
 		.run()?;
 
 	let stderr = String::from_utf8_lossy(&output.stderr);
-	assert!(output.status.success());
-	assert!(stderr.contains("2 uploaded")); // .gitignore and kept.txt
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}"); // only kept.txt; .gitignore is hidden and skipped by standard_filters
 	Ok(())
 }
 
@@ -284,8 +283,8 @@ fn e2e_sync_force() -> Result<()> {
 		.run()?;
 
 	let stderr2 = String::from_utf8_lossy(&output2.stderr);
-	assert!(stderr2.contains("1 uploaded"));
-	assert!(!stderr2.contains("unchanged"));
+	assert!(stderr2.contains("1 uploaded"), "stderr2: {stderr2}");
+	assert!(stderr2.contains("0 unchanged"), "stderr2: {stderr2}");
 	Ok(())
 }
 
