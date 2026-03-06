@@ -1,10 +1,9 @@
-use eyre::{Context as _, ContextCompat as _, Result};
+use eyre::{Context as _, Result};
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use std::path::Path;
 use tokio::fs::File;
-use tokio::io::BufReader;
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::{BufReader, copy};
 
 /// Uploads a file to a remote SFTP server using an existing session.
 /// We provide our own upload method because `async-ssh2-tokio`'s `upload_file`
@@ -44,18 +43,9 @@ pub(super) async fn upload_file(
 			.wrap_err("Failed to enforce secure file permissions")?;
 	}
 
-	let mut buffer = vec![0; 8192];
-
-	loop {
-		let n = local_file_buffered.read(&mut buffer).await?;
-		if n == 0 {
-			break;
-		}
-		remote_file
-			.write_all(buffer.get(..n).wrap_err("Buffer slice out of bounds")?)
-			.await
-			.wrap_err("Failed to write to remote file")?;
-	}
+	copy(&mut local_file_buffered, &mut remote_file)
+		.await
+		.wrap_err("Failed to write to remote file")?;
 
 	Ok(())
 }
