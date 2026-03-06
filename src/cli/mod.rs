@@ -1,6 +1,7 @@
+use crate::Result;
 use crate::{config::types::Config, ssh::exec::execute_command};
 use clap::{ArgAction, Parser, Subcommand};
-use eyre::bail;
+use color_eyre::eyre::bail;
 use tracing::Level;
 
 /// Shell completion generation command.
@@ -67,7 +68,7 @@ enum Commands {
 
 impl Commands {
 	/// Executes the specific subcommand logic.
-	async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
+	async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run(config, quiet, silent).await,
 			Self::Init(cmd) => cmd.run(),
@@ -79,7 +80,7 @@ impl Commands {
 }
 
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
-pub async fn run() -> eyre::Result<()> {
+pub async fn run() -> Result<()> {
 	let cli = Cli::parse();
 
 	let config = Config::load()?;

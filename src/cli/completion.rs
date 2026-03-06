@@ -1,8 +1,8 @@
-use std::io;
-
+use crate::Result;
 use clap::Args;
 use clap::builder::PossibleValue;
-use eyre::bail;
+use color_eyre::eyre::bail;
+use std::io;
 use strum::EnumString;
 
 /// Generate shell completions.
@@ -16,14 +16,14 @@ pub(super) struct Completion {
 
 impl Completion {
 	/// Run the completion generation logic.
-	pub(super) fn run(self) -> eyre::Result<()> {
+	pub(super) fn run(self) -> Result<()> {
 		let script = self.call_usage()?;
 		println!("{}", script.trim());
 		Ok(())
 	}
 
 	/// Calls usage CLI to generate the shell completion script.
-	fn call_usage(&self) -> eyre::Result<String> {
+	fn call_usage(&self) -> Result<String> {
 		let shell = self.shell.to_string();
 		let result = duct::cmd!(
 			"usage",
@@ -76,6 +76,7 @@ impl clap::ValueEnum for Shell {
 
 #[cfg(test)]
 mod tests {
+
 	use crate::cli::{Cli, Commands};
 	use clap::Parser as _;
 

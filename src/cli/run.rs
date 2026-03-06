@@ -1,3 +1,4 @@
+use crate::Result;
 use crate::{config::types::Config, ssh::exec::execute_command};
 use clap::Args;
 
@@ -16,7 +17,7 @@ pub(super) struct Run {
 
 impl Run {
 	/// Run the execution logic for remote command.
-	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
+	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
 		execute_command(config, &self.command, &self.command_args, quiet, silent).await?;
 		Ok(())
 	}

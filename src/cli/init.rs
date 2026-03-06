@@ -1,6 +1,7 @@
+use crate::Result;
 use crate::{config::format::ConfigFormat, config::types::Config};
 use clap::Args;
-use eyre::bail;
+use color_eyre::eyre::{bail, eyre};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
@@ -19,7 +20,7 @@ pub(super) struct Init {
 
 impl Init {
 	/// Run the initialization logic.
-	pub(super) fn run(self) -> eyre::Result<()> {
+	pub(super) fn run(self) -> Result<()> {
 		let (filename, content) = self.generate()?;
 		let path = Path::new(&filename);
 		if path.exists() && !self.force {
@@ -32,12 +33,12 @@ impl Init {
 	}
 
 	/// Generates the configuration content based on the selected format.
-	fn generate(&self) -> eyre::Result<(String, String)> {
+	fn generate(&self) -> Result<(String, String)> {
 		let filename = format!("biwa.{}", self.format.to_ascii_lowercase());
 		let schema_url = "https://biwa.takuk.me/schema/config.json";
 
 		let format = ConfigFormat::from_extension(&self.format)
-			.ok_or_else(|| eyre::eyre!("Unsupported format: {}", self.format))?;
+			.ok_or_else(|| eyre!("Unsupported format: {}", self.format))?;
 
 		let content = match format {
 			ConfigFormat::Toml => {
@@ -136,13 +137,14 @@ mod tests {
 	#[case("json5")]
 	#[case("yaml")]
 	#[case("yml")]
-	fn init_generate(#[case] format: &str) {
+	fn init_generate(#[case] format: &str) -> Result<()> {
 		let init = Init {
 			force: false,
 			format: format.to_owned(),
 		};
-		let (filename, content) = init.generate().expect("Failed to generate");
+		let (filename, content) = init.generate()?;
 		assert_eq!(filename, format!("biwa.{format}"));
 		assert_snapshot!(format!("init_{}", format), content);
+		Ok(())
 	}
 }
