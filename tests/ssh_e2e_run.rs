@@ -2,13 +2,11 @@
 	clippy::tests_outside_test_module,
 	reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
 )]
+#![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
 use std::io::{BufRead as _, BufReader, Read as _};
 
-#[cfg(test)]
-#[ctor::ctor]
-fn init_test_env() {
-	color_eyre::install().ok();
-}
+mod common;
+use common::Result;
 
 fn biwa_cmd(args: &[&str]) -> duct::Expression {
 	let mut biwa = duct::cmd(env!("CARGO_BIN_EXE_biwa"), args);
@@ -22,14 +20,13 @@ fn biwa_cmd(args: &[&str]) -> duct::Expression {
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_command() -> color_eyre::Result<()> {
+fn e2e_run_command() -> Result<()> {
 	let output = biwa_cmd(&["run", "echo", "hello e2e from biwa"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
-		.run()
-		.expect("failed to execute process");
+		.run()?;
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 
@@ -40,7 +37,7 @@ fn e2e_run_command() -> color_eyre::Result<()> {
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_stdout_stderr() -> color_eyre::Result<()> {
+fn e2e_run_stdout_stderr() {
 	let output = biwa_cmd(&["run", "--", "bash", "-c", "echo 'out'; echo 'err' >&2"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
@@ -55,12 +52,11 @@ fn e2e_run_stdout_stderr() -> color_eyre::Result<()> {
 	assert!(output.status.success());
 	assert!(stdout.contains("out"), "stdout: {stdout}");
 	assert!(stderr.contains("err"), "stderr: {stderr}");
-	Ok(())
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_streaming() -> color_eyre::Result<()> {
+fn e2e_run_streaming() {
 	let mut reader = biwa_cmd(&[
 		"run",
 		"--",
@@ -90,12 +86,11 @@ fn e2e_run_streaming() -> color_eyre::Result<()> {
 		.read_to_string(&mut rest)
 		.expect("failed to read remaining output");
 	assert!(rest.contains("end"));
-	Ok(())
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_quiet() -> color_eyre::Result<()> {
+fn e2e_run_quiet() {
 	let output = biwa_cmd(&["--quiet", "run", "echo", "hello quiet"])
 		.stdout_capture()
 		.stderr_capture()
@@ -112,12 +107,11 @@ fn e2e_run_quiet() -> color_eyre::Result<()> {
 	// CLI prefix "$ echo hello quiet" should NOT be printed
 	assert!(!stderr.contains("$ echo hello quiet"));
 	assert!(!stdout.contains("$ echo hello quiet"));
-	Ok(())
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_silent() -> color_eyre::Result<()> {
+fn e2e_run_silent() {
 	let output = biwa_cmd(&["--silent", "run", "echo", "hello silent"])
 		.stdout_capture()
 		.stderr_capture()
@@ -131,12 +125,11 @@ fn e2e_run_silent() -> color_eyre::Result<()> {
 	assert!(output.status.success());
 	assert!(stdout.trim().is_empty(), "stdout was not empty: {stdout}");
 	assert!(stderr.trim().is_empty(), "stderr was not empty: {stderr}");
-	Ok(())
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_exit_code() -> color_eyre::Result<()> {
+fn e2e_run_exit_code() {
 	let output = biwa_cmd(&["run", "--", "bash", "-c", "exit 42"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stderr_capture()
@@ -151,5 +144,4 @@ fn e2e_run_exit_code() -> color_eyre::Result<()> {
 		stderr.contains("Remote command exited with code 42"),
 		"stderr was: {stderr}"
 	);
-	Ok(())
 }

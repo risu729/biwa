@@ -1,8 +1,8 @@
-use std::io;
-
+use crate::Result;
 use clap::Args;
 use clap::builder::PossibleValue;
-use eyre::bail;
+use color_eyre::eyre::bail;
+use std::io;
 use strum::EnumString;
 
 /// Generate shell completions.
@@ -16,14 +16,14 @@ pub(super) struct Completion {
 
 impl Completion {
 	/// Run the completion generation logic.
-	pub(super) fn run(self) -> eyre::Result<()> {
+	pub(super) fn run(self) -> Result<()> {
 		let script = self.call_usage()?;
 		println!("{}", script.trim());
 		Ok(())
 	}
 
 	/// Calls usage CLI to generate the shell completion script.
-	fn call_usage(&self) -> eyre::Result<String> {
+	fn call_usage(&self) -> Result<String> {
 		let shell = self.shell.to_string();
 		let result = duct::cmd!(
 			"usage",
@@ -80,23 +80,20 @@ mod tests {
 	use clap::Parser as _;
 
 	#[test]
-	fn completion_parse_bash() -> color_eyre::Result<()> {
+	fn completion_parse_bash() {
 		let cli = Cli::parse_from(["biwa", "completion", "bash"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
-		Ok(())
 	}
 
 	#[test]
-	fn completion_parse_zsh() -> color_eyre::Result<()> {
+	fn completion_parse_zsh() {
 		let cli = Cli::parse_from(["biwa", "completion", "zsh"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
-		Ok(())
 	}
 
 	#[test]
-	fn completion_parse_fish() -> color_eyre::Result<()> {
+	fn completion_parse_fish() {
 		let cli = Cli::parse_from(["biwa", "completion", "fish"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
-		Ok(())
 	}
 }

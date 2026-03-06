@@ -1,0 +1,5 @@
+disallowed-types = [
+	{ path = "eyre::Result", reason = "Please use `crate::Result` instead to ensure consistent error handling across the crate." },
+	{ path = "color_eyre::Result", reason = "Please use `crate::Result` instead to ensure consistent error handling across the crate." },
+	{ path = "color_eyre::eyre::Result", reason = "Please use `crate::Result` instead to ensure consistent error handling across the crate." },
+]

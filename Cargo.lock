@@ -259,7 +259,6 @@ dependencies = [
  "ctor",
  "dialoguer",
  "duct",
- "eyre",
  "homedir",
  "indicatif",
  "insta",

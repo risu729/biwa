@@ -1,7 +1,8 @@
 use super::format::ConfigFormat;
 use super::types::Config;
+use crate::Result;
+use color_eyre::eyre::{WrapErr as _, bail};
 use confique::Config as _;
-use eyre::{Result, WrapErr as _};
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
@@ -186,7 +187,7 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 				.iter()
 				.map(|(p, _)| p.to_string_lossy().into_owned())
 				.collect();
-			eyre::bail!(
+			bail!(
 				"Multiple configuration files found in the same scope: {}. Only one is allowed.",
 				paths.join(", ")
 			);
@@ -209,7 +210,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn default() -> color_eyre::Result<()> {
+	fn default() -> Result<()> {
 		let config = Config::default();
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
@@ -220,7 +221,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn env_override() -> color_eyre::Result<()> {
+	fn env_override() -> Result<()> {
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
 
@@ -251,7 +252,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn snapshot() -> color_eyre::Result<()> {
+	fn snapshot() -> Result<()> {
 		let config = Config::default();
 		insta::assert_json_snapshot!(config, @r#"
 		{
@@ -304,7 +305,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn traversal_precedence() -> color_eyre::Result<()> {
+	fn traversal_precedence() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -322,7 +323,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn traversal_stops_at_home() -> color_eyre::Result<()> {
+	fn traversal_stops_at_home() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let home = root.join("home");
@@ -345,7 +346,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn xdg_precedence() -> color_eyre::Result<()> {
+	fn xdg_precedence() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -361,7 +362,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn cwd_is_dot_config() -> color_eyre::Result<()> {
+	fn cwd_is_dot_config() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -385,7 +386,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn nested_within_dot_config() -> color_eyre::Result<()> {
+	fn nested_within_dot_config() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -411,7 +412,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn strict_global_config() -> color_eyre::Result<()> {
+	fn strict_global_config() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -428,7 +429,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn strict_local_config() -> color_eyre::Result<()> {
+	fn strict_local_config() -> Result<()> {
 		let dir = tempdir().unwrap();
 		// Multiple local configs in same dir should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "toml""#).unwrap();
@@ -445,7 +446,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn conflict_root_and_dot_config() -> color_eyre::Result<()> {
+	fn conflict_root_and_dot_config() -> Result<()> {
 		let dir = tempdir().unwrap();
 		// Test multiple "local" configs (one within .config) should fail
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "root""#).unwrap();
@@ -462,7 +463,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn local_dot_config_support() -> color_eyre::Result<()> {
+	fn local_dot_config_support() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let dot_config = dir.path().join(".config");
 		fs::create_dir_all(&dot_config).unwrap();
@@ -477,7 +478,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn ignored_xdg_biwa_biwa() -> color_eyre::Result<()> {
+	fn ignored_xdg_biwa_biwa() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -504,7 +505,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn find_single_config_logic() -> color_eyre::Result<()> {
+	fn find_single_config_logic() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 
@@ -541,7 +542,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn nested_path_resolution() -> color_eyre::Result<()> {
+	fn nested_path_resolution() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -586,7 +587,7 @@ host = "child"
 
 	#[serial]
 	#[test]
-	fn local_config_root_dot_config_biwa() -> color_eyre::Result<()> {
+	fn local_config_root_dot_config_biwa() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
@@ -616,7 +617,7 @@ remote_root = "libs"
 
 	#[serial]
 	#[test]
-	fn global_config_root_home_and_xdg() -> color_eyre::Result<()> {
+	fn global_config_root_home_and_xdg() -> Result<()> {
 		let dir = tempdir().unwrap();
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
@@ -666,7 +667,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn relative_key_path_resolved_against_source_config() -> color_eyre::Result<()> {
+	fn relative_key_path_resolved_against_source_config() -> Result<()> {
 		// Layout:
 		//   /parent/biwa.toml       -> sets ssh.key_path = "my_key"
 		//   /parent/my_key          -> the key file
@@ -695,7 +696,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_toml() -> color_eyre::Result<()> {
+	fn load_partial_invalid_toml() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.toml");
 		// Write invalid TOML
@@ -704,19 +705,18 @@ remote_root = "xdg_libs"
 		let result = Config::load_partial(&path, ConfigFormat::Toml, dir.path());
 		let err = match result {
 			Err(e) => e.to_string(),
-			Ok(_) => eyre::bail!("Expected parsing error for invalid TOML"),
+			Ok(_) => bail!("Expected parsing error for invalid TOML"),
 		};
-		eyre::ensure!(
+		assert!(
 			err.contains("Failed to parse TOML"),
-			"Error string mismatch: {}",
-			err
+			"Error string mismatch: {err}"
 		);
 		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_yaml() -> color_eyre::Result<()> {
+	fn load_partial_invalid_yaml() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.yaml");
 		// Write invalid YAML
@@ -725,19 +725,18 @@ remote_root = "xdg_libs"
 		let result = Config::load_partial(&path, ConfigFormat::Yaml, dir.path());
 		let err = match result {
 			Err(e) => e.to_string(),
-			Ok(_) => eyre::bail!("Expected parsing error for invalid YAML"),
+			Ok(_) => bail!("Expected parsing error for invalid YAML"),
 		};
-		eyre::ensure!(
+		assert!(
 			err.contains("Failed to parse YAML"),
-			"Error string mismatch: {}",
-			err
+			"Error string mismatch: {err}"
 		);
 		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_json() -> color_eyre::Result<()> {
+	fn load_partial_invalid_json() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.json");
 		// Write invalid JSON
@@ -746,19 +745,18 @@ remote_root = "xdg_libs"
 		let result = Config::load_partial(&path, ConfigFormat::Json, dir.path());
 		let err = match result {
 			Err(e) => e.to_string(),
-			Ok(_) => eyre::bail!("Expected parsing error for invalid JSON"),
+			Ok(_) => bail!("Expected parsing error for invalid JSON"),
 		};
-		eyre::ensure!(
+		assert!(
 			err.contains("Failed to parse JSON"),
-			"Error string mismatch: {}",
-			err
+			"Error string mismatch: {err}"
 		);
 		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn load_partial_valid_json5() -> color_eyre::Result<()> {
+	fn load_partial_valid_json5() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.json5");
 		// Write valid JSON5 (with comments and trailing commas)
@@ -775,7 +773,7 @@ remote_root = "xdg_libs"
 		)?;
 
 		let result = Config::load_partial(&path, ConfigFormat::Json5, dir.path());
-		eyre::ensure!(result.is_ok(), "Failed to parse valid JSON5");
+		assert!(result.is_ok(), "Failed to parse valid JSON5");
 		Ok(())
 	}
 }

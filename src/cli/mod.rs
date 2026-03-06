@@ -1,6 +1,7 @@
+use crate::Result;
 use crate::{config::types::Config, ssh::exec::execute_command};
 use clap::{ArgAction, Parser, Subcommand};
-use eyre::bail;
+use color_eyre::eyre::bail;
 use tracing::Level;
 
 /// Shell completion generation command.
@@ -67,7 +68,7 @@ enum Commands {
 
 impl Commands {
 	/// Executes the specific subcommand logic.
-	async fn run(self, config: &Config, quiet: bool, silent: bool) -> eyre::Result<()> {
+	async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run(config, quiet, silent).await,
 			Self::Init(cmd) => cmd.run(),
@@ -79,7 +80,7 @@ impl Commands {
 }
 
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
-pub async fn run() -> eyre::Result<()> {
+pub async fn run() -> Result<()> {
 	let cli = Cli::parse();
 
 	let config = Config::load()?;
@@ -122,23 +123,21 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn cli_run_subcommand() -> color_eyre::Result<()> {
+	fn cli_run_subcommand() {
 		let cli = Cli::parse_from(["biwa", "run", "ls", "-la"]);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
 		assert!(cli.run_command_args.is_empty());
-		Ok(())
 	}
 
 	#[test]
-	fn cli_implicit_run_command() -> color_eyre::Result<()> {
+	fn cli_implicit_run_command() {
 		let cli = Cli::parse_from(["biwa", "ls", "-la"]);
 		assert!(cli.command.is_none());
 		assert_eq!(cli.run_command_args, vec!["ls", "-la"]);
-		Ok(())
 	}
 
 	#[test]
-	fn cli_verbose() -> color_eyre::Result<()> {
+	fn cli_verbose() {
 		let cli = Cli::parse_from(["biwa", "-v", "ls"]);
 		assert_eq!(cli.verbose, 1);
 
@@ -147,38 +146,33 @@ mod tests {
 
 		let cli = Cli::parse_from(["biwa", "-vvv", "ls"]);
 		assert_eq!(cli.verbose, 3);
-		Ok(())
 	}
 
 	#[test]
-	fn cli_run_with_verbose() -> color_eyre::Result<()> {
+	fn cli_run_with_verbose() {
 		let cli = Cli::parse_from(["biwa", "-vv", "run", "ls"]);
 		assert_eq!(cli.verbose, 2);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
-		Ok(())
 	}
 
 	#[test]
-	fn cli_quiet() -> color_eyre::Result<()> {
+	fn cli_quiet() {
 		let cli = Cli::parse_from(["biwa", "-q", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.run_command_args, vec!["ls"]);
-		Ok(())
 	}
 
 	#[test]
-	fn cli_quiet_long() -> color_eyre::Result<()> {
+	fn cli_quiet_long() {
 		let cli = Cli::parse_from(["biwa", "--quiet", "run", "ls"]);
 		assert!(cli.quiet);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
-		Ok(())
 	}
 
 	#[test]
-	fn cli_quiet_with_verbose() -> color_eyre::Result<()> {
+	fn cli_quiet_with_verbose() {
 		let cli = Cli::parse_from(["biwa", "-q", "-vv", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.verbose, 2);
-		Ok(())
 	}
 }

@@ -1,3 +1,4 @@
+use crate::Result;
 use crate::cli::Cli;
 use clap::{Args, CommandFactory as _};
 
@@ -15,7 +16,7 @@ impl Usage {
 		clippy::unnecessary_wraps,
 		reason = "usage subcommand doesn't return Err"
 	)]
-	pub(super) fn run(self) -> eyre::Result<()> {
+	pub(super) fn run(self) -> Result<()> {
 		let cli = Cli::command();
 		let spec: usage::Spec = cli.into();
 		println!("{}", spec.to_string().trim());
@@ -29,13 +30,12 @@ mod tests {
 	use clap::CommandFactory as _;
 
 	#[test]
-	fn usage_spec_generation() -> color_eyre::Result<()> {
+	fn usage_spec_generation() {
 		let cli = Cli::command();
 		let spec: usage::Spec = cli.into();
 		let output = spec.to_string();
 		assert!(!output.is_empty());
 		// Should contain the biwa command
 		assert!(output.contains("biwa"));
-		Ok(())
 	}
 }

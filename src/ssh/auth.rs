@@ -1,6 +1,8 @@
+use crate::Result;
 use crate::config::types::Config;
 use crate::config::types::PasswordConfig;
 use async_ssh2_tokio::client::AuthMethod;
+use color_eyre::eyre::bail;
 use dialoguer::Password;
 use russh::keys::{Error as RusshKeysError, load_secret_key};
 use std::env;
@@ -17,7 +19,7 @@ const DEFAULT_KEY_PATHS: &[&str] = &["~/.ssh/id_ed25519", "~/.ssh/id_rsa"];
 /// 2. Explicit password (`ssh.password = "..."` or `ssh.password = true` for prompt)
 /// 3. Default key file discovery (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`)
 /// 4. SSH Agent (fallback for zero-config users)
-pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
+pub(super) fn resolve_auth(config: &Config) -> Result<AuthMethod> {
 	let ssh = &config.ssh;
 
 	// 1. Explicit key_path (paths are already resolved natively by confique)
@@ -26,7 +28,7 @@ pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 			info!(path = %path.display(), "Using configured SSH key file");
 			return load_key(path);
 		}
-		eyre::bail!("Configured SSH key file not found: {}", path.display());
+		bail!("Configured SSH key file not found: {}", path.display());
 	}
 
 	// 2. Explicit password (string value or interactive prompt)
@@ -59,14 +61,14 @@ pub(super) fn resolve_auth(config: &Config) -> eyre::Result<AuthMethod> {
 		return Ok(AuthMethod::with_agent());
 	}
 
-	eyre::bail!(
+	bail!(
 		"No authentication method available. \
 		Configure ssh.key_path, ssh.password, or set up an SSH agent."
 	)
 }
 
 /// Load an SSH key from the given path, prompting for a passphrase if needed.
-fn load_key(path: &Path) -> eyre::Result<AuthMethod> {
+fn load_key(path: &Path) -> Result<AuthMethod> {
 	let path_str = path.to_string_lossy();
 	match load_secret_key(path_str.as_ref(), None) {
 		Err(RusshKeysError::KeyIsEncrypted) => {
@@ -130,7 +132,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn resolve_default_key_path_explicit() -> color_eyre::Result<()> {
+	fn resolve_default_key_path_explicit() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let key_file = dir.path().join("my_key");
 		fs::write(&key_file, "fake key")?;
@@ -145,7 +147,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn resolve_auth_missing_explicit_key_errors() -> color_eyre::Result<()> {
+	fn resolve_auth_missing_explicit_key_errors() -> Result<()> {
 		let mut config = Config::default();
 		config.ssh.key_path = Some(PathBuf::from("/nonexistent/path/key"));
 
@@ -158,7 +160,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn resolve_default_key_path_no_config() -> color_eyre::Result<()> {
+	fn resolve_default_key_path_no_config() -> Result<()> {
 		// Verify the function runs without panic; it may or may not find a key
 		// depending on the test environment.
 		let _path = resolve_default_key_path();
@@ -167,7 +169,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn try_agent_checks_env() -> color_eyre::Result<()> {
+	fn try_agent_checks_env() -> Result<()> {
 		// SAFETY: `#[serial]` ensures no concurrent env mutation across tests.
 		unsafe {
 			env::set_var("SSH_AUTH_SOCK", "/tmp/fake-agent.sock");
@@ -190,7 +192,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn password_config_string() -> color_eyre::Result<()> {
+	fn password_config_string() -> Result<()> {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Value("secret".to_owned());
 		let method = resolve_auth(&config)?;
@@ -200,7 +202,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn password_config_false() -> color_eyre::Result<()> {
+	fn password_config_false() -> Result<()> {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Interactive(false);
 		let result = resolve_auth(&config);

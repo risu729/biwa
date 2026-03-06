@@ -43,27 +43,25 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn all_formats() -> color_eyre::Result<()> {
+	fn all_formats() {
 		let all = ConfigFormat::all();
 		assert_eq!(all.len(), 4);
 		assert!(all.contains(&ConfigFormat::Toml));
 		assert!(all.contains(&ConfigFormat::Yaml));
 		assert!(all.contains(&ConfigFormat::Json));
 		assert!(all.contains(&ConfigFormat::Json5));
-		Ok(())
 	}
 
 	#[test]
-	fn extensions() -> color_eyre::Result<()> {
+	fn extensions() {
 		assert_eq!(ConfigFormat::Toml.extensions(), &["toml"]);
 		assert_eq!(ConfigFormat::Yaml.extensions(), &["yaml", "yml"]);
 		assert_eq!(ConfigFormat::Json.extensions(), &["json"]);
 		assert_eq!(ConfigFormat::Json5.extensions(), &["json5", "jsonc"]);
-		Ok(())
 	}
 
 	#[test]
-	fn from_extension() -> color_eyre::Result<()> {
+	fn from_extension() {
 		assert_eq!(
 			ConfigFormat::from_extension("toml"),
 			Some(ConfigFormat::Toml)
@@ -98,6 +96,5 @@ mod tests {
 		);
 		assert_eq!(ConfigFormat::from_extension("xml"), None);
 		assert_eq!(ConfigFormat::from_extension("txt"), None);
-		Ok(())
 	}
 }

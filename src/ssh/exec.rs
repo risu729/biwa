@@ -1,15 +1,16 @@
 use super::auth::resolve_auth;
+use crate::Result;
 use crate::config::types::Config;
 use crate::ui::create_spinner;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
+use color_eyre::eyre::{Context as _, bail};
 use console::style;
-use eyre::{Context as _, bail};
 use std::io::{Write, stderr, stdout};
 use tokio::sync::mpsc;
 use tracing::{debug, info};
 
 /// Connect to the SSH server using the resolved authentication method.
-async fn connect(config: &Config, quiet: bool) -> eyre::Result<Client> {
+async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 	let auth_method = resolve_auth(config)?;
 	let ssh = &config.ssh;
 
@@ -83,7 +84,7 @@ async fn run_command(
 	full_command: &str,
 	quiet: bool,
 	silent: bool,
-) -> eyre::Result<u32> {
+) -> Result<u32> {
 	debug!(command = %full_command, "Executing remote command");
 
 	if !quiet {
@@ -152,7 +153,7 @@ pub async fn execute_command(
 	args: &[String],
 	quiet: bool,
 	silent: bool,
-) -> eyre::Result<u32> {
+) -> Result<u32> {
 	let client = connect(config, quiet || silent).await?;
 	let full_command = build_command(command, args);
 	run_command(&client, &full_command, quiet, silent).await
@@ -163,29 +164,25 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn build_command_no_args() -> color_eyre::Result<()> {
+	fn build_command_no_args() {
 		assert_eq!(build_command("ls", &[]), "ls");
-		Ok(())
 	}
 
 	#[test]
-	fn build_command_with_args() -> color_eyre::Result<()> {
+	fn build_command_with_args() {
 		let args = vec!["-la".to_owned(), "/tmp".to_owned()];
 		assert_eq!(build_command("ls", &args), "ls -la /tmp");
-		Ok(())
 	}
 
 	#[test]
-	fn build_command_quotes_args_with_spaces() -> color_eyre::Result<()> {
+	fn build_command_quotes_args_with_spaces() {
 		let args = vec!["hello world".to_owned()];
 		assert_eq!(build_command("echo", &args), "echo 'hello world'");
-		Ok(())
 	}
 
 	#[test]
-	fn build_command_quotes_args_with_special_chars() -> color_eyre::Result<()> {
+	fn build_command_quotes_args_with_special_chars() {
 		let args = vec!["foo$bar".to_owned()];
 		assert_eq!(build_command("echo", &args), "echo 'foo$bar'");
-		Ok(())
 	}
 }
