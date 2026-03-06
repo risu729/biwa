@@ -201,8 +201,7 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 mod tests {
 	use super::*;
 	use crate::testing::EnvCleanup;
-	use assert_matches::assert_matches;
-	use pretty_assertions::assert_eq;
+	use pretty_assertions::{assert_eq, assert_matches};
 	use rstest::rstest;
 	use serial_test::serial;
 	use std::fs;
