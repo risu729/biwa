@@ -4,7 +4,6 @@
 )]
 pub type Result<T> = color_eyre::Result<T>;
 
-#[cfg(test)]
 #[ctor::ctor]
 fn init_test_env() {
 	#[expect(
