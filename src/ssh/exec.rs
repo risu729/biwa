@@ -2,16 +2,16 @@ use super::auth::resolve_auth;
 use crate::config::types::Config;
 use crate::ui::create_spinner;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
+use bytes::Bytes;
 use console::style;
 use eyre::{Context as _, bail};
+use std::io::Error as IoError;
 use tokio::io::{copy, stderr, stdout};
 use tokio::sync::mpsc;
+use tokio_stream::StreamExt as _;
+use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::StreamReader;
 use tracing::{debug, info};
-use tokio_stream::wrappers::ReceiverStream;
-use std::io::Error as IoError;
-use tokio_stream::StreamExt as _;
-use bytes::Bytes;
 
 /// Connect to the SSH server using the resolved authentication method.
 pub(super) async fn connect(config: &Config, quiet: bool) -> eyre::Result<Client> {
@@ -65,7 +65,6 @@ fn build_command(command: &str, args: &[String]) -> String {
 	}
 }
 
-
 /// Run a pre-built command string on an already-connected SSH client.
 ///
 /// Returns the remote exit code, printing stdout/stderr as they arrive
@@ -96,18 +95,22 @@ async fn run_command(
 
 	let exec_future =
 		client.execute_io(full_command, stdout_tx, Some(stderr_tx), None, false, None);
-	
+
 	let stdout_task = async {
-		if !silent { copy(&mut stdout_reader, &mut stdout()).await.unwrap_or(0); }
+		if !silent {
+			copy(&mut stdout_reader, &mut stdout()).await.unwrap_or(0);
+		}
 	};
 
 	let stderr_task = async {
-		if !silent { copy(&mut stderr_reader, &mut stderr()).await.unwrap_or(0); }
+		if !silent {
+			copy(&mut stderr_reader, &mut stderr()).await.unwrap_or(0);
+		}
 	};
 
 	let (exit_status, (), ()) = tokio::join!(exec_future, stdout_task, stderr_task);
 	let exit_status = exit_status.wrap_err("Failed to execute remote command")?;
-	
+
 	debug!(exit_status, "Remote command completed");
 
 	if exit_status != 0 && !quiet {
