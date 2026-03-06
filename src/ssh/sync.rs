@@ -417,7 +417,7 @@ mod tests {
 		assert_eq!(hashes.len(), 2);
 		assert_eq!(hashes.get("valid/path.txt").unwrap(), "hash1");
 		assert_eq!(hashes.get("valid2.txt").unwrap(), "hash3");
-		assert!(hashes.get("../invalid/path.txt").is_none());
+		assert!(!hashes.contains_key("../invalid/path.txt"));
 	}
 
 	#[test]
