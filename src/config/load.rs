@@ -210,20 +210,19 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn default() -> Result<()> {
+	fn default() {
 		let config = Config::default();
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
 		assert_eq!(config.ssh.user, "z1234567");
 		assert!(config.sync.remote_root.ends_with(".cache/biwa/projects"));
-		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn env_override() -> Result<()> {
-		let dir = tempdir().unwrap();
-		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#).unwrap();
+	fn env_override() -> crate::Result<()> {
+		let dir = tempdir()?;
+		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#)?;
 
 		// Set env var override
 		// SAFETY: This is a single-threaded test context modifying the environment for current process.
@@ -242,8 +241,7 @@ mod tests {
 		let _cleanup1 = EnvCleanup("BIWA_SSH_HOST");
 		let _cleanup2 = EnvCleanup("BIWA_SSH_PORT");
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
-			.expect("Failed to load config");
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 
 		assert_eq!(config.ssh.host, "env");
 		assert_eq!(config.ssh.port, 8080);
@@ -252,7 +250,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn snapshot() -> Result<()> {
+	fn snapshot() {
 		let config = Config::default();
 		insta::assert_json_snapshot!(config, @r#"
 		{
@@ -284,7 +282,6 @@ mod tests {
 		  }
 		}
 		"#);
-		Ok(())
 	}
 
 	#[rstest]
@@ -293,51 +290,53 @@ mod tests {
 	#[case::json(r#"{ "ssh": { "host": "json" } }"#, "json", "json")]
 	#[case::json5("{ ssh: { host: 'json5' } }", "json5", "json5")]
 	#[case::yaml("ssh:\n  host: yaml", "yaml", "yaml")]
-	fn format_extensions(#[case] content: &str, #[case] ext: &str, #[case] expected: &str) {
-		let dir = tempdir().unwrap();
+	fn format_extensions(
+		#[case] content: &str,
+		#[case] ext: &str,
+		#[case] expected: &str,
+	) -> crate::Result<()> {
+		let dir = tempdir()?;
 		let file_path = dir.path().join(format!("biwa.{ext}"));
-		fs::write(&file_path, content).unwrap();
+		fs::write(&file_path, content)?;
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
-			.expect("Failed to load config");
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		assert_eq!(config.ssh.host, expected);
+		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn traversal_precedence() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn traversal_precedence() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let root = dir.path();
 		let subdir = root.join("subdir");
 		let nested = subdir.join("nested");
-		fs::create_dir_all(&nested).unwrap();
+		fs::create_dir_all(&nested)?;
 
-		fs::write(root.join("biwa.toml"), r#"ssh.host = "root""#).unwrap();
-		fs::write(subdir.join("biwa.toml"), r#"ssh.host = "subdir""#).unwrap();
+		fs::write(root.join("biwa.toml"), r#"ssh.host = "root""#)?;
+		fs::write(subdir.join("biwa.toml"), r#"ssh.host = "subdir""#)?;
 
-		let config = Config::load_internal(None, None, Some(nested).as_ref())
-			.expect("Failed to load config");
+		let config = Config::load_internal(None, None, Some(nested).as_ref())?;
 		assert_eq!(config.ssh.host, "subdir");
 		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn traversal_stops_at_home() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn traversal_stops_at_home() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let root = dir.path();
 		let home = root.join("home");
 		let project = home.join("project");
-		fs::create_dir_all(&project).unwrap();
+		fs::create_dir_all(&project)?;
 
 		// Config in root (parent of home) - should NOT be loaded if traversal stops at home
-		fs::write(root.join("biwa.toml"), r#"ssh.host = "outside""#).unwrap();
+		fs::write(root.join("biwa.toml"), r#"ssh.host = "outside""#)?;
 
 		// We need to initialize the home dir so it's a valid path for test logic if needed
-		fs::create_dir_all(&home).unwrap();
+		fs::create_dir_all(&home)?;
 
-		let config = Config::load_internal(Some(&home), None, Some(&project))
-			.expect("Failed to load config");
+		let config = Config::load_internal(Some(&home), None, Some(&project))?;
 
 		assert_ne!(config.ssh.host, "outside");
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
@@ -346,38 +345,36 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn xdg_precedence() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn xdg_precedence() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
-		fs::create_dir_all(config_home.join("biwa")).unwrap();
+		fs::create_dir_all(config_home.join("biwa"))?;
 
-		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#).unwrap();
+		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#)?;
 
-		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)
-			.expect("Failed to load config");
+		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)?;
 		assert_eq!(config.ssh.host, "xdg");
 		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn cwd_is_dot_config() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn cwd_is_dot_config() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
 		let biwa_dir = dot_config.join("biwa");
-		fs::create_dir_all(&biwa_dir).unwrap();
+		fs::create_dir_all(&biwa_dir)?;
 
 		// Standard config locatable from 'project' layer
-		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "standard""#).unwrap();
+		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "standard""#)?;
 
 		// Weird config only locatable if '.config' is a layer
-		fs::write(dot_config.join(".biwa.toml"), r#"ssh.host = "weird""#).unwrap();
+		fs::write(dot_config.join(".biwa.toml"), r#"ssh.host = "weird""#)?;
 
 		// CWD is .config
-		let config =
-			Config::load_internal(None, None, Some(&dot_config)).expect("Failed to load config");
+		let config = Config::load_internal(None, None, Some(&dot_config))?;
 
 		// Should skip .config layer and only use project layer -> "standard"
 		assert_eq!(config.ssh.host, "standard");
@@ -386,12 +383,12 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn nested_within_dot_config() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn nested_within_dot_config() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
 		let subdir = dot_config.join("subdir");
-		fs::create_dir_all(&subdir).unwrap();
+		fs::create_dir_all(&subdir)?;
 
 		// A config file that would ONLY be found if we treat '.config' as a project layer
 		// layer '.config' -> candidates: .config/biwa, .config/.biwa, ...
@@ -399,10 +396,9 @@ mod tests {
 		//
 		// layer 'project' -> candidates: project/biwa, project/.biwa, project/.config/biwa
 		// does NOT match project/.config/.biwa.toml (only .config/biwa)
-		fs::write(dot_config.join(".biwa.toml"), r#"ssh.host = "weird""#).unwrap();
+		fs::write(dot_config.join(".biwa.toml"), r#"ssh.host = "weird""#)?;
 
-		let config =
-			Config::load_internal(None, None, Some(&subdir)).expect("Failed to load config");
+		let config = Config::load_internal(None, None, Some(&subdir))?;
 
 		// Should NOT load "weird" because .config dir should be skipped as a layer
 		assert_ne!(config.ssh.host, "weird");
@@ -412,15 +408,15 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn strict_global_config() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn strict_global_config() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
-		fs::create_dir_all(config_home.join("biwa")).unwrap();
+		fs::create_dir_all(config_home.join("biwa"))?;
 
 		// Multiple global configs should fail
-		fs::write(home.join("biwa.toml"), r#"ssh.host = "home""#).unwrap();
-		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#).unwrap();
+		fs::write(home.join("biwa.toml"), r#"ssh.host = "home""#)?;
+		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#)?;
 
 		let result = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None);
 		assert_matches!(result, Err(_));
@@ -429,15 +425,14 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn strict_local_config() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn strict_local_config() -> crate::Result<()> {
+		let dir = tempdir()?;
 		// Multiple local configs in same dir should fail
-		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "toml""#).unwrap();
+		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "toml""#)?;
 		fs::write(
 			dir.path().join(".biwa.json"),
 			r#"{"ssh": {"host": "json"}}"#,
-		)
-		.unwrap();
+		)?;
 
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
 		assert_matches!(result, Err(_));
@@ -446,14 +441,14 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn conflict_root_and_dot_config() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn conflict_root_and_dot_config() -> crate::Result<()> {
+		let dir = tempdir()?;
 		// Test multiple "local" configs (one within .config) should fail
-		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "root""#).unwrap();
+		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "root""#)?;
 
 		let dot_config = dir.path().join(".config");
-		fs::create_dir_all(&dot_config).unwrap();
-		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "dotconfig""#).unwrap();
+		fs::create_dir_all(&dot_config)?;
+		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "dotconfig""#)?;
 
 		// Should error because we found >1 config for the same dir scope
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
@@ -463,40 +458,37 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn local_dot_config_support() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn local_dot_config_support() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let dot_config = dir.path().join(".config");
-		fs::create_dir_all(&dot_config).unwrap();
+		fs::create_dir_all(&dot_config)?;
 
-		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "dotconfig""#).unwrap();
+		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "dotconfig""#)?;
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())
-			.expect("Failed to load config");
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		assert_eq!(config.ssh.host, "dotconfig");
 		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn ignored_xdg_biwa_biwa() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn ignored_xdg_biwa_biwa() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
-		fs::create_dir_all(config_home.join("biwa")).unwrap();
+		fs::create_dir_all(config_home.join("biwa"))?;
 
 		// This should be ignored: ~/.config/biwa/biwa.toml
 		fs::write(
 			config_home.join("biwa/biwa.toml"),
 			r#"ssh.host = "ignored""#,
-		)
-		.unwrap();
+		)?;
 
 		// This is a valid global config: ~/biwa.toml
 		// We use this to verify that the other one was indeed ignored and didn't conflict/override.
-		fs::write(home.join("biwa.toml"), r#"ssh.host = "fallback""#).unwrap();
+		fs::write(home.join("biwa.toml"), r#"ssh.host = "fallback""#)?;
 
-		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)
-			.expect("Failed to load config");
+		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)?;
 
 		// Should load "fallback", NOT "ignored"
 		assert_eq!(config.ssh.host, "fallback");
@@ -505,36 +497,36 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn find_single_config_logic() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn find_single_config_logic() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let root = dir.path();
 
 		// 1. No config
 		let result = find_single_config(&[root.join("biwa")]);
-		assert!(result.unwrap().is_none());
+		assert!(result?.is_none());
 
 		// 2. Single config
-		fs::write(root.join("biwa.toml"), "").unwrap();
+		fs::write(root.join("biwa.toml"), "")?;
 		let result = find_single_config(&[root.join("biwa")]);
-		let (path, format) = result.unwrap().unwrap();
+		let (path, format) = result?.ok_or_else(|| color_eyre::eyre::eyre!("Expected Some"))?;
 		assert_eq!(path, root.join("biwa.toml"));
 		assert_eq!(format, ConfigFormat::Toml);
 
 		// 3. Multiple formats for same base -> Error (Strictness)
 		// Note: find_single_config logic checks across extensions for a single base too?
 		// "Multiple configuration files found in the same scope"
-		fs::write(root.join("biwa.json"), "{}").unwrap();
+		fs::write(root.join("biwa.json"), "{}")?;
 		let result = find_single_config(&[root.join("biwa")]);
 		assert_matches!(result, Err(_));
 
 		// Cleanup for next check
-		fs::remove_file(root.join("biwa.toml")).unwrap();
-		fs::remove_file(root.join("biwa.json")).unwrap();
+		fs::remove_file(root.join("biwa.toml"))?;
+		fs::remove_file(root.join("biwa.json"))?;
 
 		// 4. Multiple bases in list -> Error if both exist
 		// e.g. biwa.toml and .biwa.toml
-		fs::write(root.join("biwa.toml"), "").unwrap();
-		fs::write(root.join(".biwa.toml"), "").unwrap();
+		fs::write(root.join("biwa.toml"), "")?;
+		fs::write(root.join(".biwa.toml"), "")?;
 		let result = find_single_config(&[root.join("biwa"), root.join(".biwa")]);
 		assert_matches!(result, Err(_));
 		Ok(())
@@ -542,11 +534,11 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn nested_path_resolution() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn nested_path_resolution() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let root = dir.path();
 		let subdir = root.join("subdir");
-		fs::create_dir_all(&subdir).unwrap();
+		fs::create_dir_all(&subdir)?;
 
 		// Parent config defines a relative path
 		// "libs" should be resolved relative to `root`
@@ -556,8 +548,7 @@ mod tests {
 [sync]
 remote_root = "libs"
 "#,
-		)
-		.unwrap();
+		)?;
 
 		// Child config overrides something else, but inherits remote_root
 		fs::write(
@@ -566,14 +557,12 @@ remote_root = "libs"
 [ssh]
 host = "child"
 "#,
-		)
-		.unwrap();
+		)?;
 
 		// Load config from subdir
 		// Expected: remote_root should be root/libs
 		// Actual (bug): remote_root is subdir/libs because it resolves relative to the innermost config root
-		let config =
-			Config::load_internal(None, None, Some(&subdir)).expect("Failed to load config");
+		let config = Config::load_internal(None, None, Some(&subdir))?;
 
 		let expected_path = root.join("libs");
 
@@ -587,11 +576,11 @@ host = "child"
 
 	#[serial]
 	#[test]
-	fn local_config_root_dot_config_biwa() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn local_config_root_dot_config_biwa() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
-		fs::create_dir_all(&dot_config).unwrap();
+		fs::create_dir_all(&dot_config)?;
 
 		// Local config in .config/biwa.toml should use the project root (`project`)
 		// as its config root, not the .config directory itself.
@@ -601,11 +590,9 @@ host = "child"
 [sync]
 remote_root = "libs"
 "#,
-		)
-		.unwrap();
+		)?;
 
-		let config =
-			Config::load_internal(None, None, Some(&project)).expect("Failed to load config");
+		let config = Config::load_internal(None, None, Some(&project))?;
 
 		let expected_path = project.join("libs");
 		assert_eq!(
@@ -617,12 +604,12 @@ remote_root = "libs"
 
 	#[serial]
 	#[test]
-	fn global_config_root_home_and_xdg() -> Result<()> {
-		let dir = tempdir().unwrap();
+	fn global_config_root_home_and_xdg() -> crate::Result<()> {
+		let dir = tempdir()?;
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
-		fs::create_dir_all(&home).unwrap();
-		fs::create_dir_all(config_home.join("biwa")).unwrap();
+		fs::create_dir_all(&home)?;
+		fs::create_dir_all(config_home.join("biwa"))?;
 
 		// Global config at ~/biwa.toml
 		fs::write(
@@ -631,11 +618,9 @@ remote_root = "libs"
 [sync]
 remote_root = "global_libs"
 "#,
-		)
-		.unwrap();
+		)?;
 
-		let config = Config::load_internal(Some(&home), Some(&config_home), None)
-			.expect("Failed to load config");
+		let config = Config::load_internal(Some(&home), Some(&config_home), None)?;
 		assert_eq!(
 			config.sync.remote_root,
 			home.join("global_libs"),
@@ -643,7 +628,7 @@ remote_root = "global_libs"
 		);
 
 		// Only one global config is allowed; remove the home config before testing the XDG variant.
-		fs::remove_file(home.join("biwa.toml")).unwrap();
+		fs::remove_file(home.join("biwa.toml"))?;
 
 		// Override with XDG-style global config at ~/.config/biwa/config.toml
 		fs::write(
@@ -652,11 +637,9 @@ remote_root = "global_libs"
 [sync]
 remote_root = "xdg_libs"
 "#,
-		)
-		.unwrap();
+		)?;
 
-		let config = Config::load_internal(Some(&home), Some(&config_home), None)
-			.expect("Failed to load config");
+		let config = Config::load_internal(Some(&home), Some(&config_home), None)?;
 		assert_eq!(
 			config.sync.remote_root,
 			home.join("xdg_libs"),
@@ -667,28 +650,29 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn relative_key_path_resolved_against_source_config() -> Result<()> {
+	fn relative_key_path_resolved_against_source_config() -> crate::Result<()> {
 		// Layout:
 		//   /parent/biwa.toml       -> sets ssh.key_path = "my_key"
 		//   /parent/my_key          -> the key file
 		//   /parent/child/biwa.toml -> overrides ssh.host only
-		let parent = tempdir().unwrap();
+		let parent = tempdir()?;
 		let child = parent.path().join("child");
-		fs::create_dir_all(&child).unwrap();
+		fs::create_dir_all(&child)?;
 
 		fs::write(
 			parent.path().join("biwa.toml"),
 			"[ssh]\nkey_path = \"my_key\"\n",
-		)
-		.unwrap();
-		fs::write(parent.path().join("my_key"), "fake key").unwrap();
-		fs::write(child.join("biwa.toml"), "[ssh]\nhost = \"other.host\"\n").unwrap();
+		)?;
+		fs::write(parent.path().join("my_key"), "fake key")?;
+		fs::write(child.join("biwa.toml"), "[ssh]\nhost = \"other.host\"\n")?;
 
-		let config =
-			Config::load_internal(None, None, Some(&child)).expect("failed to load config");
+		let config = Config::load_internal(None, None, Some(&child))?;
 
 		// key_path should be resolved to parent/my_key, not child/my_key
-		let resolved = config.ssh.key_path.expect("key_path should be set");
+		let resolved = config
+			.ssh
+			.key_path
+			.ok_or_else(|| color_eyre::eyre::eyre!("key_path should be set"))?;
 		let expected = parent.path().join("my_key");
 		assert_eq!(resolved, expected);
 		Ok(())
@@ -696,7 +680,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_toml() -> Result<()> {
+	fn load_partial_invalid_toml() -> crate::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.toml");
 		// Write invalid TOML
@@ -716,7 +700,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_yaml() -> Result<()> {
+	fn load_partial_invalid_yaml() -> crate::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.yaml");
 		// Write invalid YAML
@@ -736,7 +720,7 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn load_partial_invalid_json() -> Result<()> {
+	fn load_partial_invalid_json() -> crate::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.json");
 		// Write invalid JSON

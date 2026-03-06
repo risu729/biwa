@@ -132,7 +132,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn resolve_default_key_path_explicit() -> Result<()> {
+	fn resolve_default_key_path_explicit() -> crate::Result<()> {
 		let dir = tempfile::tempdir()?;
 		let key_file = dir.path().join("my_key");
 		fs::write(&key_file, "fake key")?;
@@ -147,7 +147,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn resolve_auth_missing_explicit_key_errors() -> Result<()> {
+	fn resolve_auth_missing_explicit_key_errors() {
 		let mut config = Config::default();
 		config.ssh.key_path = Some(PathBuf::from("/nonexistent/path/key"));
 
@@ -155,21 +155,19 @@ mod tests {
 		assert!(result.is_err());
 		let err_msg = result.unwrap_err().to_string();
 		assert!(err_msg.contains("not found"), "Error: {err_msg}");
-		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn resolve_default_key_path_no_config() -> Result<()> {
+	fn resolve_default_key_path_no_config() {
 		// Verify the function runs without panic; it may or may not find a key
 		// depending on the test environment.
 		let _path = resolve_default_key_path();
-		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn try_agent_checks_env() -> Result<()> {
+	fn try_agent_checks_env() {
 		// SAFETY: `#[serial]` ensures no concurrent env mutation across tests.
 		unsafe {
 			env::set_var("SSH_AUTH_SOCK", "/tmp/fake-agent.sock");
@@ -187,12 +185,11 @@ mod tests {
 			!try_agent(),
 			"expected no agent when SSH_AUTH_SOCK is unset"
 		);
-		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn password_config_string() -> Result<()> {
+	fn password_config_string() -> crate::Result<()> {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Value("secret".to_owned());
 		let method = resolve_auth(&config)?;
@@ -202,7 +199,7 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn password_config_false() -> Result<()> {
+	fn password_config_false() {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Interactive(false);
 		let result = resolve_auth(&config);
@@ -214,6 +211,5 @@ mod tests {
 				AuthMethod::PrivateKeyFile { .. } | AuthMethod::Agent
 			);
 		}
-		Ok(())
 	}
 }

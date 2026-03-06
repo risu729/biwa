@@ -16,7 +16,7 @@ pub(super) struct Completion {
 
 impl Completion {
 	/// Run the completion generation logic.
-	pub(super) fn run(self) -> Result<()> {
+	pub(super) fn run(self) -> crate::Result<()> {
 		let script = self.call_usage()?;
 		println!("{}", script.trim());
 		Ok(())
@@ -76,6 +76,7 @@ impl clap::ValueEnum for Shell {
 
 #[cfg(test)]
 mod tests {
+
 	use crate::cli::{Cli, Commands};
 	use clap::Parser as _;
 

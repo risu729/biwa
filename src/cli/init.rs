@@ -137,13 +137,14 @@ mod tests {
 	#[case("json5")]
 	#[case("yaml")]
 	#[case("yml")]
-	fn init_generate(#[case] format: &str) {
+	fn init_generate(#[case] format: &str) -> crate::Result<()> {
 		let init = Init {
 			force: false,
 			format: format.to_owned(),
 		};
-		let (filename, content) = init.generate().expect("Failed to generate");
+		let (filename, content) = init.generate()?;
 		assert_eq!(filename, format!("biwa.{format}"));
 		assert_snapshot!(format!("init_{}", format), content);
+		Ok(())
 	}
 }

@@ -37,14 +37,14 @@ fn e2e_run_command() -> Result<()> {
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_stdout_stderr() {
+fn e2e_run_stdout_stderr() -> Result<()> {
 	let output = biwa_cmd(&["run", "--", "bash", "-c", "echo 'out'; echo 'err' >&2"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
 		.run()
-		.expect("failed to execute process");
+		?;
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 	let stderr = String::from_utf8_lossy(&output.stderr);
@@ -52,11 +52,12 @@ fn e2e_run_stdout_stderr() {
 	assert!(output.status.success());
 	assert!(stdout.contains("out"), "stdout: {stdout}");
 	assert!(stderr.contains("err"), "stderr: {stderr}");
+	Ok(())
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_streaming() {
+fn e2e_run_streaming() -> Result<()> {
 	let mut reader = biwa_cmd(&[
 		"run",
 		"--",
@@ -66,14 +67,14 @@ fn e2e_run_streaming() {
 	])
 	.env("BIWA_LOG_QUIET", "true")
 	.reader()
-	.expect("failed to spawn process");
+	?;
 
 	let mut buf_reader = BufReader::new(&mut reader);
 
 	let mut first_line = String::new();
 	buf_reader
 		.read_line(&mut first_line)
-		.expect("failed to read first line");
+		?;
 
 	// We should read 'start' immediately without waiting for 'end'
 	assert!(
@@ -84,19 +85,20 @@ fn e2e_run_streaming() {
 	let mut rest = String::new();
 	buf_reader
 		.read_to_string(&mut rest)
-		.expect("failed to read remaining output");
+		?;
 	assert!(rest.contains("end"));
+	Ok(())
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_quiet() {
+fn e2e_run_quiet() -> Result<()> {
 	let output = biwa_cmd(&["--quiet", "run", "echo", "hello quiet"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
 		.run()
-		.expect("failed to execute process");
+		?;
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 	let stderr = String::from_utf8_lossy(&output.stderr);
@@ -107,17 +109,18 @@ fn e2e_run_quiet() {
 	// CLI prefix "$ echo hello quiet" should NOT be printed
 	assert!(!stderr.contains("$ echo hello quiet"));
 	assert!(!stdout.contains("$ echo hello quiet"));
+	Ok(())
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_silent() {
+fn e2e_run_silent() -> Result<()> {
 	let output = biwa_cmd(&["--silent", "run", "echo", "hello silent"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
 		.run()
-		.expect("failed to execute process");
+		?;
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 	let stderr = String::from_utf8_lossy(&output.stderr);
@@ -125,17 +128,18 @@ fn e2e_run_silent() {
 	assert!(output.status.success());
 	assert!(stdout.trim().is_empty(), "stdout was not empty: {stdout}");
 	assert!(stderr.trim().is_empty(), "stderr was not empty: {stderr}");
+	Ok(())
 }
 
 #[test]
 #[ignore = "requires running SSH server"]
-fn e2e_run_exit_code() {
+fn e2e_run_exit_code() -> Result<()> {
 	let output = biwa_cmd(&["run", "--", "bash", "-c", "exit 42"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stderr_capture()
 		.unchecked()
 		.run()
-		.expect("failed to execute process");
+		?;
 
 	assert!(!output.status.success());
 
@@ -144,4 +148,6 @@ fn e2e_run_exit_code() {
 		stderr.contains("Remote command exited with code 42"),
 		"stderr was: {stderr}"
 	);
+	Ok(())
 }
+

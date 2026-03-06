@@ -10,3 +10,4 @@ fn init_test_env() {
 	)]
 	color_eyre::install().ok();
 }
+
