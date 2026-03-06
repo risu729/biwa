@@ -45,7 +45,6 @@ usage-lib = { version = "2.18.2", features = ["clap", "docs"] }
 
 [dev-dependencies]
 ctor = "0.2.8"
-duct = "1.1.1"
 insta = { version = "1.46.3", features = ["json"] }
 pretty_assertions = { version = "1.4.1", features = ["unstable"] }
 rstest = "0.26.1"

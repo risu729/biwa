@@ -384,8 +384,6 @@ mod tests {
 	use tempfile::tempdir;
 
 	#[test]
-	#[expect(clippy::unwrap_used, reason = "Tests can panic")]
-	#[expect(clippy::indexing_slicing, reason = "Tests can panic")]
 	fn collect_local_files_basic() {
 		let dir = tempdir().unwrap();
 		let file_path = dir.path().join("test.txt");
@@ -393,14 +391,13 @@ mod tests {
 
 		let files = collect_local_files(dir.path(), &[], &Options::default()).unwrap();
 		assert_eq!(files.len(), 1);
-		assert_eq!(files[0].0.to_string_lossy(), "test.txt");
+		assert_eq!(files.first().unwrap().0.to_string_lossy(), "test.txt");
 
 		let expected_hash = hex::encode(Sha256::digest(b"hello"));
-		assert_eq!(files[0].1, expected_hash);
+		assert_eq!(files.first().unwrap().1, expected_hash);
 	}
 
 	#[test]
-	#[expect(clippy::unwrap_used, reason = "Tests can panic")]
 	fn collect_local_files_respects_gitignore() {
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();

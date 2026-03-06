@@ -3,20 +3,14 @@
 	reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
 )]
 #![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
-#![expect(clippy::absolute_paths, reason = "Tests can use absolute paths")]
-#![expect(clippy::create_dir, reason = "Tests can use create_dir")]
-#![expect(
-	clippy::string_slice,
-	reason = "Hex encoded strings are strictly ASCII, slicing is safe"
-)]
 
 use sha2::Digest as _;
-use std::fs;
+use std::{fs, path::Path};
 
 mod common;
 use common::Result;
 
-fn biwa_cmd(args: &[&str], current_dir: &std::path::Path) -> duct::Expression {
+fn biwa_cmd(args: &[&str], current_dir: &Path) -> duct::Expression {
 	common::biwa_cmd(args)
 		.env("BIWA_SYNC_REMOTE_ROOT", "/config/cache/biwa/projects")
 		.dir(current_dir)
@@ -63,6 +57,10 @@ fn e2e_sync_basic() -> Result<()> {
 		dir.path().canonicalize()?.to_string_lossy().as_bytes(),
 	);
 	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
+	#[expect(
+		clippy::string_slice,
+		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
+	)]
 	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
 
 	let output3 = biwa_cmd(
@@ -118,7 +116,7 @@ fn e2e_sync_cleaning() -> Result<()> {
 fn e2e_sync_permissions() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let dir_path = dir.path().join("subdir");
-	fs::create_dir(&dir_path)?;
+	fs::create_dir_all(&dir_path)?;
 	fs::write(dir_path.join("secret.txt"), "secret")?;
 
 	// Create an executable file
@@ -151,6 +149,10 @@ fn e2e_sync_permissions() -> Result<()> {
 		dir.path().canonicalize()?.to_string_lossy().as_bytes(),
 	);
 	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
+	#[expect(
+		clippy::string_slice,
+		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
+	)]
 	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
 
 	let remote_dir = format!("/config/cache/biwa/projects/{unique_proj_name}/subdir");
