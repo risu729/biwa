@@ -6,7 +6,7 @@
 use std::io::{BufRead as _, BufReader, Read as _};
 
 mod common;
-use common::{biwa_cmd, Result};
+use common::{Result, biwa_cmd};
 
 #[test]
 #[ignore = "requires running SSH server"]
