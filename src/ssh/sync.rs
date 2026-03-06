@@ -352,13 +352,13 @@ pub async fn sync_project(
 			.wrap_err("Failed to join blocking task")??
 	};
 
+	let client = connect(config, quiet).await?;
+
 	let spinner = if quiet {
 		None
 	} else {
 		Some(create_spinner("Synchronizing files...".to_owned()))
 	};
-
-	let client = connect(config, quiet).await?;
 
 	// Compute remote directory base
 	let remote_dir = compute_remote_path(
