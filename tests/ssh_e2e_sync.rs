@@ -309,3 +309,109 @@ fn e2e_sync_large_file() -> Result<()> {
 	assert!(stderr.contains("1 uploaded"));
 	Ok(())
 }
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_remote_symlink() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let proj_name = dir
+		.path()
+		.file_name()
+		.ok_or_else(|| color_eyre::eyre::eyre!("no file name"))?
+		.to_string_lossy();
+	let mut hasher = sha2::Sha256::new();
+	sha2::Digest::update(
+		&mut hasher,
+		dir.path().canonicalize()?.to_string_lossy().as_bytes(),
+	);
+	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
+	#[expect(
+		clippy::string_slice,
+		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
+	)]
+	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
+
+	let remote_dir = format!("/config/cache/biwa/projects/{unique_proj_name}");
+
+	// Create a dummy dir to point the symlink to
+	#[expect(
+		clippy::string_slice,
+		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
+	)]
+	let dummy_dir = format!("/config/cache/biwa/projects/dummy_{}", &hash_hex[..8]);
+	biwa_cmd(&["run", "mkdir", "-p", &dummy_dir], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.run()?;
+
+	// Create a symlink at the remote_dir location
+	biwa_cmd(&["run", "ln", "-s", &dummy_dir, &remote_dir], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.run()?;
+
+	// Now try to run sync, it should fail
+	fs::write(dir.path().join("test.txt"), "test")?;
+	let output = biwa_cmd(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success());
+	assert!(
+		stderr.contains("remote directory is a symlink"),
+		"stderr: {stderr}"
+	);
+
+	Ok(())
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_shell_injection() -> Result<()> {
+	let base_dir = tempfile::tempdir()?;
+	let malicious_name = "test_dir_$(echo injection_attempt)_'\"`\\";
+	let proj_dir = base_dir.path().join(malicious_name);
+	fs::create_dir_all(&proj_dir)?;
+	fs::write(proj_dir.join("test.txt"), "content")?;
+
+	// Sync should work correctly despite the malicious project name
+	let output = biwa_cmd(&["sync"], &proj_dir)
+		.stdout_capture()
+		.stderr_capture()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+
+	// Compute unique project name
+	let proj_name = proj_dir
+		.file_name()
+		.ok_or_else(|| color_eyre::eyre::eyre!("no file name"))?
+		.to_string_lossy();
+	let mut hasher = sha2::Sha256::new();
+	sha2::Digest::update(
+		&mut hasher,
+		proj_dir.canonicalize()?.to_string_lossy().as_bytes(),
+	);
+	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
+	#[expect(
+		clippy::string_slice,
+		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
+	)]
+	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
+
+	let remote_file = format!("/config/cache/biwa/projects/{unique_proj_name}/test.txt");
+
+	let output_cat = biwa_cmd(&["run", "cat", &remote_file], &proj_dir)
+		.stdout_capture()
+		.stderr_capture()
+		.run()?;
+
+	let stdout_cat = String::from_utf8_lossy(&output_cat.stdout);
+	pretty_assertions::assert_eq!(stdout_cat.trim(), "content", "stdout: {stdout_cat}");
+
+	Ok(())
+}
