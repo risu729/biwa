@@ -50,16 +50,7 @@ impl From<SyncArgs> for Options {
 
 /// Synchronize local project files to the remote server.
 #[derive(Args, Debug)]
-#[clap(
-	visible_alias = "s",
-	long_about = "Synchronize local project files to the remote server.\n\n\
-By default, `biwa run` automatically runs `biwa sync` before executing your command unless `sync.auto` is set to `false` in your configuration.\n\n\
-Features:\n\
-- Smart Hashing: Computes SHA-256 hash to only upload modified/new files.\n\
-- Cleanup: Automatically deletes remote files that no longer exist locally.\n\
-- Gitignore Support: Respects `.gitignore` and `.ignore` files automatically.\n\
-- Secure Permissions: Enforces `0700` for directories. File permissions are preserved from the local filesystem but restricted to user-only access (e.g. `0644` becomes `0600`, `0755` becomes `0700`)."
-)]
+#[clap(visible_alias = "s")]
 pub(super) struct Sync {
 	/// Synchronization options.
 	#[clap(flatten)]

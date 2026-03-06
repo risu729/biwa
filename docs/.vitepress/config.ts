@@ -38,6 +38,7 @@ export default withMermaid(
 						{ link: "/configuration", text: "Configuration" },
 						{ link: "/ssh-key-setup", text: "SSH Key Setup" },
 						{ link: "/shell-completion", text: "Shell Completion" },
+						{ link: "/sync-behavior", text: "Sync Behavior" },
 					],
 					text: "Guide",
 				},
