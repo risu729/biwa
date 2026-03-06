@@ -90,7 +90,7 @@ Storing your password in a configuration file is **not recommended** for securit
 - **`setstat`** — Uses the SFTP `setstat` operation to set permissions after writing. This avoids deleting the file but **is not supported by all servers**. If `setstat` fails, biwa will log a warning suggesting you switch to `recreate`.
 
 ::: info SFTP Server Restrictions
-Some SSH servers (notably UNSW CSE's OpenSSH `internal-sftp`) reject `setstat` / `fsetstat` SFTP operations with "Permission denied". If you see this error, ensure `sync.sftp.permissions` is set to `"recreate"` (the default).
+Some SSH environments (notably UNSW CSE, which uses OpenSSH on networked filesystems) reject `setstat` / `fsetstat` SFTP operations with "Permission denied". If you see this error, ensure `sync.sftp.permissions` is set to `"recreate"` (the default).
 :::
 
 ::: warning Absolute Remote Root
