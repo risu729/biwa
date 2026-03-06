@@ -3,6 +3,7 @@ use crate::Result;
 use crate::config::types::{Config, SyncEngine};
 use crate::ssh::sftp::upload_file;
 use crate::ui::create_spinner;
+use async_ssh2_tokio::client::Client;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
 use console::style;
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -143,22 +144,8 @@ pub(super) fn compute_remote_path(
 	parts.join("/")
 }
 
-/// Synchronizes a project to a remote server.
-#[expect(clippy::module_name_repetitions, reason = "No better name exists")]
-#[expect(clippy::too_many_lines, reason = "Complex sync logic")]
-#[expect(clippy::cognitive_complexity, reason = "Complex sync logic")]
-pub async fn sync_project(
-	config: &Config,
-	project_root: &Path,
-	options: &Options,
-	quiet: bool,
-) -> Result<Stats> {
-	if config.sync.engine != SyncEngine::Sftp {
-		bail!("Only SFTP sync engine is currently supported");
-	}
-
-	check_remote_root(&config.sync.remote_root);
-
+/// Computes a unique project name based on the project root's canonical path.
+fn compute_unique_project_name(project_root: &Path) -> Result<String> {
 	let project_name = project_root
 		.file_name()
 		.wrap_err("Invalid project root directory")?
@@ -179,7 +166,182 @@ pub async fn sync_project(
 		clippy::string_slice,
 		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
 	)]
-	let unique_project_name = format!("{}-{}", project_name, &hash_hex[..8]);
+	Ok(format!("{}-{}", project_name, &hash_hex[..8]))
+}
+
+/// Fetches the SHA-256 hashes of the files currently in the remote directory.
+async fn fetch_remote_hashes(client: &Client, remote_dir: &str) -> Result<HashMap<String, String>> {
+	let quoted_remote_dir = shell_words::quote(remote_dir);
+
+	// 1. Create remote dir with 0700 and fetch current hashes
+	let script = format!(
+		"mkdir -p -m 0700 -- {quoted_remote_dir} && \
+		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
+		 chmod 0700 -- {quoted_remote_dir} && \
+		 cd -- {quoted_remote_dir} 2>/dev/null && \
+		 (find . -type f -exec sha256sum {{}} + || true)"
+	);
+
+	let result = client
+		.execute(&script)
+		.await
+		.wrap_err("Failed to fetch remote state")?;
+	let output = result.stdout;
+
+	Ok(parse_remote_hashes(&output))
+}
+
+/// Actions to perform during synchronization.
+struct SyncActions {
+	/// Files to upload to the remote server.
+	to_upload: Vec<PathBuf>,
+	/// Files to delete from the remote server.
+	to_delete: Vec<String>,
+}
+
+/// Compares local files with remote hashes to determine which files need to be uploaded or deleted.
+fn calculate_sync_actions(
+	local_files: &[(PathBuf, String)],
+	remote_hashes: &HashMap<String, String>,
+	options: &Options,
+	stats: &mut Stats,
+) -> SyncActions {
+	let mut to_upload = Vec::new();
+	let mut local_paths_str = HashSet::new();
+
+	for (rel_path, local_hash) in local_files {
+		let rel_path_str = rel_path.display().to_string().replace('\\', "/");
+		local_paths_str.insert(rel_path_str.clone());
+
+		if !options.force
+			&& let Some(remote_hash) = remote_hashes.get(&rel_path_str)
+			&& remote_hash == local_hash
+		{
+			stats.unchanged = stats.unchanged.saturating_add(1);
+			continue;
+		}
+		to_upload.push(rel_path.clone());
+	}
+
+	let mut to_delete = Vec::new();
+	let mut remote_paths: Vec<_> = remote_hashes.keys().cloned().collect();
+	remote_paths.sort_unstable(); // Sort to avoid iter_over_hash_type issue and ensure determinism
+	for remote_path in remote_paths {
+		if !local_paths_str.contains(&remote_path) {
+			to_delete.push(remote_path);
+		}
+	}
+
+	SyncActions {
+		to_upload,
+		to_delete,
+	}
+}
+
+/// Executes the synchronization actions by uploading and deleting files via SFTP.
+async fn apply_sync_actions(
+	client: &Client,
+	config: &Config,
+	project_root: &Path,
+	unique_project_name: &str,
+	remote_dir: &str,
+	actions: SyncActions,
+	stats: &mut Stats,
+) -> Result<()> {
+	if actions.to_delete.is_empty() && actions.to_upload.is_empty() {
+		return Ok(());
+	}
+
+	let channel = client
+		.get_channel()
+		.await
+		.wrap_err("Failed to get SFTP channel")?;
+	channel
+		.request_subsystem(true, "sftp")
+		.await
+		.wrap_err("Failed to request SFTP subsystem")?;
+	let sftp = SftpSession::new(channel.into_stream())
+		.await
+		.wrap_err("Failed to initialize SFTP session")?;
+
+	// Remove deleted files via SFTP
+	for path in &actions.to_delete {
+		let full_path = format!("{remote_dir}/{path}");
+		if let Err(e) = sftp.remove_file(&full_path).await {
+			tracing::warn!(error = %e, path = full_path, "Failed to delete remote file");
+		}
+		stats.deleted = stats.deleted.saturating_add(1);
+	}
+
+	// Pre-create subdirectories with 0700 permissions
+	let mut dirs_to_create = HashSet::new();
+	for rel_path in &actions.to_upload {
+		if let Some(parent) = rel_path.parent() {
+			let p_str = parent.display().to_string().replace('\\', "/");
+			if !p_str.is_empty() {
+				dirs_to_create.insert(format!("{remote_dir}/{p_str}"));
+			}
+		}
+	}
+
+	if !dirs_to_create.is_empty() {
+		let mkdirs = dirs_to_create
+			.into_iter()
+			.map(|d| shell_words::quote(&d).into_owned())
+			.collect::<Vec<_>>()
+			.join(" ");
+		let mkdir_cmd = format!("mkdir -p -m 0700 -- {mkdirs} && chmod 0700 -- {mkdirs}");
+		client
+			.execute(&mkdir_cmd)
+			.await
+			.wrap_err("Failed to create remote directories")?;
+	}
+
+	// Upload files and change permissions to match local user permissions (removing group/other)
+	for rel_path in actions.to_upload {
+		let local_path = project_root.join(&rel_path);
+		let remote_path =
+			compute_remote_path(&config.sync.remote_root, unique_project_name, &rel_path);
+
+		// Read local permissions
+		let local_mode = metadata(&local_path)
+			.await
+			.wrap_err_with(|| format!("Failed to read metadata for {}", local_path.display()))?
+			.permissions()
+			.mode();
+		// Preserve user permissions but clear group/other permissions
+		let secure_mode = local_mode & 0o700;
+
+		upload_file(
+			&sftp,
+			&local_path,
+			&remote_path,
+			secure_mode,
+			&config.sync.sftp.permissions,
+		)
+		.await?;
+
+		stats.uploaded = stats.uploaded.saturating_add(1);
+	}
+
+	Ok(())
+}
+
+/// Synchronizes a project to a remote server.
+#[expect(clippy::module_name_repetitions, reason = "No better name exists")]
+pub async fn sync_project(
+	config: &Config,
+	project_root: &Path,
+	options: &Options,
+	quiet: bool,
+) -> Result<Stats> {
+	if config.sync.engine != SyncEngine::Sftp {
+		bail!("Only SFTP sync engine is currently supported");
+	}
+
+	check_remote_root(&config.sync.remote_root);
+
+	let unique_project_name = compute_unique_project_name(project_root)?;
 
 	let local_files = {
 		let project_root = project_root.to_path_buf();
@@ -204,138 +366,33 @@ pub async fn sync_project(
 		&unique_project_name,
 		Path::new(""),
 	);
-	let quoted_remote_dir = shell_words::quote(&remote_dir);
 
-	// 1. Create remote dir with 0700 and fetch current hashes
-	let script = format!(
-		"mkdir -p -m 0700 -- {quoted_remote_dir} && \
-		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
-		 chmod 0700 -- {quoted_remote_dir} && \
-		 cd -- {quoted_remote_dir} 2>/dev/null && \
-		 (find . -type f -exec sha256sum {{}} + || true)"
-	);
-
-	let result = client
-		.execute(&script)
-		.await
-		.wrap_err("Failed to fetch remote state")?;
-	let output = result.stdout;
-
-	let remote_hashes = parse_remote_hashes(&output);
+	let remote_hashes = fetch_remote_hashes(&client, &remote_dir).await?;
 
 	let mut stats = Stats::default();
+	let actions = calculate_sync_actions(&local_files, &remote_hashes, options, &mut stats);
 
-	let mut to_upload = Vec::new();
-	let mut local_paths_str = HashSet::new();
-
-	for (rel_path, local_hash) in local_files {
-		let rel_path_str = rel_path.display().to_string().replace('\\', "/");
-		local_paths_str.insert(rel_path_str.clone());
-
-		if !options.force
-			&& let Some(remote_hash) = remote_hashes.get(&rel_path_str)
-			&& remote_hash == &local_hash
-		{
-			stats.unchanged = stats.unchanged.saturating_add(1);
-			continue;
-		}
-		to_upload.push(rel_path);
-	}
-
-	if to_upload.len() > config.sync.sftp.max_files_to_sync {
+	if actions.to_upload.len() > config.sync.sftp.max_files_to_sync {
 		if let Some(s) = spinner {
 			s.finish_and_clear();
 		}
 		bail!(
 			"Aborting synchronization: {} files to upload exceeds the limit of {}.\nIf this is expected, increase `sync.sftp.max_files_to_sync` in your configuration.",
-			to_upload.len(),
+			actions.to_upload.len(),
 			config.sync.sftp.max_files_to_sync
 		);
 	}
 
-	// Remove deleted files
-	let mut to_delete = Vec::new();
-	let mut remote_paths: Vec<_> = remote_hashes.keys().cloned().collect();
-	remote_paths.sort_unstable(); // Sort to avoid iter_over_hash_type issue and ensure determinism
-	for remote_path in remote_paths {
-		if !local_paths_str.contains(&remote_path) {
-			to_delete.push(remote_path);
-		}
-	}
-
-	if !to_delete.is_empty() || !to_upload.is_empty() {
-		let channel = client
-			.get_channel()
-			.await
-			.wrap_err("Failed to get SFTP channel")?;
-		channel
-			.request_subsystem(true, "sftp")
-			.await
-			.wrap_err("Failed to request SFTP subsystem")?;
-		let sftp = SftpSession::new(channel.into_stream())
-			.await
-			.wrap_err("Failed to initialize SFTP session")?;
-
-		// Remove deleted files via SFTP
-		for path in &to_delete {
-			let full_path = format!("{remote_dir}/{path}");
-			if let Err(e) = sftp.remove_file(&full_path).await {
-				tracing::warn!(error = %e, path = full_path, "Failed to delete remote file");
-			}
-			stats.deleted = stats.deleted.saturating_add(1);
-		}
-
-		// Pre-create subdirectories with 0700 permissions
-		let mut dirs_to_create = HashSet::new();
-		for rel_path in &to_upload {
-			if let Some(parent) = rel_path.parent() {
-				let p_str = parent.display().to_string().replace('\\', "/");
-				if !p_str.is_empty() {
-					dirs_to_create.insert(format!("{remote_dir}/{p_str}"));
-				}
-			}
-		}
-
-		if !dirs_to_create.is_empty() {
-			let mkdirs = dirs_to_create
-				.into_iter()
-				.map(|d| shell_words::quote(&d).into_owned())
-				.collect::<Vec<_>>()
-				.join(" ");
-			let mkdir_cmd = format!("mkdir -p -m 0700 -- {mkdirs} && chmod 0700 -- {mkdirs}");
-			client
-				.execute(&mkdir_cmd)
-				.await
-				.wrap_err("Failed to create remote directories")?;
-		}
-
-		// Upload files and change permissions to match local user permissions (removing group/other)
-		for rel_path in to_upload {
-			let local_path = project_root.join(&rel_path);
-			let remote_path =
-				compute_remote_path(&config.sync.remote_root, &unique_project_name, &rel_path);
-
-			// Read local permissions
-			let local_mode = metadata(&local_path)
-				.await
-				.wrap_err_with(|| format!("Failed to read metadata for {}", local_path.display()))?
-				.permissions()
-				.mode();
-			// Preserve user permissions but clear group/other permissions
-			let secure_mode = local_mode & 0o700;
-
-			upload_file(
-				&sftp,
-				&local_path,
-				&remote_path,
-				secure_mode,
-				&config.sync.sftp.permissions,
-			)
-			.await?;
-
-			stats.uploaded = stats.uploaded.saturating_add(1);
-		}
-	}
+	apply_sync_actions(
+		&client,
+		config,
+		project_root,
+		&unique_project_name,
+		&remote_dir,
+		actions,
+		&mut stats,
+	)
+	.await?;
 
 	if let Some(s) = spinner {
 		s.finish_and_clear();
