@@ -30,14 +30,28 @@ pub(super) async fn upload_file(
 
 	let open_flags = match permissions {
 		SftpPermissions::Recreate => {
-			// Remove any pre-existing file first so that `open_with_flags_and_attributes` creates a
-			// brand-new file with the requested permissions. Without this, OpenSSH ignores the attrs
-			// on an existing file, which could leave sensitive files (e.g. .env) with overly broad
-			// permissions from a previous upload or manual edit.
-			if let Err(e) = sftp.remove_file(remote_path).await {
-				tracing::debug!(error = %e, path = remote_path, "No pre-existing file to remove (expected for first upload)");
+			let mut needs_recreate = true;
+
+			// Check existing file permissions
+			if let Ok(attrs) = sftp.metadata(remote_path).await {
+				if let Some(perms) = attrs.permissions {
+					// Compare only the permission bits (mask 0o777)
+					if (perms & 0o777) == secure_mode {
+						needs_recreate = false;
+					}
+				}
 			}
-			OpenFlags::CREATE | OpenFlags::WRITE | OpenFlags::READ
+
+			if needs_recreate {
+				// Remove any pre-existing file first so that `open_with_flags_and_attributes` creates a
+				// brand-new file with the requested permissions. Without this, OpenSSH ignores the attrs
+				// on an existing file, which could leave sensitive files (e.g. .env) with overly broad
+				// permissions from a previous upload or manual edit.
+				if let Err(e) = sftp.remove_file(remote_path).await {
+					tracing::debug!(error = %e, path = remote_path, "Failed to remove pre-existing file or file did not exist");
+				}
+			}
+			OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE | OpenFlags::READ
 		}
 		SftpPermissions::Setstat => {
 			OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE | OpenFlags::READ
