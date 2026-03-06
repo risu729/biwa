@@ -263,46 +263,7 @@ pub async fn sync_project(
 		}
 	}
 
-	if !to_delete.is_empty() {
-		let mut delete_cmds = Vec::new();
-		for path in &to_delete {
-			let full_path = format!("{remote_dir}/{path}");
-			delete_cmds.push(format!("rm -f -- {}", shell_words::quote(&full_path)));
-			stats.deleted = stats.deleted.saturating_add(1);
-		}
-		let delete_script = delete_cmds.join(" && ");
-		client
-			.execute(&delete_script)
-			.await
-			.wrap_err("Failed to delete remote files")?;
-	}
-
-	// Pre-create subdirectories with 0700 permissions
-	let mut dirs_to_create = HashSet::new();
-	for rel_path in &to_upload {
-		if let Some(parent) = rel_path.parent() {
-			let p_str = parent.display().to_string().replace('\\', "/");
-			if !p_str.is_empty() {
-				dirs_to_create.insert(format!("{remote_dir}/{p_str}"));
-			}
-		}
-	}
-
-	if !dirs_to_create.is_empty() {
-		let mkdirs = dirs_to_create
-			.into_iter()
-			.map(|d| shell_words::quote(&d).into_owned())
-			.collect::<Vec<_>>()
-			.join(" ");
-		let mkdir_cmd = format!("mkdir -p -m 0700 -- {mkdirs} && chmod 0700 -- {mkdirs}");
-		client
-			.execute(&mkdir_cmd)
-			.await
-			.wrap_err("Failed to create remote directories")?;
-	}
-
-	// Upload files and change permissions to match local user permissions (removing group/other)
-	if !to_upload.is_empty() {
+	if !to_delete.is_empty() || !to_upload.is_empty() {
 		let channel = client
 			.get_channel()
 			.await
@@ -315,6 +276,40 @@ pub async fn sync_project(
 			.await
 			.wrap_err("Failed to initialize SFTP session")?;
 
+		// Remove deleted files via SFTP
+		for path in &to_delete {
+			let full_path = format!("{remote_dir}/{path}");
+			if let Err(e) = sftp.remove_file(&full_path).await {
+				tracing::warn!(error = %e, path = full_path, "Failed to delete remote file");
+			}
+			stats.deleted = stats.deleted.saturating_add(1);
+		}
+
+		// Pre-create subdirectories with 0700 permissions
+		let mut dirs_to_create = HashSet::new();
+		for rel_path in &to_upload {
+			if let Some(parent) = rel_path.parent() {
+				let p_str = parent.display().to_string().replace('\\', "/");
+				if !p_str.is_empty() {
+					dirs_to_create.insert(format!("{remote_dir}/{p_str}"));
+				}
+			}
+		}
+
+		if !dirs_to_create.is_empty() {
+			let mkdirs = dirs_to_create
+				.into_iter()
+				.map(|d| shell_words::quote(&d).into_owned())
+				.collect::<Vec<_>>()
+				.join(" ");
+			let mkdir_cmd = format!("mkdir -p -m 0700 -- {mkdirs} && chmod 0700 -- {mkdirs}");
+			client
+				.execute(&mkdir_cmd)
+				.await
+				.wrap_err("Failed to create remote directories")?;
+		}
+
+		// Upload files and change permissions to match local user permissions (removing group/other)
 		for rel_path in to_upload {
 			let local_path = project_root.join(&rel_path);
 			let remote_path =
