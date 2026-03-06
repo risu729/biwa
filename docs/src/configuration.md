@@ -79,7 +79,7 @@ Storing your password in a configuration file is **not recommended** for securit
 | Key                 | Type    | Default      | Description                                                               |
 | ------------------- | ------- | ------------ | ------------------------------------------------------------------------- |
 | `max_files_to_sync` | integer | `100`        | Abort synchronization if the number of files to upload exceeds this limit |
-| `permissions`       | string  | `"recreate"` | Strategy for enforcing file permissions on uploaded files                  |
+| `permissions`       | string  | `"recreate"` | Strategy for enforcing file permissions on uploaded files                 |
 
 ##### Permission Strategies
 
