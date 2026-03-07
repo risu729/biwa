@@ -52,12 +52,18 @@ pub struct Options {
 }
 
 /// Builds a `GlobSet` from a slice of pattern strings.
-fn build_globset(patterns: &[String]) -> Result<GlobSet> {
+fn build_globset(patterns: &[String]) -> Result<Option<GlobSet>> {
+	if patterns.is_empty() {
+		return Ok(None);
+	}
 	let mut builder = GlobSetBuilder::new();
 	for pattern in patterns {
 		builder.add(Glob::new(pattern)?);
 	}
-	builder.build().wrap_err("Failed to build glob set")
+	builder
+		.build()
+		.wrap_err("Failed to build glob set")
+		.map(Some)
 }
 
 /// Checks if the remote root path is absolute and prints a warning.
@@ -114,7 +120,6 @@ pub(super) fn collect_local_files(
 
 	let exclude_globs = build_globset(&options.exclude)?;
 	let include_globs = build_globset(&options.include)?;
-	let has_includes = !options.include.is_empty();
 
 	let mut result = Vec::new();
 	for entry in builder.build() {
@@ -134,11 +139,17 @@ pub(super) fn collect_local_files(
 				continue;
 			}
 
-			if exclude_globs.is_match(relative) {
+			if exclude_globs
+				.as_ref()
+				.is_some_and(|set| set.is_match(relative))
+			{
 				continue;
 			}
 
-			if has_includes && !include_globs.is_match(relative) {
+			if include_globs
+				.as_ref()
+				.is_some_and(|set| !set.is_match(relative))
+			{
 				continue;
 			}
 
