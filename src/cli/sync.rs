@@ -41,7 +41,8 @@ impl SyncArgs {
 			.map_or_else(env::current_dir, Ok)?)
 	}
 
-	pub fn resolve_options(&self) -> Result<Options> {
+	/// Resolve the sync options.
+	pub fn resolve_options(&self) -> Options {
 		let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 		let cwd_str = cwd.display().to_string().replace('\\', "/");
 		let cwd_str = cwd_str.trim_end_matches('/');
@@ -60,11 +61,11 @@ impl SyncArgs {
 			}
 		}
 
-		Ok(Options {
+		Options {
 			force: self.force,
 			exclude,
 			include,
-		})
+		}
 	}
 }
 
@@ -81,7 +82,7 @@ impl Sync {
 	/// Run the sync logic.
 	pub async fn run(self, config: &Config, quiet: bool) -> Result<()> {
 		let sync_root = self.sync_args.resolve_sync_root(config)?;
-		let options = self.sync_args.resolve_options()?;
+		let options = self.sync_args.resolve_options();
 		sync_project(
 			config,
 			&sync_root,

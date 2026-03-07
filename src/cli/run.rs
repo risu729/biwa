@@ -34,7 +34,7 @@ impl Run {
 		let sync_root = self.sync_args.resolve_sync_root(config)?;
 
 		if config.sync.auto && !self.no_sync {
-			let options = self.sync_args.resolve_options()?;
+			let options = self.sync_args.resolve_options();
 			sync_project(
 				config,
 				&sync_root,
