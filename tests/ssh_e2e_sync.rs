@@ -10,9 +10,11 @@ mod common;
 use common::Result;
 
 fn biwa_cmd(args: &[&str], current_dir: &Path) -> duct::Expression {
-	common::biwa_cmd(args)
-		.env("BIWA_SYNC_REMOTE_ROOT", "~/.cache/biwa/projects")
-		.dir(current_dir)
+	common::biwa_cmd(args).dir(current_dir)
+}
+
+fn biwa_cmd_tilde(args: &[&str], current_dir: &Path) -> duct::Expression {
+	biwa_cmd(args, current_dir).env("BIWA_SYNC_REMOTE_ROOT", "~/.cache/biwa/projects")
 }
 
 #[test]
@@ -22,7 +24,7 @@ fn e2e_sync_basic() -> Result<()> {
 	fs::write(dir.path().join("hello.txt"), "world")?;
 
 	// Explicit sync
-	let output = biwa_cmd(&["sync"], dir.path())
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -33,7 +35,7 @@ fn e2e_sync_basic() -> Result<()> {
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
 
 	// Run with auto sync
-	let output2 = biwa_cmd(
+	let output2 = biwa_cmd_tilde(
 		&["run", "cat", "~/.cache/biwa/projects/hello.txt"],
 		dir.path(),
 	)
@@ -45,7 +47,7 @@ fn e2e_sync_basic() -> Result<()> {
 	let _stdout2 = String::from_utf8_lossy(&output2.stdout);
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 
-	let output3 = biwa_cmd(
+	let output3 = biwa_cmd_tilde(
 		&["run", "cat", &format!("{remote_proj_dir}/hello.txt")],
 		dir.path(),
 	)
@@ -62,12 +64,63 @@ fn e2e_sync_basic() -> Result<()> {
 
 #[test]
 #[ignore = "requires running SSH server"]
+fn e2e_sync_absolute_path() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("absolute.txt"), "hello absolute")?;
+
+	// Explicit override of BIWA_SYNC_REMOTE_ROOT to an absolute path
+	let output = biwa_cmd(&["sync"], dir.path())
+		.env("BIWA_SYNC_REMOTE_ROOT", "/tmp/biwa_test_absolute")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(
+		output.status.success(),
+		"First sync failed: stderr: {stderr}"
+	);
+	assert!(
+		stderr.contains("1 uploaded"),
+		"First sync didn't upload: stderr: {stderr}"
+	);
+
+	// Run command and explicitly assert on the absolute path
+	let proj_name_full = common::get_remote_project_dir(dir.path())?;
+	let proj_name_suffix = proj_name_full
+		.strip_prefix("~/.cache/biwa/projects/")
+		.unwrap_or(&proj_name_full);
+
+	let remote_file = format!("/tmp/biwa_test_absolute/{proj_name_suffix}/absolute.txt");
+	let output2 = biwa_cmd(&["run", "cat", &remote_file], dir.path())
+		.env("BIWA_SYNC_REMOTE_ROOT", "/tmp/biwa_test_absolute")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stdout2 = String::from_utf8_lossy(&output2.stdout);
+	assert!(output2.status.success(), "cat failed for {}", remote_file);
+	assert!(stdout2.contains("hello absolute"));
+
+	// Cleanup the absolute directory to be a good citizen
+	#[expect(clippy::unused_result_ok, reason = "Cleanup failure is acceptable")]
+	biwa_cmd(&["run", "rm", "-rf", "/tmp/biwa_test_absolute"], dir.path())
+		.run()
+		.ok();
+
+	Ok(())
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
 fn e2e_sync_cleaning() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let file_path = dir.path().join("to_delete.txt");
 	fs::write(&file_path, "delete me")?;
 
-	let output = biwa_cmd(&["sync"], dir.path())
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -78,7 +131,7 @@ fn e2e_sync_cleaning() -> Result<()> {
 
 	fs::remove_file(&file_path)?;
 
-	let output2 = biwa_cmd(&["sync"], dir.path())
+	let output2 = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -108,7 +161,7 @@ fn e2e_sync_permissions() -> Result<()> {
 		fs::set_permissions(&script_path, perms)?;
 	}
 
-	let output = biwa_cmd(&["sync"], dir.path())
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -119,7 +172,7 @@ fn e2e_sync_permissions() -> Result<()> {
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 	let remote_dir = format!("{remote_proj_dir}/subdir");
 
-	let ls_output = biwa_cmd(&["run", "ls", "-ld", &remote_dir], dir.path())
+	let ls_output = biwa_cmd_tilde(&["run", "ls", "-ld", &remote_dir], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -128,7 +181,7 @@ fn e2e_sync_permissions() -> Result<()> {
 	assert!(ls_stdout.contains("drwx------"), "stdout: {ls_stdout}");
 
 	let remote_file = format!("{remote_dir}/secret.txt");
-	let ls_file_output = biwa_cmd(&["run", "ls", "-l", &remote_file], dir.path())
+	let ls_file_output = biwa_cmd_tilde(&["run", "ls", "-l", &remote_file], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -140,7 +193,7 @@ fn e2e_sync_permissions() -> Result<()> {
 	);
 
 	let remote_script = format!("{remote_dir}/script.sh");
-	let ls_script_output = biwa_cmd(&["run", "ls", "-l", &remote_script], dir.path())
+	let ls_script_output = biwa_cmd_tilde(&["run", "ls", "-l", &remote_script], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -160,7 +213,7 @@ fn e2e_sync_hashing() -> Result<()> {
 	let file_path = dir.path().join("hash.txt");
 	fs::write(&file_path, "initial")?;
 
-	let output1 = biwa_cmd(&["sync"], dir.path())
+	let output1 = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -169,7 +222,7 @@ fn e2e_sync_hashing() -> Result<()> {
 
 	fs::write(&file_path, "modified")?;
 
-	let output2 = biwa_cmd(&["sync"], dir.path())
+	let output2 = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -178,7 +231,7 @@ fn e2e_sync_hashing() -> Result<()> {
 	assert!(String::from_utf8_lossy(&output2.stderr).contains("0 unchanged"));
 
 	// Unchanged
-	let output3 = biwa_cmd(&["sync"], dir.path())
+	let output3 = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -196,7 +249,7 @@ fn e2e_sync_abort() -> Result<()> {
 	fs::write(dir.path().join("file2.txt"), "2")?;
 
 	// Set max_files_to_sync to 1
-	let output = biwa_cmd(&["sync"], dir.path())
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", "1")
 		.stdout_capture()
 		.stderr_capture()
@@ -217,7 +270,7 @@ fn e2e_sync_ignore_gitignore() -> Result<()> {
 	fs::write(dir.path().join("ignored.txt"), "this should not sync")?;
 	fs::write(dir.path().join("kept.txt"), "this should sync")?;
 
-	let output = biwa_cmd(&["sync"], dir.path())
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -237,7 +290,7 @@ fn e2e_sync_ignore_biwaignore() -> Result<()> {
 	fs::write(dir.path().join(".env"), "SECRET=val")?;
 	fs::write(dir.path().join("main.rs"), "fn main() {}")?;
 
-	let output = biwa_cmd(&["sync"], dir.path())
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -259,7 +312,7 @@ fn e2e_sync_exclude_globset() -> Result<()> {
 	fs::write(dir.path().join("b.txt"), "b")?;
 
 	// Exclude tests directory relative to current cwd
-	let output = biwa_cmd(&["sync", "--exclude", "tests/**"], dir.path())
+	let output = biwa_cmd_tilde(&["sync", "--exclude", "tests/**"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -282,7 +335,7 @@ fn e2e_sync_exclude_config() -> Result<()> {
 	fs::write(dir.path().join("secret_a.txt"), "a")?;
 	fs::write(dir.path().join("public.txt"), "b")?;
 
-	let output = biwa_cmd(&["sync"], dir.path())
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -300,13 +353,13 @@ fn e2e_sync_force() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("file.txt"), "content")?;
 
-	let output1 = biwa_cmd(&["sync"], dir.path())
+	let output1 = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
 	assert!(String::from_utf8_lossy(&output1.stderr).contains("1 uploaded"));
 
-	let output2 = biwa_cmd(&["sync", "--force"], dir.path())
+	let output2 = biwa_cmd_tilde(&["sync", "--force"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -325,7 +378,7 @@ fn e2e_sync_large_file() -> Result<()> {
 	let large_content = vec![b'a'; 1024 * 1024];
 	fs::write(dir.path().join("large.bin"), &large_content)?;
 
-	let output = biwa_cmd(&["sync"], dir.path())
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -349,7 +402,7 @@ fn e2e_sync_remote_symlink() -> Result<()> {
 
 	// Create a dummy dir to point the symlink to
 	let dummy_dir = format!("{remote_dir}_dummy");
-	biwa_cmd(
+	biwa_cmd_tilde(
 		&[
 			"run",
 			"sh",
@@ -364,7 +417,7 @@ fn e2e_sync_remote_symlink() -> Result<()> {
 
 	// Now try to run sync, it should fail
 	fs::write(dir.path().join("test.txt"), "test")?;
-	let output = biwa_cmd(&["sync"], dir.path())
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -395,7 +448,7 @@ fn e2e_sync_shell_injection() -> Result<()> {
 	fs::write(proj_dir.join("test.txt"), "content")?;
 
 	// Sync should work correctly despite the malicious project name
-	let output = biwa_cmd(&["sync"], &proj_dir)
+	let output = biwa_cmd_tilde(&["sync"], &proj_dir)
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -407,7 +460,7 @@ fn e2e_sync_shell_injection() -> Result<()> {
 	let remote_proj_dir = common::get_remote_project_dir(&proj_dir)?;
 	let remote_file = format!("{remote_proj_dir}/test.txt");
 
-	let output_cat = biwa_cmd(&["run", "cat", &remote_file], &proj_dir)
+	let output_cat = biwa_cmd_tilde(&["run", "cat", &remote_file], &proj_dir)
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
