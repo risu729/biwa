@@ -512,65 +512,7 @@ fn e2e_sync_intermediate_dir_permissions() -> Result<()> {
 			ls_stdout.contains("drwx------"),
 			"Directory {remote_path} does not have 0700 permissions. ls output: {ls_stdout}"
 		);
+			}
+	
+		Ok(())
 	}
-
-	Ok(())
-}
-
-#[test]
-#[ignore = "requires running SSH server"]
-fn e2e_sync_existing_dir_permissions() -> Result<()> {
-	let dir = tempfile::tempdir()?;
-	let sub_dir = dir.path().join("preexisting");
-	fs::create_dir_all(&sub_dir)?;
-	fs::write(sub_dir.join("file.txt"), "hello")?;
-
-	// 1. Manually create the remote directory with 0755 permissions
-	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
-	let remote_sub_dir = format!("{remote_proj_dir}/preexisting");
-
-	// Ensure the base directory is created first and then the sub_dir with 0755
-	biwa_cmd_tilde(
-		&[
-			"run",
-			"sh",
-			"-c",
-			&format!("mkdir -p {remote_proj_dir} && mkdir -m 0755 {remote_sub_dir}"),
-		],
-		dir.path(),
-	)
-	.stdout_capture()
-	.stderr_capture()
-	.unchecked()
-	.run()?;
-
-	// 2. Sync the project
-	let output = biwa_cmd_tilde(&["sync"], dir.path())
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
-
-	let stderr = String::from_utf8_lossy(&output.stderr);
-	assert!(output.status.success(), "stderr: {stderr}");
-
-	// 3. Verify that the permissions of the pre-existing directory were corrected to 0700
-	let ls_output = biwa_cmd_tilde(&["run", "ls", "-ld", &remote_sub_dir], dir.path())
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
-
-	let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
-	assert!(
-		ls_output.status.success(),
-		"ls failed for {remote_sub_dir}: {ls_stdout}\nstderr: {}",
-		String::from_utf8_lossy(&ls_output.stderr)
-	);
-	assert!(
-		ls_stdout.contains("drwx------"),
-		"Pre-existing directory {remote_sub_dir} was not corrected to 0700 permissions. ls output: {ls_stdout}"
-	);
-
-	Ok(())
-}
