@@ -512,7 +512,7 @@ fn e2e_sync_intermediate_dir_permissions() -> Result<()> {
 			ls_stdout.contains("drwx------"),
 			"Directory {remote_path} does not have 0700 permissions. ls output: {ls_stdout}"
 		);
-			}
-	
-		Ok(())
 	}
+
+	Ok(())
+}
