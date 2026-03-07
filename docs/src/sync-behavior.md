@@ -41,14 +41,18 @@ If the synced directory does not exist (e.g. with `--no-sync` on a fresh server)
 Use `--remote-dir` (`-d`) to override the remote working directory for both `biwa run` and `biwa sync`:
 
 ```sh
-# Run a command in the home directory
-biwa run -d ~ ls
+# Run a command in the home directory (sync is automatically skipped)
+biwa run -d "~" ls
 
 # Sync to a custom remote path
 biwa sync -d /tmp/my-project
 
-# Run a command in /tmp
-biwa run --no-sync -d /tmp ls
+# Run a command in /tmp (sync is automatically skipped)
+biwa run -d /tmp ls
+
+# Sync to a custom remote path and run a command there
+biwa run -d /tmp/my-project --sync ls
 ```
 
 When used with `biwa sync`, `--remote-dir` replaces the automatically computed `remote_root + project_name` path.
+To prevent accidental data overwrites when executing standard commands across different remote paths, **using `-d` with `biwa run` automatically disables project synchronization (`--no-sync`)**. If you want to sync your project to a custom directory and run a command there in one step, you must explicitly pass the `--sync` flag.

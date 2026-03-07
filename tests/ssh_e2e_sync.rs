@@ -587,3 +587,93 @@ fn e2e_sync_existing_dir_permissions() -> Result<()> {
 
 	Ok(())
 }
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_remote_dir() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("hello.txt"), "remote dir test")?;
+
+	let remote_dir_path = "/tmp/biwa_test_remote_dir";
+	let output = biwa_cmd(&["sync", "-d", remote_dir_path], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+
+	let output_cat = biwa_cmd(&["run", "-d", remote_dir_path, "cat", "hello.txt"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stdout_cat = String::from_utf8_lossy(&output_cat.stdout);
+	assert!(
+		output_cat.status.success(),
+		"cat failed, stderr: {}",
+		String::from_utf8_lossy(&output_cat.stderr)
+	);
+	assert!(stdout_cat.contains("remote dir test"));
+
+	// Cleanup
+	#[expect(clippy::unused_result_ok, reason = "Cleanup failure is acceptable")]
+	biwa_cmd(&["run", "--no-sync", "rm", "-rf", remote_dir_path], dir.path())
+		.run()
+		.ok();
+
+	Ok(())
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_remote_dir_tilde() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("hello.txt"), "tilde test")?;
+
+	let remote_dir_path = "~/biwa_test_tilde";
+	let output = biwa_cmd(&["sync", "-d", remote_dir_path], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+
+	let output_cat = biwa_cmd(&["run", "-d", remote_dir_path, "cat", "hello.txt"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stdout_cat = String::from_utf8_lossy(&output_cat.stdout);
+	assert!(
+		output_cat.status.success(),
+		"cat failed, stderr: {}",
+		String::from_utf8_lossy(&output_cat.stderr)
+	);
+	assert!(stdout_cat.contains("tilde test"));
+
+	// Check that we didn't create a literal "~" directory
+	let output_test = biwa_cmd(&["run", "--no-sync", "test", "-d", "./~"], dir.path())
+		.unchecked()
+		.run()?;
+	assert!(
+		!output_test.status.success(),
+		"Literal ~ directory was created!"
+	);
+
+	// Cleanup
+	#[expect(clippy::unused_result_ok, reason = "Cleanup failure is acceptable")]
+	biwa_cmd(&["run", "--no-sync", "rm", "-rf", remote_dir_path], dir.path())
+		.run()
+		.ok();
+
+	Ok(())
+}
+

@@ -139,3 +139,46 @@ fn e2e_run_exit_code() -> Result<()> {
 	);
 	Ok(())
 }
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_run_remote_dir() -> Result<()> {
+	let output = biwa_cmd(&["run", "-d", "/tmp", "pwd"])
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stdout = String::from_utf8_lossy(&output.stdout);
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(stdout.trim(), "/tmp");
+	Ok(())
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_run_remote_dir_tilde() -> Result<()> {
+	let home_output = biwa_cmd(&["run", "--no-sync", "sh", "-c", "echo $HOME"])
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let home_dir = String::from_utf8_lossy(&home_output.stdout).trim().to_owned();
+
+	let output = biwa_cmd(&["run", "-d", "~", "pwd"])
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stdout = String::from_utf8_lossy(&output.stdout);
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(stdout.trim(), home_dir);
+	Ok(())
+}
+

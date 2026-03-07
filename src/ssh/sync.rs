@@ -82,6 +82,9 @@ pub(super) fn check_remote_root(remote_root: &Path) {
 /// outside the quotes so the shell can expand it. Otherwise, the entire path
 /// is quoted with `shell_words::quote`.
 pub(super) fn shell_quote_path(path: &str) -> String {
+	if path == "~" {
+		return "$HOME".to_owned();
+	}
 	path.strip_prefix("~/").map_or_else(
 		|| shell_words::quote(path).into_owned(),
 		|rest| format!("$HOME/{}", shell_words::quote(rest)),
@@ -310,8 +313,6 @@ fn calculate_sync_actions(
 struct SyncTarget<'a> {
 	/// The local project root directory.
 	project_root: &'a Path,
-	/// The unique name of the project.
-	unique_project_name: &'a str,
 	/// The remote directory path.
 	remote_dir: &'a str,
 	/// The synchronization actions to execute.
@@ -328,7 +329,6 @@ async fn apply_sync_actions(
 ) -> Result<()> {
 	let SyncTarget {
 		project_root,
-		unique_project_name,
 		remote_dir,
 		actions,
 	} = target;
@@ -396,8 +396,8 @@ async fn apply_sync_actions(
 		}
 
 		let local_path = project_root.join(&rel_path);
-		let remote_path =
-			compute_remote_path(&config.sync.remote_root, unique_project_name, &rel_path);
+		let rel_str = rel_path.display().to_string().replace('\\', "/");
+		let remote_path = format!("{remote_dir}/{rel_str}");
 
 		// Read local permissions
 		let local_mode = metadata(&local_path)
@@ -491,7 +491,6 @@ pub async fn sync_project(
 		config,
 		SyncTarget {
 			project_root,
-			unique_project_name: &unique_project_name,
 			remote_dir: &remote_dir,
 			actions,
 		},
@@ -634,7 +633,6 @@ mod tests {
 
 	#[test]
 	fn shell_quote_path_bare_tilde() {
-		// Just "~" without trailing "/" is not a home-dir path, so it's quoted normally
-		assert_eq!(shell_quote_path("~"), "'~'");
+		assert_eq!(shell_quote_path("~"), "$HOME");
 	}
 }

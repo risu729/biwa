@@ -20,7 +20,11 @@ The arguments for the command
 
 ### `--no-sync`
 
-Skip automatic synchronization before running the command
+Skip automatic synchronization before running the command (automatically set if --remote-dir is used)
+
+### `--sync`
+
+Force automatic synchronization before running the command
 
 ### `--sync-root <SYNC_ROOT>`
 
