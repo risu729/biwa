@@ -605,11 +605,14 @@ fn e2e_sync_remote_dir() -> Result<()> {
 	assert!(output.status.success(), "stderr: {stderr}");
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
 
-	let output_cat = biwa_cmd(&["run", "-d", remote_dir_path, "cat", "hello.txt"], dir.path())
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
+	let output_cat = biwa_cmd(
+		&["run", "-d", remote_dir_path, "cat", "hello.txt"],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
 
 	let stdout_cat = String::from_utf8_lossy(&output_cat.stdout);
 	assert!(
@@ -621,9 +624,12 @@ fn e2e_sync_remote_dir() -> Result<()> {
 
 	// Cleanup
 	#[expect(clippy::unused_result_ok, reason = "Cleanup failure is acceptable")]
-	biwa_cmd(&["run", "--no-sync", "rm", "-rf", remote_dir_path], dir.path())
-		.run()
-		.ok();
+	biwa_cmd(
+		&["run", "--no-sync", "rm", "-rf", remote_dir_path],
+		dir.path(),
+	)
+	.run()
+	.ok();
 
 	Ok(())
 }
@@ -645,11 +651,14 @@ fn e2e_sync_remote_dir_tilde() -> Result<()> {
 	assert!(output.status.success(), "stderr: {stderr}");
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
 
-	let output_cat = biwa_cmd(&["run", "-d", remote_dir_path, "cat", "hello.txt"], dir.path())
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
+	let output_cat = biwa_cmd(
+		&["run", "-d", remote_dir_path, "cat", "hello.txt"],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
 
 	let stdout_cat = String::from_utf8_lossy(&output_cat.stdout);
 	assert!(
@@ -670,10 +679,12 @@ fn e2e_sync_remote_dir_tilde() -> Result<()> {
 
 	// Cleanup
 	#[expect(clippy::unused_result_ok, reason = "Cleanup failure is acceptable")]
-	biwa_cmd(&["run", "--no-sync", "rm", "-rf", remote_dir_path], dir.path())
-		.run()
-		.ok();
+	biwa_cmd(
+		&["run", "--no-sync", "rm", "-rf", remote_dir_path],
+		dir.path(),
+	)
+	.run()
+	.ok();
 
 	Ok(())
 }
-

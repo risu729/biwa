@@ -166,7 +166,9 @@ fn e2e_run_remote_dir_tilde() -> Result<()> {
 		.stderr_capture()
 		.unchecked()
 		.run()?;
-	let home_dir = String::from_utf8_lossy(&home_output.stdout).trim().to_owned();
+	let home_dir = String::from_utf8_lossy(&home_output.stdout)
+		.trim()
+		.to_owned();
 
 	let output = biwa_cmd(&["run", "-d", "~", "pwd"])
 		.env("BIWA_LOG_QUIET", "true")
@@ -181,4 +183,3 @@ fn e2e_run_remote_dir_tilde() -> Result<()> {
 	pretty_assertions::assert_eq!(stdout.trim(), home_dir);
 	Ok(())
 }
-
