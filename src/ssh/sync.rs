@@ -31,6 +31,13 @@ pub struct Stats {
 	pub unchanged: usize,
 }
 
+/// A local file and its SHA-256 hash.
+#[derive(Debug, Clone)]
+pub(super) struct LocalFile {
+	pub path: PathBuf,
+	pub hash: String,
+}
+
 /// Options for a synchronization operation.
 #[derive(Debug, Default, Clone)]
 pub struct Options {
@@ -61,25 +68,41 @@ pub(super) fn check_remote_root(remote_root: &Path) {
 	}
 }
 
+struct HasherWriter<'a, H> {
+	hasher: &'a mut H,
+}
+
+impl<H: sha2::Digest> io::Write for HasherWriter<'_, H> {
+	fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+		self.hasher.update(buf);
+		Ok(buf.len())
+	}
+	fn flush(&mut self) -> io::Result<()> {
+		Ok(())
+	}
+}
+
+/// Computes the SHA-256 hash of a file.
+fn hash_file(path: &Path) -> Result<String> {
+	let file = File::open(path)?;
+	let mut reader = io::BufReader::new(file);
+	let mut hasher = Sha256::new();
+	io::copy(
+		&mut reader,
+		&mut HasherWriter {
+			hasher: &mut hasher,
+		},
+	)
+	.wrap_err_with(|| format!("Failed to hash file: {}", path.display()))?;
+	Ok(hex::encode(hasher.finalize()))
+}
+
 /// Collects local files from the project root, respecting ignore rules.
 pub(super) fn collect_local_files(
 	root: &Path,
 	extra_ignores: &[PathBuf],
 	options: &Options,
-) -> Result<Vec<(PathBuf, String)>> {
-	struct HasherWriter<'a, H> {
-		hasher: &'a mut H,
-	}
-	impl<H: sha2::Digest> io::Write for HasherWriter<'_, H> {
-		fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-			self.hasher.update(buf);
-			Ok(buf.len())
-		}
-		fn flush(&mut self) -> io::Result<()> {
-			Ok(())
-		}
-	}
-
+) -> Result<Vec<LocalFile>> {
 	let mut builder = WalkBuilder::new(root);
 	builder.standard_filters(true); // .gitignore, .ignore, etc.
 	builder.require_git(false); // Respect .gitignore even outside of git repositories
@@ -114,19 +137,11 @@ pub(super) fn collect_local_files(
 				continue;
 			}
 
-			let file = File::open(path)?;
-			let mut reader = io::BufReader::new(file);
-
-			let mut hasher = Sha256::new();
-			io::copy(
-				&mut reader,
-				&mut HasherWriter {
-					hasher: &mut hasher,
-				},
-			)
-			.wrap_err("Failed to hash file")?;
-			let hash = hex::encode(hasher.finalize());
-			result.push((relative.to_path_buf(), hash));
+			let hash = hash_file(path)?;
+			result.push(LocalFile {
+				path: relative.to_path_buf(),
+				hash,
+			});
 		}
 	}
 	Ok(result)
@@ -223,7 +238,7 @@ struct SyncActions {
 
 /// Compares local files with remote hashes to determine which files need to be uploaded or deleted.
 fn calculate_sync_actions(
-	local_files: &[(PathBuf, String)],
+	local_files: &[LocalFile],
 	remote_hashes: &HashMap<String, String>,
 	options: &Options,
 	stats: &mut Stats,
@@ -231,18 +246,18 @@ fn calculate_sync_actions(
 	let mut to_upload = Vec::new();
 	let mut local_paths_str = HashSet::new();
 
-	for (rel_path, local_hash) in local_files {
-		let rel_path_str = rel_path.display().to_string().replace('\\', "/");
+	for local_file in local_files {
+		let rel_path_str = local_file.path.display().to_string().replace('\\', "/");
 		local_paths_str.insert(rel_path_str.clone());
 
 		if !options.force
 			&& let Some(remote_hash) = remote_hashes.get(&rel_path_str)
-			&& remote_hash == local_hash
+			&& remote_hash == &local_file.hash
 		{
 			stats.unchanged = stats.unchanged.saturating_add(1);
 			continue;
 		}
-		to_upload.push(rel_path.clone());
+		to_upload.push(local_file.path.clone());
 	}
 
 	let mut to_delete = Vec::new();
@@ -498,10 +513,10 @@ mod tests {
 
 		let files = collect_local_files(dir.path(), &[], &Options::default()).unwrap();
 		assert_eq!(files.len(), 1);
-		assert_eq!(files.first().unwrap().0.to_string_lossy(), "test.txt");
+		assert_eq!(files.first().unwrap().path.to_string_lossy(), "test.txt");
 
 		let expected_hash = hex::encode(Sha256::digest(b"hello"));
-		assert_eq!(files.first().unwrap().1, expected_hash);
+		assert_eq!(files.first().unwrap().hash, expected_hash);
 	}
 
 	#[test]
@@ -514,10 +529,25 @@ mod tests {
 		let files = collect_local_files(dir.path(), &[], &Options::default()).unwrap();
 		let names: Vec<_> = files
 			.iter()
-			.map(|(p, _)| p.to_string_lossy().to_string())
+			.map(|f| f.path.to_string_lossy().to_string())
 			.collect();
 		assert!(!names.contains(&"ignored.txt".to_owned()));
 		assert!(names.contains(&"kept.txt".to_owned()));
+	}
+
+	#[test]
+	fn collect_local_files_ignores_hidden() {
+		let dir = tempdir().unwrap();
+		fs::write(dir.path().join(".hidden"), "hidden content").unwrap();
+		fs::write(dir.path().join("visible.txt"), "visible content").unwrap();
+
+		let files = collect_local_files(dir.path(), &[], &Options::default()).unwrap();
+		let names: Vec<_> = files
+			.iter()
+			.map(|f| f.path.to_string_lossy().to_string())
+			.collect();
+		assert!(!names.contains(&".hidden".to_owned()));
+		assert!(names.contains(&"visible.txt".to_owned()));
 	}
 	#[test]
 	fn parse_remote_hashes_traversal() {
