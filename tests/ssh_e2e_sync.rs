@@ -474,3 +474,38 @@ fn e2e_sync_shell_injection() -> Result<()> {
 
 	Ok(())
 }
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_intermediate_dir_permissions() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let deep_dir = dir.path().join("a").join("b").join("c");
+	fs::create_dir_all(&deep_dir)?;
+	fs::write(deep_dir.join("file.txt"), "hello")?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	
+	for path in ["", "/a", "/a/b", "/a/b/c"] {
+		let remote_path = format!("{remote_proj_dir}{path}");
+		let ls_output = biwa_cmd_tilde(&["run", "ls", "-ld", &remote_path], dir.path())
+			.stdout_capture()
+			.stderr_capture()
+			.unchecked()
+			.run()?;
+			
+		let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
+		assert!(ls_output.status.success(), "ls failed for {remote_path}: {ls_stdout}\nstderr: {}", String::from_utf8_lossy(&ls_output.stderr));
+		assert!(ls_stdout.contains("drwx------"), "Directory {remote_path} does not have 0700 permissions. ls output: {ls_stdout}");
+	}
+
+	Ok(())
+}
