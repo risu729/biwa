@@ -200,6 +200,19 @@ async fn fetch_remote_hashes(client: &Client, remote_dir: &str) -> Result<HashMa
 		.execute(&script)
 		.await
 		.wrap_err("Failed to fetch remote state")?;
+
+	if result.exit_status != 0 {
+		let stderr = result.stderr.trim();
+		if stderr.contains("remote directory is a symlink") {
+			color_eyre::eyre::bail!("remote directory is a symlink");
+		}
+		color_eyre::eyre::bail!(
+			"Remote script failed with code {}: {}",
+			result.exit_status,
+			stderr
+		);
+	}
+
 	let output = result.stdout;
 
 	Ok(parse_remote_hashes(&output))
