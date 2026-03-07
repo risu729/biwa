@@ -20,7 +20,7 @@ Biwa utilizes `globset` for specifying target exclusions and inclusions, support
 - `?`: Matches any single character.
 - `*`: Matches zero or more characters.
 - `**`: Recursively matches directories. Useful for prefix (`**/foo`), suffix (`foo/**`), or infix (`foo/**/bar`).
-- `{a,b}`: Matches `a` or `b`.
+- `{abc,def}`: Matches `abc` or `def`.
 - `[ab]`: Matches character `a` or `b`.
 
 ### Path Resolution
