@@ -232,7 +232,7 @@ async fn fetch_remote_hashes(client: &Client, remote_dir: &str) -> Result<HashMa
 
 	// 1. Create remote dir with 0700 and fetch current hashes
 	let script = format!(
-		"mkdir -p -m 0700 -- {quoted_remote_dir} && \
+		"umask 077 && mkdir -p -- {quoted_remote_dir} && \
 		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
 		 chmod 0700 -- {quoted_remote_dir} && \
 		 cd -- {quoted_remote_dir} && \
@@ -378,7 +378,7 @@ async fn apply_sync_actions(
 			.map(|d| shell_quote_path(&d))
 			.collect::<Vec<_>>()
 			.join(" ");
-		let mkdir_cmd = format!("mkdir -p -m 0700 -- {mkdirs} && chmod 0700 -- {mkdirs}");
+		let mkdir_cmd = format!("umask 077 && mkdir -p -- {mkdirs} && chmod 0700 -- {mkdirs}");
 		client
 			.execute(&mkdir_cmd)
 			.await
