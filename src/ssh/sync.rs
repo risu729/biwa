@@ -352,8 +352,11 @@ async fn apply_sync_actions(
 	// Remove deleted files via SFTP
 	for path in &actions.to_delete {
 		let full_path = format!("{remote_dir}/{path}");
-		if let Err(e) = sftp.remove_file(&full_path).await {
-			warn!(error = %e, path = full_path, "Failed to delete remote file");
+		// Strip `~/` since SFTP treats it as a literal folder named `~`,
+		// but paths without a leading `/` are already resolved relative to the home directory.
+		let sftp_path = full_path.strip_prefix("~/").unwrap_or(&full_path);
+		if let Err(e) = sftp.remove_file(sftp_path).await {
+			warn!(error = %e, path = sftp_path, "Failed to delete remote file");
 		}
 		stats.deleted = stats.deleted.saturating_add(1);
 	}
