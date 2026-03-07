@@ -235,6 +235,7 @@ async fn fetch_remote_hashes(client: &Client, remote_dir: &str) -> Result<HashMa
 		"umask 077 && mkdir -p -- {quoted_remote_dir} && \
 		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
 		 cd -- {quoted_remote_dir} && \
+		 (find . -type d -exec chmod 0700 {{}} + || true) && \
 		 (find . -type f -exec sha256sum {{}} + || true)"
 	);
 
