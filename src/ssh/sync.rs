@@ -13,7 +13,7 @@ use russh_sftp::client::SftpSession;
 use sha2::{Digest as _, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufReader, Read as _};
+use std::io::BufReader;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use tokio::fs::metadata;
@@ -108,15 +108,27 @@ pub(super) fn collect_local_files(
 
 			let file = File::open(path)?;
 			let mut reader = BufReader::new(file);
-			let mut hasher = Sha256::new();
-			let mut buffer = [0; 8192];
-			loop {
-				let count = reader.read(&mut buffer)?;
-				if count == 0 {
-					break;
-				}
-				hasher.update(buffer.get(..count).wrap_err("Buffer slice out of bounds")?);
+			struct HasherWriter<'a, H> {
+				hasher: &'a mut H,
 			}
+			impl<H: sha2::Digest> std::io::Write for HasherWriter<'_, H> {
+				fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+					self.hasher.update(buf);
+					Ok(buf.len())
+				}
+				fn flush(&mut self) -> std::io::Result<()> {
+					Ok(())
+				}
+			}
+
+			let mut hasher = Sha256::new();
+			std::io::copy(
+				&mut reader,
+				&mut HasherWriter {
+					hasher: &mut hasher,
+				},
+			)
+			.wrap_err("Failed to hash file")?;
 			let hash = hex::encode(hasher.finalize());
 			result.push((relative.to_path_buf(), hash));
 		}
