@@ -84,13 +84,13 @@ pub(super) fn check_remote_root(remote_root: &Path) {
 /// is quoted with `shell_words::quote`.
 pub(super) fn shell_quote_path(path: &str) -> String {
 	if path == "~" || path == "$HOME" {
-		return "$HOME".to_owned();
+		return "\"$HOME\"".to_owned();
 	}
 	if let Some(rest) = path
 		.strip_prefix("~/")
 		.or_else(|| path.strip_prefix("$HOME/"))
 	{
-		return format!("$HOME/{}", shell_words::quote(rest));
+		return format!("\"$HOME\"/{}", shell_words::quote(rest));
 	}
 	shell_words::quote(path).into_owned()
 }
@@ -694,7 +694,7 @@ mod tests {
 	fn shell_quote_path_tilde() {
 		assert_eq!(
 			shell_quote_path("~/.cache/biwa/projects"),
-			"$HOME/.cache/biwa/projects"
+			"\"$HOME\"/.cache/biwa/projects"
 		);
 	}
 
@@ -707,22 +707,22 @@ mod tests {
 	fn shell_quote_path_special_chars() {
 		assert_eq!(
 			shell_quote_path("~/my project/dir"),
-			"$HOME/'my project/dir'"
+			"\"$HOME\"/'my project/dir'"
 		);
 	}
 
 	#[test]
 	fn shell_quote_path_bare_tilde() {
-		assert_eq!(shell_quote_path("~"), "$HOME");
+		assert_eq!(shell_quote_path("~"), "\"$HOME\"");
 	}
 
 	#[test]
 	fn shell_quote_path_home_var() {
 		assert_eq!(
 			shell_quote_path("$HOME/.cache/biwa/projects"),
-			"$HOME/.cache/biwa/projects"
+			"\"$HOME\"/.cache/biwa/projects"
 		);
-		assert_eq!(shell_quote_path("$HOME"), "$HOME");
+		assert_eq!(shell_quote_path("$HOME"), "\"$HOME\"");
 	}
 
 	#[test]
