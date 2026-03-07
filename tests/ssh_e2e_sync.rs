@@ -101,7 +101,7 @@ fn e2e_sync_absolute_path() -> Result<()> {
 		.run()?;
 
 	let stdout2 = String::from_utf8_lossy(&output2.stdout);
-	assert!(output2.status.success(), "cat failed for {}", remote_file);
+	assert!(output2.status.success(), "cat failed for {remote_file}");
 	assert!(stdout2.contains("hello absolute"));
 
 	// Cleanup the absolute directory to be a good citizen
