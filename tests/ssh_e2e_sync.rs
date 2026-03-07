@@ -493,7 +493,7 @@ fn e2e_sync_intermediate_dir_permissions() -> Result<()> {
 	assert!(output.status.success(), "stderr: {stderr}");
 
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
-	
+
 	for path in ["", "/a", "/a/b", "/a/b/c"] {
 		let remote_path = format!("{remote_proj_dir}{path}");
 		let ls_output = biwa_cmd_tilde(&["run", "ls", "-ld", &remote_path], dir.path())
@@ -501,10 +501,17 @@ fn e2e_sync_intermediate_dir_permissions() -> Result<()> {
 			.stderr_capture()
 			.unchecked()
 			.run()?;
-			
+
 		let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
-		assert!(ls_output.status.success(), "ls failed for {remote_path}: {ls_stdout}\nstderr: {}", String::from_utf8_lossy(&ls_output.stderr));
-		assert!(ls_stdout.contains("drwx------"), "Directory {remote_path} does not have 0700 permissions. ls output: {ls_stdout}");
+		assert!(
+			ls_output.status.success(),
+			"ls failed for {remote_path}: {ls_stdout}\nstderr: {}",
+			String::from_utf8_lossy(&ls_output.stderr)
+		);
+		assert!(
+			ls_stdout.contains("drwx------"),
+			"Directory {remote_path} does not have 0700 permissions. ls output: {ls_stdout}"
+		);
 	}
 
 	Ok(())
