@@ -225,7 +225,7 @@ fn e2e_sync_ignore_gitignore() -> Result<()> {
 
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	assert!(output.status.success(), "stderr: {stderr}");
-	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}"); // only kept.txt; .gitignore is hidden and skipped by standard_filters
+	assert!(stderr.contains("2 uploaded"), "stderr: {stderr}"); // kept.txt and .gitignore
 	Ok(())
 }
 
