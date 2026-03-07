@@ -34,7 +34,9 @@ pub struct Stats {
 /// A local file and its SHA-256 hash.
 #[derive(Debug, Clone)]
 pub(super) struct LocalFile {
+	/// The relative path to the file from the project root.
 	pub path: PathBuf,
+	/// The SHA-256 hash of the file content.
 	pub hash: String,
 }
 
@@ -68,7 +70,9 @@ pub(super) fn check_remote_root(remote_root: &Path) {
 	}
 }
 
+/// A wrapper around a hasher that implements `std::io::Write`.
 struct HasherWriter<'a, H> {
+	/// The underlying hasher instance.
 	hasher: &'a mut H,
 }
 
