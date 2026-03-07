@@ -58,11 +58,6 @@ pub(super) fn check_remote_root(remote_root: &Path) {
 			"Absolute remote_root path detected: {}. It is recommended to use a relative path starting with '~'.",
 			remote_root.display()
 		);
-		eprintln!(
-			"{} Absolute remote_root path detected: {}. It is recommended to use a relative path starting with '~'.",
-			style("Warning:").yellow().bold(),
-			style(remote_root.display()).bold()
-		);
 	}
 }
 
