@@ -28,4 +28,4 @@ Biwa utilizes `globset` for specifying target exclusions and inclusions, support
 - **Configuration `exclude`**: Globs are resolved relative to the configuration file's root directory.
 - **CLI `--exclude` / `--include`**: Globs are resolved relative to your current working directory (CWD).
 
-*Example*: running `biwa sync --exclude "tests/**"` from a subdirectory will correctly match and exclude the `tests` folder relative to that directory.
+_Example_: running `biwa sync --exclude "tests/**"` from a subdirectory will correctly match and exclude the `tests` folder relative to that directory.

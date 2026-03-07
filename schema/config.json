@@ -165,8 +165,8 @@
           "description": "The synchronization engine to use.",
           "$ref": "#/$defs/SyncEngine"
         },
-        "ignore_files": {
-          "description": "Files and directories to ignore during synchronization.",
+        "exclude": {
+          "description": "Files and directories to exclude during synchronization using globset patterns.",
           "type": "array",
           "items": {
             "type": "string"
@@ -191,7 +191,7 @@
       "required": [
         "auto",
         "remote_root",
-        "ignore_files",
+        "exclude",
         "engine",
         "sftp"
       ]
