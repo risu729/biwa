@@ -1,7 +1,6 @@
 use super::exec::connect;
 use crate::Result;
-use crate::config::types::{Config, SyncEngine};
-use crate::ssh::sftp::upload_file;
+use crate::config::types::{Config, SftpPermissions, SyncEngine};
 use crate::ui::create_spinner;
 use async_ssh2_tokio::client::Client;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
@@ -10,15 +9,17 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use indicatif::ProgressBar;
 use russh_sftp::client::SftpSession;
+use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use sha2::{Digest as _, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
-use tokio::fs::metadata;
+use tokio::fs::{File as AsyncFile, metadata};
+use tokio::io::{BufReader as AsyncBufReader, copy as async_copy};
 use tokio::task::spawn_blocking;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// Statistics for a synchronization operation.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -82,13 +83,16 @@ pub(super) fn check_remote_root(remote_root: &Path) {
 /// outside the quotes so the shell can expand it. Otherwise, the entire path
 /// is quoted with `shell_words::quote`.
 pub(super) fn shell_quote_path(path: &str) -> String {
-	if path == "~" {
+	if path == "~" || path == "$HOME" {
 		return "$HOME".to_owned();
 	}
-	path.strip_prefix("~/").map_or_else(
-		|| shell_words::quote(path).into_owned(),
-		|rest| format!("$HOME/{}", shell_words::quote(rest)),
-	)
+	if let Some(rest) = path
+		.strip_prefix("~/")
+		.or_else(|| path.strip_prefix("$HOME/"))
+	{
+		return format!("$HOME/{}", shell_words::quote(rest));
+	}
+	shell_words::quote(path).into_owned()
 }
 
 /// A wrapper around a hasher that implements `std::io::Write`.
@@ -309,6 +313,84 @@ fn calculate_sync_actions(
 	}
 }
 
+/// SFTP naturally resolves paths not starting with `/` relative to the user's home directory.
+/// It does NOT expand `~/` or `$HOME/` like a shell would. Therefore, we strip them so SFTP
+/// looks in the home directory instead of looking for literal `~` or `$HOME` folders.
+fn resolve_sftp_path(remote_path: &str) -> &str {
+	remote_path
+		.strip_prefix("~/")
+		.or_else(|| remote_path.strip_prefix("$HOME/"))
+		.unwrap_or_else(|| {
+			if remote_path == "~" || remote_path == "$HOME" {
+				"."
+			} else {
+				remote_path
+			}
+		})
+}
+
+/// Uploads a file to a remote SFTP server using an existing session.
+/// We provide our own upload method because `async-ssh2-tokio`'s `upload_file`
+/// creates a new channel for every file and does not allow specifying file attributes (like permissions)
+/// atomically on creation, leading to race conditions where sensitive files might be readable.
+async fn upload_file(
+	sftp: &SftpSession,
+	local_path: &Path,
+	remote_path: &str,
+	secure_mode: u32,
+	permissions: &SftpPermissions,
+) -> Result<()> {
+	let perm_attrs = FileAttributes {
+		permissions: Some(secure_mode | 0x8000), // S_IFREG | permission bits
+		..Default::default()
+	};
+
+	let mut local_file = AsyncFile::open(local_path)
+		.await
+		.wrap_err_with(|| format!("Failed to open local file: {}", local_path.display()))?;
+	let mut local_file_buffered = AsyncBufReader::new(&mut local_file);
+
+	let sftp_path = resolve_sftp_path(remote_path);
+
+	if matches!(permissions, SftpPermissions::Recreate) {
+		let should_remove = sftp
+			.metadata(sftp_path)
+			.await
+			.map(|attrs| {
+				attrs
+					.permissions
+					.map_or_else(|| true, |p| (p & 0o777) != secure_mode)
+			})
+			.unwrap_or(true); // Default to true if metadata fails
+		if should_remove && let Err(e) = sftp.remove_file(sftp_path).await {
+			debug!(error = %e, path = sftp_path, "Failed to remove pre-existing file or file did not exist");
+		}
+	}
+
+	let open_flags = OpenFlags::CREATE | OpenFlags::TRUNCATE | OpenFlags::WRITE;
+	let mut remote_file = sftp
+		.open_with_flags_and_attributes(sftp_path, open_flags, perm_attrs.clone())
+		.await
+		.wrap_err_with(|| format!("Failed to open remote file: {sftp_path}"))?;
+
+	if matches!(permissions, SftpPermissions::Setstat)
+		&& let Err(e) = remote_file.set_metadata(perm_attrs).await
+	{
+		warn!(
+			error = %e,
+			path = sftp_path,
+			"Failed to enforce file permissions via fsetstat. \
+			 Consider setting `sync.sftp.permissions = \"recreate\"` in your config."
+		);
+	}
+
+	async_copy(&mut local_file_buffered, &mut remote_file)
+		.await
+		.wrap_err("Failed to write to remote file")?;
+
+	Ok(())
+}
+
 /// Target and actions for a synchronization operation.
 struct SyncTarget<'a> {
 	/// The local project root directory.
@@ -352,9 +434,7 @@ async fn apply_sync_actions(
 	// Remove deleted files via SFTP
 	for path in &actions.to_delete {
 		let full_path = format!("{remote_dir}/{path}");
-		// Strip `~/` since SFTP treats it as a literal folder named `~`,
-		// but paths without a leading `/` are already resolved relative to the home directory.
-		let sftp_path = full_path.strip_prefix("~/").unwrap_or(&full_path);
+		let sftp_path = resolve_sftp_path(&full_path);
 		if let Err(e) = sftp.remove_file(sftp_path).await {
 			warn!(error = %e, path = sftp_path, "Failed to delete remote file");
 		}
@@ -634,5 +714,24 @@ mod tests {
 	#[test]
 	fn shell_quote_path_bare_tilde() {
 		assert_eq!(shell_quote_path("~"), "$HOME");
+	}
+
+	#[test]
+	fn shell_quote_path_home_var() {
+		assert_eq!(
+			shell_quote_path("$HOME/.cache/biwa/projects"),
+			"$HOME/.cache/biwa/projects"
+		);
+		assert_eq!(shell_quote_path("$HOME"), "$HOME");
+	}
+
+	#[test]
+	fn resolve_sftp_path() {
+		assert_eq!(super::resolve_sftp_path("~/foo/bar"), "foo/bar");
+		assert_eq!(super::resolve_sftp_path("$HOME/foo/bar"), "foo/bar");
+		assert_eq!(super::resolve_sftp_path("~"), ".");
+		assert_eq!(super::resolve_sftp_path("$HOME"), ".");
+		assert_eq!(super::resolve_sftp_path("/absolute/path"), "/absolute/path");
+		assert_eq!(super::resolve_sftp_path("relative/path"), "relative/path");
 	}
 }
