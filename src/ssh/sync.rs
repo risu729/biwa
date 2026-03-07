@@ -13,7 +13,7 @@ use russh_sftp::client::SftpSession;
 use sha2::{Digest as _, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
-use std::io::BufReader;
+use std::io;
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use tokio::fs::metadata;
@@ -72,6 +72,19 @@ pub(super) fn collect_local_files(
 	extra_ignores: &[PathBuf],
 	options: &Options,
 ) -> Result<Vec<(PathBuf, String)>> {
+	struct HasherWriter<'a, H> {
+		hasher: &'a mut H,
+	}
+	impl<H: sha2::Digest> io::Write for HasherWriter<'_, H> {
+		fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+			self.hasher.update(buf);
+			Ok(buf.len())
+		}
+		fn flush(&mut self) -> io::Result<()> {
+			Ok(())
+		}
+	}
+
 	let mut builder = WalkBuilder::new(root);
 	builder.standard_filters(true); // .gitignore, .ignore, etc.
 	builder.require_git(false); // Respect .gitignore even outside of git repositories
@@ -107,22 +120,10 @@ pub(super) fn collect_local_files(
 			}
 
 			let file = File::open(path)?;
-			let mut reader = BufReader::new(file);
-			struct HasherWriter<'a, H> {
-				hasher: &'a mut H,
-			}
-			impl<H: sha2::Digest> std::io::Write for HasherWriter<'_, H> {
-				fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-					self.hasher.update(buf);
-					Ok(buf.len())
-				}
-				fn flush(&mut self) -> std::io::Result<()> {
-					Ok(())
-				}
-			}
+			let mut reader = io::BufReader::new(file);
 
 			let mut hasher = Sha256::new();
-			std::io::copy(
+			io::copy(
 				&mut reader,
 				&mut HasherWriter {
 					hasher: &mut hasher,
