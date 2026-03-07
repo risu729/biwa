@@ -257,7 +257,6 @@ fn calculate_sync_actions(
 	local_files: &[LocalFile],
 	remote_hashes: &HashMap<String, String>,
 	options: &Options,
-	stats: &mut Stats,
 ) -> SyncActions {
 	let mut to_upload = Vec::new();
 	let mut local_paths_str = HashSet::new();
@@ -270,7 +269,6 @@ fn calculate_sync_actions(
 			&& let Some(remote_hash) = remote_hashes.get(&rel_path_str)
 			&& remote_hash == &local_file.hash
 		{
-			stats.unchanged = stats.unchanged.saturating_add(1);
 			continue;
 		}
 		to_upload.push(local_file.path.clone());
@@ -448,7 +446,8 @@ pub async fn sync_project(
 	let remote_hashes = fetch_remote_hashes(&client, &remote_dir).await?;
 
 	let mut stats = Stats::default();
-	let actions = calculate_sync_actions(&local_files, &remote_hashes, options, &mut stats);
+	let actions = calculate_sync_actions(&local_files, &remote_hashes, options);
+	stats.unchanged = local_files.len().saturating_sub(actions.to_upload.len());
 
 	if actions.to_upload.len() > config.sync.sftp.max_files_to_sync {
 		if let Some(s) = spinner {
