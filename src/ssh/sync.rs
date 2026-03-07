@@ -312,7 +312,7 @@ async fn apply_sync_actions(
 	for path in &actions.to_delete {
 		let full_path = format!("{remote_dir}/{path}");
 		if let Err(e) = sftp.remove_file(&full_path).await {
-			tracing::warn!(error = %e, path = full_path, "Failed to delete remote file");
+			warn!(error = %e, path = full_path, "Failed to delete remote file");
 		}
 		stats.deleted = stats.deleted.saturating_add(1);
 	}
@@ -476,7 +476,7 @@ fn parse_remote_hashes(output: &str) -> HashMap<String, String> {
 			// Validate that the remote path does not contain directory traversal components
 			// to prevent malicious deletion attacks during the sync cleanup phase.
 			if path.split('/').any(|comp| comp == "..") {
-				tracing::warn!(
+				warn!(
 					"Skipping remote file with invalid path traversal components: {}",
 					path
 				);
