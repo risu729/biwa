@@ -76,6 +76,18 @@ pub(super) fn check_remote_root(remote_root: &Path) {
 	}
 }
 
+/// Shell-quotes a remote path while preserving home directory expansion.
+///
+/// If the path starts with `~/`, the `~` is replaced with `$HOME` and placed
+/// outside the quotes so the shell can expand it. Otherwise, the entire path
+/// is quoted with `shell_words::quote`.
+pub(super) fn shell_quote_path(path: &str) -> String {
+	path.strip_prefix("~/").map_or_else(
+		|| shell_words::quote(path).into_owned(),
+		|rest| format!("$HOME/{}", shell_words::quote(rest)),
+	)
+}
+
 /// A wrapper around a hasher that implements `std::io::Write`.
 struct HasherWriter<'a, H> {
 	/// The underlying hasher instance.
@@ -202,9 +214,21 @@ fn compute_unique_project_name(project_root: &Path) -> Result<String> {
 	Ok(format!("{}-{}", project_name, &hash_hex[..8]))
 }
 
+/// Computes the remote directory path for a given project.
+///
+/// This is the directory where synced files are stored on the remote server.
+pub fn compute_project_remote_dir(config: &Config, project_root: &Path) -> Result<String> {
+	let unique_project_name = compute_unique_project_name(project_root)?;
+	Ok(compute_remote_path(
+		&config.sync.remote_root,
+		&unique_project_name,
+		Path::new(""),
+	))
+}
+
 /// Fetches the SHA-256 hashes of the files currently in the remote directory.
 async fn fetch_remote_hashes(client: &Client, remote_dir: &str) -> Result<HashMap<String, String>> {
-	let quoted_remote_dir = shell_words::quote(remote_dir);
+	let quoted_remote_dir = shell_quote_path(remote_dir);
 
 	// 1. Create remote dir with 0700 and fetch current hashes
 	let script = format!(
@@ -348,7 +372,7 @@ async fn apply_sync_actions(
 	if !dirs_to_create.is_empty() {
 		let mkdirs = dirs_to_create
 			.into_iter()
-			.map(|d| shell_words::quote(&d).into_owned())
+			.map(|d| shell_quote_path(&d))
 			.collect::<Vec<_>>()
 			.join(" ");
 		let mkdir_cmd = format!("mkdir -p -m 0700 -- {mkdirs} && chmod 0700 -- {mkdirs}");
@@ -402,6 +426,7 @@ pub async fn sync_project(
 	config: &Config,
 	project_root: &Path,
 	options: &Options,
+	remote_dir_override: Option<&str>,
 	quiet: bool,
 ) -> Result<Stats> {
 	if config.sync.engine != SyncEngine::Sftp {
@@ -430,10 +455,15 @@ pub async fn sync_project(
 	};
 
 	// Compute remote directory base
-	let remote_dir = compute_remote_path(
-		&config.sync.remote_root,
-		&unique_project_name,
-		Path::new(""),
+	let remote_dir = remote_dir_override.map_or_else(
+		|| {
+			compute_remote_path(
+				&config.sync.remote_root,
+				&unique_project_name,
+				Path::new(""),
+			)
+		},
+		String::from,
 	);
 
 	let remote_hashes = fetch_remote_hashes(&client, &remote_dir).await?;
@@ -576,5 +606,32 @@ mod tests {
 		let rel = Path::new("src/main.rs");
 		let remote = compute_remote_path(root, proj, rel);
 		assert_eq!(remote, "~/.cache/biwa/projects/test_proj/src/main.rs");
+	}
+
+	#[test]
+	fn shell_quote_path_tilde() {
+		assert_eq!(
+			shell_quote_path("~/.cache/biwa/projects"),
+			"$HOME/.cache/biwa/projects"
+		);
+	}
+
+	#[test]
+	fn shell_quote_path_absolute() {
+		assert_eq!(shell_quote_path("/home/user/.cache"), "/home/user/.cache");
+	}
+
+	#[test]
+	fn shell_quote_path_special_chars() {
+		assert_eq!(
+			shell_quote_path("~/my project/dir"),
+			"$HOME/'my project/dir'"
+		);
+	}
+
+	#[test]
+	fn shell_quote_path_bare_tilde() {
+		// Just "~" without trailing "/" is not a home-dir path, so it's quoted normally
+		assert_eq!(shell_quote_path("~"), "'~'");
 	}
 }

@@ -113,6 +113,7 @@ pub async fn run() -> Result<()> {
 			&config,
 			cli.run_command_args.first().expect("Command is empty"),
 			cli.run_command_args.get(1..).expect("Arguments are empty"),
+			None,
 			quiet,
 			silent,
 		)

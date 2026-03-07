@@ -29,3 +29,26 @@ Biwa utilizes `globset` for specifying target exclusions and inclusions, support
 - **CLI `--exclude` / `--include`**: Globs are resolved relative to your current working directory (CWD).
 
 _Example_: running `biwa sync --exclude "tests/**"` from a subdirectory will correctly match and exclude the `tests` folder relative to that directory.
+
+## Working Directory
+
+When running `biwa run`, commands execute inside the synced project directory on the remote server, not in the home directory. This means `pwd` will output the synced project path (e.g. `~/.cache/biwa/projects/myproject-a1b2c3d4`).
+
+If the synced directory does not exist (e.g. with `--no-sync` on a fresh server), the command falls back to the default home directory.
+
+### Overriding with `--remote-dir`
+
+Use `--remote-dir` (`-d`) to override the remote working directory for both `biwa run` and `biwa sync`:
+
+```sh
+# Run a command in the home directory
+biwa run -d ~ ls
+
+# Sync to a custom remote path
+biwa sync -d /tmp/my-project
+
+# Run a command in /tmp
+biwa run --no-sync -d /tmp ls
+```
+
+When used with `biwa sync`, `--remote-dir` replaces the automatically computed `remote_root + project_name` path.

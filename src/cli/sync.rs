@@ -12,6 +12,10 @@ pub struct SyncArgs {
 	#[arg(long)]
 	pub sync_root: Option<PathBuf>,
 
+	/// Override the remote project directory path. Bypasses the default `remote_root` + project name.
+	#[arg(long, short = 'd')]
+	pub remote_dir: Option<String>,
+
 	/// Force synchronization of all files, ignoring incremental hash checks.
 	#[arg(long, short = 'f')]
 	pub force: bool,
@@ -78,7 +82,14 @@ impl Sync {
 	pub async fn run(self, config: &Config, quiet: bool) -> Result<()> {
 		let sync_root = self.sync_args.resolve_sync_root(config)?;
 		let options = self.sync_args.resolve_options()?;
-		sync_project(config, &sync_root, &options, quiet).await?;
+		sync_project(
+			config,
+			&sync_root,
+			&options,
+			self.sync_args.remote_dir.as_deref(),
+			quiet,
+		)
+		.await?;
 		Ok(())
 	}
 }

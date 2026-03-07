@@ -1,6 +1,10 @@
 use crate::Result;
 use crate::cli::sync::SyncArgs;
-use crate::{config::types::Config, ssh::exec::execute_command, ssh::sync::sync_project};
+use crate::{
+	config::types::Config,
+	ssh::exec::execute_command,
+	ssh::sync::{compute_project_remote_dir, sync_project},
+};
 use clap::Args;
 
 /// Run a command on the CSE server.
@@ -27,12 +31,36 @@ pub(super) struct Run {
 impl Run {
 	/// Run the execution logic for remote command.
 	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
+		let sync_root = self.sync_args.resolve_sync_root(config)?;
+
 		if config.sync.auto && !self.no_sync {
-			let sync_root = self.sync_args.resolve_sync_root(config)?;
 			let options = self.sync_args.resolve_options()?;
-			sync_project(config, &sync_root, &options, quiet).await?;
+			sync_project(
+				config,
+				&sync_root,
+				&options,
+				self.sync_args.remote_dir.as_deref(),
+				quiet,
+			)
+			.await?;
 		}
-		execute_command(config, &self.command, &self.command_args, quiet, silent).await?;
+
+		// Determine working directory: explicit --remote-dir > computed synced dir
+		let working_dir = if let Some(dir) = &self.sync_args.remote_dir {
+			dir.clone()
+		} else {
+			compute_project_remote_dir(config, &sync_root)?
+		};
+
+		execute_command(
+			config,
+			&self.command,
+			&self.command_args,
+			Some(&working_dir),
+			quiet,
+			silent,
+		)
+		.await?;
 		Ok(())
 	}
 }

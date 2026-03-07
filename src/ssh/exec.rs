@@ -1,4 +1,5 @@
 use super::auth::resolve_auth;
+use super::sync::shell_quote_path;
 use crate::Result;
 use crate::config::types::Config;
 use crate::ui::create_spinner;
@@ -70,13 +71,25 @@ fn build_command(command: &str, args: &[String]) -> String {
 ///
 /// Returns the remote exit code, printing stdout/stderr as they arrive
 /// unless `silent` is set.
+///
+/// If `working_dir` is set, the command is executed after `cd`-ing into that
+/// directory. If the directory does not exist, `cd` fails silently and the
+/// command runs from the default home directory.
 async fn run_command(
 	client: &Client,
 	full_command: &str,
+	working_dir: Option<&str>,
 	quiet: bool,
 	silent: bool,
 ) -> Result<u32> {
-	debug!(command = %full_command, "Executing remote command");
+	let effective_command = working_dir.map_or_else(
+		|| full_command.to_owned(),
+		|dir| {
+			let quoted_dir = shell_quote_path(dir);
+			format!("cd {quoted_dir} 2>/dev/null; {full_command}")
+		},
+	);
+	debug!(command = %effective_command, "Executing remote command");
 
 	if !quiet {
 		eprintln!(
@@ -94,8 +107,14 @@ async fn run_command(
 	let mut stdout_reader = StreamReader::new(stdout_stream);
 	let mut stderr_reader = StreamReader::new(stderr_stream);
 
-	let exec_future =
-		client.execute_io(full_command, stdout_tx, Some(stderr_tx), None, false, None);
+	let exec_future = client.execute_io(
+		&effective_command,
+		stdout_tx,
+		Some(stderr_tx),
+		None,
+		false,
+		None,
+	);
 
 	let stdout_task = async {
 		if !silent {
@@ -131,17 +150,19 @@ async fn run_command(
 
 /// Execute a command on the remote host via SSH.
 ///
+/// If `working_dir` is set, the command executes inside that remote directory.
 /// Returns the exit code of the remote command.
 pub async fn execute_command(
 	config: &Config,
 	command: &str,
 	args: &[String],
+	working_dir: Option<&str>,
 	quiet: bool,
 	silent: bool,
 ) -> Result<u32> {
 	let client = connect(config, quiet || silent).await?;
 	let full_command = build_command(command, args);
-	run_command(&client, &full_command, quiet, silent).await
+	run_command(&client, &full_command, working_dir, quiet, silent).await
 }
 
 #[cfg(test)]

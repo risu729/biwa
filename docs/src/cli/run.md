@@ -26,6 +26,10 @@ Skip automatic synchronization before running the command
 
 Base directory to start the synchronization from. Overrides the current working directory
 
+### `-d --remote-dir <REMOTE_DIR>`
+
+Override the remote project directory path. Bypasses the default `remote_root` + project name
+
 ### `-f --force`
 
 Force synchronization of all files, ignoring incremental hash checks

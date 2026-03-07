@@ -15,6 +15,9 @@ cmd run help="Run commands on remote host" {
     flag --sync-root help="Base directory to start the synchronization from. Overrides the current working directory" {
         arg <SYNC_ROOT>
     }
+    flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
+        arg <REMOTE_DIR>
+    }
     flag "-f --force" help="Force synchronization of all files, ignoring incremental hash checks"
     flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
         arg <EXCLUDE>
@@ -29,6 +32,9 @@ cmd sync help="Synchronize files to remote host" {
     alias s
     flag --sync-root help="Base directory to start the synchronization from. Overrides the current working directory" {
         arg <SYNC_ROOT>
+    }
+    flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
+        arg <REMOTE_DIR>
     }
     flag "-f --force" help="Force synchronization of all files, ignoring incremental hash checks"
     flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
