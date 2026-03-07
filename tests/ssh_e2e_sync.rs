@@ -11,7 +11,7 @@ use common::Result;
 
 fn biwa_cmd(args: &[&str], current_dir: &Path) -> duct::Expression {
 	common::biwa_cmd(args)
-		.env("BIWA_SYNC_REMOTE_ROOT", "/config/cache/biwa/projects")
+		.env("BIWA_SYNC_REMOTE_ROOT", "~/.cache/biwa/projects")
 		.dir(current_dir)
 }
 
@@ -34,7 +34,7 @@ fn e2e_sync_basic() -> Result<()> {
 
 	// Run with auto sync
 	let output2 = biwa_cmd(
-		&["run", "cat", "/config/cache/biwa/projects/hello.txt"],
+		&["run", "cat", "~/.cache/biwa/projects/hello.txt"],
 		dir.path(),
 	)
 	.stdout_capture()
@@ -354,7 +354,7 @@ fn e2e_sync_remote_symlink() -> Result<()> {
 			"run",
 			"sh",
 			"-c",
-			&format!("mkdir -p '{dummy_dir}' && ln -s '{dummy_dir}' '{remote_dir}'"),
+			&format!("mkdir -p {dummy_dir} && ln -s {dummy_dir} {remote_dir}"),
 		],
 		setup_dir.path(),
 	)

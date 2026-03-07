@@ -9,7 +9,7 @@ description = "Build the project."
 usage = """
 flag "--skip-ssh" help="Skip SSH tests" default="{% if env.CI is defined %}false{% else %}true{% endif %}" negate="--no-skip-ssh"
 """
-run = "cargo test {% if not usage.skip_ssh %}-- --include-ignored{% endif %}"
+run = "cargo test {% if not usage.skip_ssh %}-- --include-ignored --test-threads=1{% endif %}"
 description = "Run the tests."
 
 ["test:coverage"]

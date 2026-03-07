@@ -59,5 +59,5 @@ pub fn get_remote_project_dir(local_dir: &Path) -> Result<String> {
 		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
 	)]
 	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
-	Ok(format!("/config/cache/biwa/projects/{unique_proj_name}"))
+	Ok(format!("~/.cache/biwa/projects/{unique_proj_name}"))
 }

@@ -62,7 +62,7 @@ fn build_command(command: &str, args: &[String]) -> String {
 		command.to_owned()
 	} else {
 		let mut parts = vec![command.to_owned()];
-		parts.extend(args.iter().map(|a| shell_words::quote(a).into_owned()));
+		parts.extend(args.iter().map(|a| shell_quote_path(a)));
 		parts.join(" ")
 	}
 }
