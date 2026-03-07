@@ -64,6 +64,39 @@ Storing your password in a configuration file is **not recommended** for securit
 | `quiet`  | boolean | `false` | Suppress biwa internal logs, only showing remote command output |
 | `silent` | boolean | `false` | Suppress all output, including remote command stdout/stderr     |
 
+### `[sync]` — Synchronization Settings
+
+| Key           | Type    | Default                                                | Description                                                                                 |
+| ------------- | ------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `auto`        | boolean | `true`                                                 | Automatically synchronize the project before running remote commands                        |
+| `sync_root`   | string? | `null`                                                 | Base directory to start the synchronization from. If not specified, uses current directory. |
+| `engine`      | string  | `"sftp"`                                               | The synchronization engine to use (`"sftp"` or `"mutagen"`)                                 |
+| `remote_root` | string  | `"~/.cache/biwa/projects"`                             | Remote directory to sync the project to                                                     |
+| `exclude`     | array   | `["**/.git/**", "**/target/**", "**/node_modules/**"]` | List of target strings (using globset) to exclude during synchronization                    |
+
+#### `[sync.sftp]` — SFTP Engine Settings
+
+| Key                 | Type    | Default      | Description                                                               |
+| ------------------- | ------- | ------------ | ------------------------------------------------------------------------- |
+| `max_files_to_sync` | integer | `100`        | Abort synchronization if the number of files to upload exceeds this limit |
+| `permissions`       | string  | `"recreate"` | Strategy for enforcing file permissions on uploaded files                 |
+
+##### Permission Strategies
+
+`biwa` ensures uploaded files have secure permissions (owner-only, no group/other access). Two strategies are available:
+
+- **`recreate`** (default) — Deletes the remote file before re-creating it with the correct permissions set atomically at creation time. This is the most compatible strategy and works on all SFTP servers.
+
+- **`setstat`** — Uses the SFTP `setstat` operation to set permissions after writing. This avoids deleting the file but **is not supported by all servers**. If `setstat` fails, biwa will log a warning suggesting you switch to `recreate`.
+
+::: info SFTP Server Restrictions
+Some SSH environments (notably UNSW CSE, which uses OpenSSH on networked filesystems) reject `setstat` / `fsetstat` SFTP operations with "Permission denied". If you see this error, ensure `sync.sftp.permissions` is set to `"recreate"` (the default).
+:::
+
+::: warning Absolute Remote Root
+It is strongly recommended to use a relative path starting with `~` for your `remote_root`. Using an absolute path (e.g., `/home/user/cache`) can lead to unexpected directory structures and permissions issues on the remote server. Biwa will emit a warning if an absolute path is detected.
+:::
+
 ## Schema Validation
 
 `biwa` provides a JSON schema to enable autocompletion and validation in editors like VS Code.

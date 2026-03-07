@@ -100,6 +100,21 @@
         }
       ]
     },
+    "SftpPermissions": {
+      "description": "Strategy for enforcing file permissions during SFTP upload.",
+      "oneOf": [
+        {
+          "description": "Delete the file before creating it with the correct permissions.\nThis is the most compatible strategy as it works on all SFTP servers.",
+          "type": "string",
+          "const": "recreate"
+        },
+        {
+          "description": "Use the SFTP `setstat` operation to set permissions after writing.\nSome servers (e.g. UNSW CSE) reject this operation.",
+          "type": "string",
+          "const": "setstat"
+        }
+      ]
+    },
     "SshConfig": {
       "description": "SSH connection settings.",
       "type": "object",
@@ -142,8 +157,16 @@
       "description": "Synchronization settings.",
       "type": "object",
       "properties": {
-        "ignore_files": {
-          "description": "Files and directories to ignore during synchronization.",
+        "auto": {
+          "description": "Automatically synchronize the project before running remote commands.",
+          "type": "boolean"
+        },
+        "engine": {
+          "description": "The synchronization engine to use.",
+          "$ref": "#/$defs/SyncEngine"
+        },
+        "exclude": {
+          "description": "Files and directories to exclude during synchronization using globset patterns.",
           "type": "array",
           "items": {
             "type": "string"
@@ -152,11 +175,60 @@
         "remote_root": {
           "description": "Remote directory to sync the project to.",
           "type": "string"
+        },
+        "sftp": {
+          "description": "SFTP engine specific configuration.",
+          "$ref": "#/$defs/SyncSftpConfig"
+        },
+        "sync_root": {
+          "description": "Base directory to start the synchronization from. If not specified, uses the current working directory.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
+        "auto",
         "remote_root",
-        "ignore_files"
+        "exclude",
+        "engine",
+        "sftp"
+      ]
+    },
+    "SyncEngine": {
+      "description": "The synchronization engine to use.",
+      "oneOf": [
+        {
+          "description": "Use SFTP for synchronization.",
+          "type": "string",
+          "const": "sftp"
+        },
+        {
+          "description": "Use Mutagen for synchronization.",
+          "type": "string",
+          "const": "mutagen"
+        }
+      ]
+    },
+    "SyncSftpConfig": {
+      "description": "SFTP synchronization engine settings.",
+      "type": "object",
+      "properties": {
+        "max_files_to_sync": {
+          "description": "Abort synchronization if the number of files to upload exceeds this limit.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "permissions": {
+          "description": "Strategy for enforcing file permissions on uploaded files.",
+          "$ref": "#/$defs/SftpPermissions"
+        }
+      },
+      "required": [
+        "max_files_to_sync",
+        "permissions"
       ]
     }
   }

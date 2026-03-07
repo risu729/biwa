@@ -1,16 +1,22 @@
 use super::auth::resolve_auth;
+use super::sync::shell_quote_path;
 use crate::Result;
 use crate::config::types::Config;
 use crate::ui::create_spinner;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
+use bytes::Bytes;
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
-use std::io::{Write, stderr, stdout};
+use std::io::Error as IoError;
+use tokio::io::{copy, stderr, stdout};
 use tokio::sync::mpsc;
+use tokio_stream::StreamExt as _;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::io::StreamReader;
 use tracing::{debug, info};
 
 /// Connect to the SSH server using the resolved authentication method.
-async fn connect(config: &Config, quiet: bool) -> Result<Client> {
+pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 	let auth_method = resolve_auth(config)?;
 	let ssh = &config.ssh;
 
@@ -56,18 +62,8 @@ fn build_command(command: &str, args: &[String]) -> String {
 		command.to_owned()
 	} else {
 		let mut parts = vec![command.to_owned()];
-		parts.extend(args.iter().map(|a| shell_words::quote(a).into_owned()));
+		parts.extend(args.iter().map(|a| shell_quote_path(a)));
 		parts.join(" ")
-	}
-}
-
-/// Write bytes to a locked standard stream, ignoring errors.
-fn write_to_stream(mut stream: impl Write, bytes: &[u8]) {
-	if let Err(e) = stream.write_all(bytes) {
-		debug!(error = %e, "Failed to write to stream");
-	}
-	if let Err(e) = stream.flush() {
-		debug!(error = %e, "Failed to flush stream");
 	}
 }
 
@@ -75,17 +71,25 @@ fn write_to_stream(mut stream: impl Write, bytes: &[u8]) {
 ///
 /// Returns the remote exit code, printing stdout/stderr as they arrive
 /// unless `silent` is set.
-#[expect(
-	clippy::integer_division_remainder_used,
-	reason = "tokio::select! macro expands to use % internally"
-)]
+///
+/// If `working_dir` is set, the command is executed after `cd`-ing into that
+/// directory. If the directory does not exist, `cd` fails silently and the
+/// command runs from the default home directory.
 async fn run_command(
 	client: &Client,
 	full_command: &str,
+	working_dir: Option<&str>,
 	quiet: bool,
 	silent: bool,
 ) -> Result<u32> {
-	debug!(command = %full_command, "Executing remote command");
+	let effective_command = working_dir.map_or_else(
+		|| full_command.to_owned(),
+		|dir| {
+			let quoted_dir = shell_quote_path(dir);
+			format!("cd {quoted_dir} 2>/dev/null; {full_command}")
+		},
+	);
+	debug!(command = %effective_command, "Executing remote command");
 
 	if !quiet {
 		eprintln!(
@@ -94,39 +98,39 @@ async fn run_command(
 			style(full_command).bold()
 		);
 	}
-	let (stdout_tx, mut stdout_rx) = mpsc::channel(1024);
-	let (stderr_tx, mut stderr_rx) = mpsc::channel(1024);
+	let (stdout_tx, stdout_rx) = mpsc::channel(1024);
+	let (stderr_tx, stderr_rx) = mpsc::channel(1024);
 
-	let exec_future =
-		client.execute_io(full_command, stdout_tx, Some(stderr_tx), None, false, None);
-	tokio::pin!(exec_future);
+	let stdout_stream = ReceiverStream::new(stdout_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
+	let stderr_stream = ReceiverStream::new(stderr_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
 
-	let exit_status = loop {
-		tokio::select! {
-			res = &mut exec_future => {
-				break res.wrap_err("Failed to execute remote command")?;
-			},
-			Some(stdout_bytes) = stdout_rx.recv() => {
-				if !silent {
-					write_to_stream(stdout().lock(), &stdout_bytes);
-				}
-			},
-			Some(stderr_bytes) = stderr_rx.recv() => {
-				if !silent {
-					write_to_stream(stderr().lock(), &stderr_bytes);
-				}
-			},
+	let mut stdout_reader = StreamReader::new(stdout_stream);
+	let mut stderr_reader = StreamReader::new(stderr_stream);
+
+	let exec_future = client.execute_io(
+		&effective_command,
+		stdout_tx,
+		Some(stderr_tx),
+		None,
+		false,
+		None,
+	);
+
+	let stdout_task = async {
+		if !silent {
+			copy(&mut stdout_reader, &mut stdout()).await.unwrap_or(0);
 		}
 	};
 
-	if !silent {
-		while let Some(stdout_bytes) = stdout_rx.recv().await {
-			write_to_stream(stdout().lock(), &stdout_bytes);
+	let stderr_task = async {
+		if !silent {
+			copy(&mut stderr_reader, &mut stderr()).await.unwrap_or(0);
 		}
-		while let Some(stderr_bytes) = stderr_rx.recv().await {
-			write_to_stream(stderr().lock(), &stderr_bytes);
-		}
-	}
+	};
+
+	let (exit_status, (), ()) = tokio::join!(exec_future, stdout_task, stderr_task);
+	let exit_status = exit_status.wrap_err("Failed to execute remote command")?;
+
 	debug!(exit_status, "Remote command completed");
 
 	if exit_status != 0 && !quiet {
@@ -146,17 +150,19 @@ async fn run_command(
 
 /// Execute a command on the remote host via SSH.
 ///
+/// If `working_dir` is set, the command executes inside that remote directory.
 /// Returns the exit code of the remote command.
 pub async fn execute_command(
 	config: &Config,
 	command: &str,
 	args: &[String],
+	working_dir: Option<&str>,
 	quiet: bool,
 	silent: bool,
 ) -> Result<u32> {
 	let client = connect(config, quiet || silent).await?;
 	let full_command = build_command(command, args);
-	run_command(&client, &full_command, quiet, silent).await
+	run_command(&client, &full_command, working_dir, quiet, silent).await
 }
 
 #[cfg(test)]

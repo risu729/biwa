@@ -43,6 +43,18 @@ expression: content
 
   // Remote synchronization configuration.
   "sync": {
+    // Automatically synchronize the project before running remote commands.
+    //
+    // Can also be specified via environment variable `BIWA_SYNC_AUTO`.
+    //
+    // Default value: true
+    //"auto": true,
+
+    // Base directory to start the synchronization from. If not specified, uses the current working directory.
+    //
+    // Can also be specified via environment variable `BIWA_SYNC_ROOT`.
+    //"sync_root": ,
+
     // Remote directory to sync the project to.
     //
     // Can also be specified via environment variable `BIWA_SYNC_REMOTE_ROOT`.
@@ -50,10 +62,34 @@ expression: content
     // Default value: "~\/.cache\/biwa\/projects"
     //"remote_root": "~\/.cache\/biwa\/projects",
 
-    // Files and directories to ignore during synchronization.
+    // Files and directories to exclude during synchronization using globset patterns.
     //
-    // Default value: [".git","target","node_modules"]
-    //"ignore_files": [".git","target","node_modules"],
+    // Default value: ["**\/.git\/**","**\/target\/**","**\/node_modules\/**"]
+    //"exclude": ["**\/.git\/**","**\/target\/**","**\/node_modules\/**"],
+
+    // The synchronization engine to use.
+    //
+    // Can also be specified via environment variable `BIWA_SYNC_ENGINE`.
+    //
+    // Default value: "sftp"
+    //"engine": "sftp",
+
+    // SFTP engine specific configuration.
+    "sftp": {
+      // Abort synchronization if the number of files to upload exceeds this limit.
+      //
+      // Can also be specified via environment variable `BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC`.
+      //
+      // Default value: 100
+      //"max_files_to_sync": 100,
+
+      // Strategy for enforcing file permissions on uploaded files.
+      //
+      // Can also be specified via environment variable `BIWA_SYNC_SFTP_PERMISSIONS`.
+      //
+      // Default value: "recreate"
+      //"permissions": "recreate",
+    },
   },
 
   // Environment variables configuration.

@@ -128,7 +128,19 @@ impl Config {
 		};
 
 		resolve(&mut partial.ssh.key_path);
-		resolve(&mut partial.sync.remote_root);
+
+		if let Some(exclude_list) = &mut partial.sync.exclude {
+			let root_str = root.display().to_string().replace('\\', "/");
+			let root_str = root_str.trim_end_matches('/');
+			for glob in exclude_list {
+				if !glob.starts_with('/') {
+					*glob = format!("{root_str}/{}", glob.trim_start_matches('/'));
+				}
+			}
+		}
+
+		// NOTE: remote_root is intentionally NOT resolved here because it is a remote SSH path.
+		// Tilde expansion and relative path resolution should happen on the remote server, not locally.
 	}
 
 	/// Returns a string template of the default configuration for the specific format.
@@ -214,7 +226,10 @@ mod tests {
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
 		assert_eq!(config.ssh.port, 22);
 		assert_eq!(config.ssh.user, "z1234567");
-		assert!(config.sync.remote_root.ends_with(".cache/biwa/projects"));
+		assert_eq!(
+			config.sync.remote_root,
+			PathBuf::from("~/.cache/biwa/projects")
+		);
 	}
 
 	#[serial]
@@ -261,12 +276,19 @@ mod tests {
 		    "password": false
 		  },
 		  "sync": {
+		    "auto": true,
+		    "sync_root": null,
 		    "remote_root": "~/.cache/biwa/projects",
-		    "ignore_files": [
-		      ".git",
-		      "target",
-		      "node_modules"
-		    ]
+		    "exclude": [
+		      "**/.git/**",
+		      "**/target/**",
+		      "**/node_modules/**"
+		    ],
+		    "engine": "sftp",
+		    "sftp": {
+		      "max_files_to_sync": 100,
+		      "permissions": "recreate"
+		    }
 		  },
 		  "env": {
 		    "vars": []
@@ -539,8 +561,8 @@ mod tests {
 		let subdir = root.join("subdir");
 		fs::create_dir_all(&subdir)?;
 
-		// Parent config defines a relative path
-		// "libs" should be resolved relative to `root`
+		// Parent config defines a remote path
+		// remote_root is a remote SSH path, so it should NOT be resolved locally
 		fs::write(
 			root.join("biwa.toml"),
 			r#"
@@ -559,16 +581,13 @@ host = "child"
 		)?;
 
 		// Load config from subdir
-		// Expected: remote_root should be root/libs
-		// Actual (bug): remote_root is subdir/libs because it resolves relative to the innermost config root
 		let config = Config::load_internal(None, None, Some(&subdir))?;
 
-		let expected_path = root.join("libs");
-
-		// This assertion will fail if the bug exists
+		// remote_root should remain as the raw value from the config file
 		assert_eq!(
-			config.sync.remote_root, expected_path,
-			"remote_root should be resolved relative to the config file that defined it"
+			config.sync.remote_root,
+			PathBuf::from("libs"),
+			"remote_root is a remote SSH path and should not be resolved locally"
 		);
 		Ok(())
 	}
@@ -581,8 +600,7 @@ host = "child"
 		let dot_config = project.join(".config");
 		fs::create_dir_all(&dot_config)?;
 
-		// Local config in .config/biwa.toml should use the project root (`project`)
-		// as its config root, not the .config directory itself.
+		// remote_root is a remote SSH path, so it should NOT be resolved locally
 		fs::write(
 			dot_config.join("biwa.toml"),
 			r#"
@@ -593,10 +611,10 @@ remote_root = "libs"
 
 		let config = Config::load_internal(None, None, Some(&project))?;
 
-		let expected_path = project.join("libs");
 		assert_eq!(
-			config.sync.remote_root, expected_path,
-			"remote_root from .config/biwa.toml should be resolved relative to the project root"
+			config.sync.remote_root,
+			PathBuf::from("libs"),
+			"remote_root is a remote SSH path and should not be resolved locally"
 		);
 		Ok(())
 	}
@@ -610,7 +628,7 @@ remote_root = "libs"
 		fs::create_dir_all(&home)?;
 		fs::create_dir_all(config_home.join("biwa"))?;
 
-		// Global config at ~/biwa.toml
+		// Global config at ~/biwa.toml — remote_root is a remote path, should not be resolved locally
 		fs::write(
 			home.join("biwa.toml"),
 			r#"
@@ -622,8 +640,8 @@ remote_root = "global_libs"
 		let config = Config::load_internal(Some(&home), Some(&config_home), None)?;
 		assert_eq!(
 			config.sync.remote_root,
-			home.join("global_libs"),
-			"global remote_root from ~/biwa.toml should be resolved relative to ~"
+			PathBuf::from("global_libs"),
+			"remote_root is a remote SSH path and should not be resolved locally"
 		);
 
 		// Only one global config is allowed; remove the home config before testing the XDG variant.
@@ -641,8 +659,8 @@ remote_root = "xdg_libs"
 		let config = Config::load_internal(Some(&home), Some(&config_home), None)?;
 		assert_eq!(
 			config.sync.remote_root,
-			home.join("xdg_libs"),
-			"global remote_root from ~/.config/biwa/config.toml should be resolved relative to ~"
+			PathBuf::from("xdg_libs"),
+			"remote_root is a remote SSH path and should not be resolved locally"
 		);
 		Ok(())
 	}
