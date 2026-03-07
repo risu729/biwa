@@ -128,9 +128,9 @@ pub struct SyncConfig {
 	/// Remote directory to sync the project to.
 	#[config(default = "~/.cache/biwa/projects", env = "BIWA_SYNC_REMOTE_ROOT")]
 	pub remote_root: PathBuf,
-	/// Files and directories to ignore during synchronization.
-	#[config(default = [".git", "target", "node_modules"])]
-	pub ignore_files: Vec<PathBuf>,
+	/// Files and directories to exclude during synchronization using globset patterns.
+	#[config(default = ["**/.git/**", "**/target/**", "**/node_modules/**"])]
+	pub exclude: Vec<String>,
 	/// The synchronization engine to use.
 	#[config(default = "sftp", env = "BIWA_SYNC_ENGINE")]
 	pub engine: SyncEngine,

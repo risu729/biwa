@@ -110,15 +110,18 @@ fn hash_file(path: &Path) -> Result<String> {
 /// Collects local files from the project root, respecting ignore rules.
 pub(super) fn collect_local_files(
 	root: &Path,
-	extra_ignores: &[PathBuf],
+	config_exclude: &[String],
 	options: &Options,
 ) -> Result<Vec<LocalFile>> {
 	let mut builder = WalkBuilder::new(root);
 	builder.standard_filters(true); // .gitignore, .ignore, etc.
+	builder.add_custom_ignore_filename(".biwaignore");
 	builder.hidden(false); // Include hidden files (e.g. .env, .gitignore)
 	builder.require_git(false); // Respect .gitignore even outside of git repositories
 
-	let exclude_globs = build_globset(&options.exclude)?;
+	let mut combined_exclude = config_exclude.to_vec();
+	combined_exclude.extend_from_slice(&options.exclude);
+	let exclude_globs = build_globset(&combined_exclude)?;
 	let include_globs = build_globset(&options.include)?;
 
 	let mut result = Vec::new();
@@ -127,28 +130,18 @@ pub(super) fn collect_local_files(
 		let path = entry.path();
 		if path.is_file() {
 			let relative = path.strip_prefix(root).wrap_err("Failed to strip prefix")?;
-
-			let mut ignored = false;
-			for ignore_path in extra_ignores {
-				if relative.starts_with(ignore_path) || relative == ignore_path {
-					ignored = true;
-					break;
-				}
-			}
-			if ignored {
-				continue;
-			}
+			let absolute_str = path.to_string_lossy().replace('\\', "/");
 
 			if exclude_globs
 				.as_ref()
-				.is_some_and(|set| set.is_match(relative))
+				.is_some_and(|set| set.is_match(&absolute_str))
 			{
 				continue;
 			}
 
 			if include_globs
 				.as_ref()
-				.is_some_and(|set| !set.is_match(relative))
+				.is_some_and(|set| !set.is_match(&absolute_str))
 			{
 				continue;
 			}
@@ -421,9 +414,9 @@ pub async fn sync_project(
 
 	let local_files = {
 		let project_root = project_root.to_path_buf();
-		let ignore_files = config.sync.ignore_files.clone();
+		let exclude = config.sync.exclude.clone();
 		let options = options.clone();
-		spawn_blocking(move || collect_local_files(&project_root, &ignore_files, &options))
+		spawn_blocking(move || collect_local_files(&project_root, &exclude, &options))
 			.await
 			.wrap_err("Failed to join blocking task")??
 	};

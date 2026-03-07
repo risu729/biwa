@@ -62,10 +62,10 @@ expression: content
 # Default value: "~/.cache/biwa/projects"
 #remote_root = "~/.cache/biwa/projects"
 
-# Files and directories to ignore during synchronization.
+# Files and directories to exclude during synchronization using globset patterns.
 #
-# Default value: [".git", "target", "node_modules"]
-#ignore_files = [".git", "target", "node_modules"]
+# Default value: ["**/.git/**", "**/target/**", "**/node_modules/**"]
+#exclude = ["**/.git/**", "**/target/**", "**/node_modules/**"]
 
 # The synchronization engine to use.
 #

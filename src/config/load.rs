@@ -128,6 +128,17 @@ impl Config {
 		};
 
 		resolve(&mut partial.ssh.key_path);
+
+		if let Some(exclude_list) = &mut partial.sync.exclude {
+			let root_str = root.display().to_string().replace('\\', "/");
+			let root_str = root_str.trim_end_matches('/');
+			for glob in exclude_list {
+				if !glob.starts_with('/') {
+					*glob = format!("{root_str}/{}", glob.trim_start_matches('/'));
+				}
+			}
+		}
+
 		// NOTE: remote_root is intentionally NOT resolved here because it is a remote SSH path.
 		// Tilde expansion and relative path resolution should happen on the remote server, not locally.
 	}
@@ -268,10 +279,10 @@ mod tests {
 		    "auto": true,
 		    "sync_root": null,
 		    "remote_root": "~/.cache/biwa/projects",
-		    "ignore_files": [
-		      ".git",
-		      "target",
-		      "node_modules"
+		    "exclude": [
+		      "**/.git/**",
+		      "**/target/**",
+		      "**/node_modules/**"
 		    ],
 		    "engine": "sftp",
 		    "sftp": {

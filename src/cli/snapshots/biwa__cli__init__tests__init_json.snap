@@ -25,10 +25,10 @@ expression: content
   "sync": {
     "auto": true,
     "engine": "sftp",
-    "ignore_files": [
-      ".git",
-      "target",
-      "node_modules"
+    "exclude": [
+      "**/.git/**",
+      "**/target/**",
+      "**/node_modules/**"
     ],
     "remote_root": "~/.cache/biwa/projects",
     "sftp": {

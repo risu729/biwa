@@ -36,15 +36,31 @@ impl SyncArgs {
 			.or_else(|| config.sync.sync_root.clone())
 			.map_or_else(env::current_dir, Ok)?)
 	}
-}
 
-impl From<SyncArgs> for Options {
-	fn from(val: SyncArgs) -> Self {
-		Self {
-			force: val.force,
-			exclude: val.exclude,
-			include: val.include,
+	pub fn resolve_options(&self) -> Result<Options> {
+		let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+		let cwd_str = cwd.display().to_string().replace('\\', "/");
+		let cwd_str = cwd_str.trim_end_matches('/');
+
+		let mut exclude = self.exclude.clone();
+		for e in &mut exclude {
+			if !e.starts_with('/') {
+				*e = format!("{cwd_str}/{}", e.trim_start_matches('/'));
+			}
 		}
+
+		let mut include = self.include.clone();
+		for i in &mut include {
+			if !i.starts_with('/') {
+				*i = format!("{cwd_str}/{}", i.trim_start_matches('/'));
+			}
+		}
+
+		Ok(Options {
+			force: self.force,
+			exclude,
+			include,
+		})
 	}
 }
 
@@ -61,7 +77,8 @@ impl Sync {
 	/// Run the sync logic.
 	pub async fn run(self, config: &Config, quiet: bool) -> Result<()> {
 		let sync_root = self.sync_args.resolve_sync_root(config)?;
-		sync_project(config, &sync_root, &self.sync_args.into(), quiet).await?;
+		let options = self.sync_args.resolve_options()?;
+		sync_project(config, &sync_root, &options, quiet).await?;
 		Ok(())
 	}
 }

@@ -29,7 +29,8 @@ impl Run {
 	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
 		if config.sync.auto && !self.no_sync {
 			let sync_root = self.sync_args.resolve_sync_root(config)?;
-			sync_project(config, &sync_root, &self.sync_args.into(), quiet).await?;
+			let options = self.sync_args.resolve_options()?;
+			sync_project(config, &sync_root, &options, quiet).await?;
 		}
 		execute_command(config, &self.command, &self.command_args, quiet, silent).await?;
 		Ok(())

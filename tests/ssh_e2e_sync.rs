@@ -231,6 +231,71 @@ fn e2e_sync_ignore_gitignore() -> Result<()> {
 
 #[test]
 #[ignore = "requires running SSH server"]
+fn e2e_sync_ignore_biwaignore() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join(".biwaignore"), ".env\n")?;
+	fs::write(dir.path().join(".env"), "SECRET=val")?;
+	fs::write(dir.path().join("main.rs"), "fn main() {}")?;
+
+	let output = biwa_cmd(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("2 uploaded"), "stderr: {stderr}"); // main.rs and .biwaignore
+	Ok(())
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_exclude_globset() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let tests_dir = dir.path().join("tests");
+	fs::create_dir_all(&tests_dir)?;
+	fs::write(tests_dir.join("a.txt"), "a")?;
+	fs::write(dir.path().join("b.txt"), "b")?;
+
+	// Exclude tests directory relative to current cwd
+	let output = biwa_cmd(&["sync", "--exclude", "tests/**"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}"); // Only b.txt
+	Ok(())
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_exclude_config() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(
+		dir.path().join("biwa.toml"),
+		"sync.exclude = [\"secret_*.txt\"]\n",
+	)?;
+	fs::write(dir.path().join("secret_a.txt"), "a")?;
+	fs::write(dir.path().join("public.txt"), "b")?;
+
+	let output = biwa_cmd(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("2 uploaded"), "stderr: {stderr}"); // biwa.toml and public.txt
+	Ok(())
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
 fn e2e_sync_force() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("file.txt"), "content")?;
