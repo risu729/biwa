@@ -528,13 +528,21 @@ fn e2e_sync_existing_dir_permissions() -> Result<()> {
 	// 1. Manually create the remote directory with 0755 permissions
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 	let remote_sub_dir = format!("{remote_proj_dir}/preexisting");
-	
+
 	// Ensure the base directory is created first and then the sub_dir with 0755
-	biwa_cmd_tilde(&["run", "sh", "-c", &format!("mkdir -p {remote_proj_dir} && mkdir -m 0755 {remote_sub_dir}")], dir.path())
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
+	biwa_cmd_tilde(
+		&[
+			"run",
+			"sh",
+			"-c",
+			&format!("mkdir -p {remote_proj_dir} && mkdir -m 0755 {remote_sub_dir}"),
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
 
 	// 2. Sync the project
 	let output = biwa_cmd_tilde(&["sync"], dir.path())
@@ -552,10 +560,17 @@ fn e2e_sync_existing_dir_permissions() -> Result<()> {
 		.stderr_capture()
 		.unchecked()
 		.run()?;
-		
+
 	let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
-	assert!(ls_output.status.success(), "ls failed for {remote_sub_dir}: {ls_stdout}\nstderr: {}", String::from_utf8_lossy(&ls_output.stderr));
-	assert!(ls_stdout.contains("drwx------"), "Pre-existing directory {remote_sub_dir} was not corrected to 0700 permissions. ls output: {ls_stdout}");
+	assert!(
+		ls_output.status.success(),
+		"ls failed for {remote_sub_dir}: {ls_stdout}\nstderr: {}",
+		String::from_utf8_lossy(&ls_output.stderr)
+	);
+	assert!(
+		ls_stdout.contains("drwx------"),
+		"Pre-existing directory {remote_sub_dir} was not corrected to 0700 permissions. ls output: {ls_stdout}"
+	);
 
 	// 4. Verify the project root itself was corrected to 0700
 	let ls_root_output = biwa_cmd_tilde(&["run", "ls", "-ld", &remote_proj_dir], dir.path())
@@ -563,9 +578,12 @@ fn e2e_sync_existing_dir_permissions() -> Result<()> {
 		.stderr_capture()
 		.unchecked()
 		.run()?;
-		
+
 	let ls_root_stdout = String::from_utf8_lossy(&ls_root_output.stdout);
-	assert!(ls_root_stdout.contains("drwx------"), "Project root {remote_proj_dir} was not corrected to 0700 permissions. ls output: {ls_root_stdout}");
+	assert!(
+		ls_root_stdout.contains("drwx------"),
+		"Project root {remote_proj_dir} was not corrected to 0700 permissions. ls output: {ls_root_stdout}"
+	);
 
 	Ok(())
 }
