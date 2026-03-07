@@ -105,6 +105,7 @@ pub(super) fn collect_local_files(
 ) -> Result<Vec<LocalFile>> {
 	let mut builder = WalkBuilder::new(root);
 	builder.standard_filters(true); // .gitignore, .ignore, etc.
+	builder.hidden(false); // Include hidden files (e.g. .env, .gitignore)
 	builder.require_git(false); // Respect .gitignore even outside of git repositories
 
 	let exclude_globs = build_globset(&options.exclude)?;
@@ -531,12 +532,13 @@ mod tests {
 			.iter()
 			.map(|f| f.path.to_string_lossy().to_string())
 			.collect();
+		assert!(names.contains(&".gitignore".to_owned()));
 		assert!(!names.contains(&"ignored.txt".to_owned()));
 		assert!(names.contains(&"kept.txt".to_owned()));
 	}
 
 	#[test]
-	fn collect_local_files_ignores_hidden() {
+	fn collect_local_files_includes_hidden() {
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join(".hidden"), "hidden content").unwrap();
 		fs::write(dir.path().join("visible.txt"), "visible content").unwrap();
@@ -546,9 +548,10 @@ mod tests {
 			.iter()
 			.map(|f| f.path.to_string_lossy().to_string())
 			.collect();
-		assert!(!names.contains(&".hidden".to_owned()));
+		assert!(names.contains(&".hidden".to_owned()));
 		assert!(names.contains(&"visible.txt".to_owned()));
 	}
+
 	#[test]
 	fn parse_remote_hashes_traversal() {
 		let output = "hash1  ./valid/path.txt\nhash2  ./../invalid/path.txt\nhash3  valid2.txt";
