@@ -594,7 +594,9 @@ fn e2e_sync_remote_dir() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("hello.txt"), "remote dir test")?;
 
-	let remote_dir_path = "/tmp/biwa_test_remote_dir";
+	let test_id = dir.path().file_name().unwrap().to_string_lossy();
+	let remote_dir_path_string = format!("/tmp/biwa_test_remote_dir_{test_id}");
+	let remote_dir_path = remote_dir_path_string.as_str();
 	let output = biwa_cmd(&["sync", "-d", remote_dir_path], dir.path())
 		.stdout_capture()
 		.stderr_capture()
@@ -640,7 +642,9 @@ fn e2e_sync_remote_dir_tilde() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("hello.txt"), "tilde test")?;
 
-	let remote_dir_path = "~/biwa_test_tilde";
+	let test_id = dir.path().file_name().unwrap().to_string_lossy();
+	let remote_dir_path_string = format!("~/biwa_test_tilde_{test_id}");
+	let remote_dir_path = remote_dir_path_string.as_str();
 	let output = biwa_cmd(&["sync", "-d", remote_dir_path], dir.path())
 		.stdout_capture()
 		.stderr_capture()
