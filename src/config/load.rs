@@ -132,7 +132,7 @@ impl Config {
 
 		if let Some(exclude_list) = &mut partial.sync.exclude {
 			let root = canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
-			let root_str = root.display().to_string().replace('\\', "/");
+			let root_str = root.to_string_lossy().into_owned();
 			let root_str = root_str.trim_end_matches('/');
 			for glob in exclude_list {
 				if !glob.starts_with('/') {
@@ -797,7 +797,7 @@ exclude = ["relative/path", "/absolute/path"]
 		let partial = Config::load_partial(&path, ConfigFormat::Toml, dir.path())?;
 
 		let expected_root = canonicalize(dir.path()).unwrap_or_else(|_| dir.path().to_path_buf());
-		let expected_root = expected_root.display().to_string().replace('\\', "/");
+		let expected_root = expected_root.to_string_lossy().into_owned();
 		let expected_root = expected_root.trim_end_matches('/');
 
 		let exclude = partial.sync.exclude.expect("exclude should be parsed");

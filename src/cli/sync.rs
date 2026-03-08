@@ -47,7 +47,7 @@ impl SyncArgs {
 	pub fn resolve_options(&self) -> Options {
 		let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 		let cwd = canonicalize(&cwd).unwrap_or(cwd);
-		let cwd_str = cwd.display().to_string().replace('\\', "/");
+		let cwd_str = cwd.to_string_lossy().into_owned();
 		let cwd_str = cwd_str.trim_end_matches('/');
 
 		let make_absolute = |p: &String| {
@@ -103,7 +103,7 @@ mod tests {
 	fn resolve_options_absolute_paths() {
 		let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 		let cwd = canonicalize(&cwd).unwrap_or(cwd);
-		let cwd_str = cwd.display().to_string().replace('\\', "/");
+		let cwd_str = cwd.to_string_lossy().into_owned();
 		let cwd_str = cwd_str.trim_end_matches('/');
 
 		let args = SyncArgs {

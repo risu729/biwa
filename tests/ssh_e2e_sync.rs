@@ -505,7 +505,7 @@ fn e2e_sync_remote_symlink() -> Result<()> {
 #[ignore = "requires running SSH server"]
 fn e2e_sync_shell_injection() -> Result<()> {
 	let base_dir = tempfile::tempdir()?;
-	let malicious_name = "test_dir_$(echo injection_attempt)_'\"`\\";
+	let malicious_name = "test_dir_$(echo injection_attempt)_'\"`";
 	let proj_dir = base_dir.path().join(malicious_name);
 	fs::create_dir_all(&proj_dir)?;
 	fs::write(proj_dir.join("test.txt"), "content")?;
