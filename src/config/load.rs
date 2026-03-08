@@ -793,7 +793,7 @@ exclude = ["relative/path", "/absolute/path"]
 		)?;
 
 		let partial = Config::load_partial(&path, ConfigFormat::Toml, dir.path())?;
-		
+
 		let expected_root = dir.path().display().to_string().replace('\\', "/");
 		let expected_root = expected_root.trim_end_matches('/');
 
