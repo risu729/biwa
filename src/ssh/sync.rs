@@ -5,6 +5,7 @@ use crate::ui::create_spinner;
 use async_ssh2_tokio::client::Client;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
 use console::style;
+use gethostname::gethostname;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use indicatif::ProgressBar;
@@ -200,7 +201,7 @@ pub(super) fn compute_remote_path(
 	path
 }
 
-/// Computes a unique project name based on the project root's canonical path.
+/// Computes a unique project name based on the hostname and project root's canonical path.
 fn compute_unique_project_name(project_root: &Path) -> Result<String> {
 	let project_name = project_root
 		.file_name()
@@ -208,8 +209,11 @@ fn compute_unique_project_name(project_root: &Path) -> Result<String> {
 		.to_string_lossy()
 		.into_owned();
 
-	// Create a unique hash based on the absolute path to prevent collisions between projects with the same name
+	// Create a unique hash based on the hostname and absolute path to prevent
+	// collisions between projects with the same name across machines.
 	let mut hasher = Sha256::new();
+	hasher.update(gethostname().to_string_lossy().as_bytes());
+	hasher.update([0]);
 	hasher.update(
 		project_root
 			.canonicalize()
