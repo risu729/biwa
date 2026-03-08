@@ -73,8 +73,8 @@ fn build_command(command: &str, args: &[String]) -> String {
 /// unless `silent` is set.
 ///
 /// If `working_dir` is set, the command is executed after `cd`-ing into that
-/// directory. If the directory does not exist, `cd` fails silently and the
-/// command runs from the default home directory.
+/// directory. If the directory does not exist, the command will fail
+/// without executing.
 async fn run_command(
 	client: &Client,
 	full_command: &str,
@@ -86,7 +86,7 @@ async fn run_command(
 		|| full_command.to_owned(),
 		|dir| {
 			let quoted_dir = shell_quote_path(dir);
-			format!("cd {quoted_dir} 2>/dev/null; {full_command}")
+			format!("cd {quoted_dir} && {full_command}")
 		},
 	);
 	debug!(command = %effective_command, "Executing remote command");
