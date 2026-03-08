@@ -799,8 +799,11 @@ exclude = ["relative/path", "/absolute/path"]
 
 		let exclude = partial.sync.exclude.expect("exclude should be parsed");
 		assert_eq!(exclude.len(), 2);
-		assert_eq!(exclude[0], format!("{}/relative/path", expected_root));
-		assert_eq!(exclude[1], "/absolute/path");
+		assert_eq!(
+			exclude.first(),
+			Some(&format!("{expected_root}/relative/path"))
+		);
+		assert_eq!(exclude.get(1), Some(&"/absolute/path".to_owned()));
 
 		Ok(())
 	}
