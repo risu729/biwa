@@ -18,7 +18,7 @@ The arguments for the command
 
 ## Flags
 
-### `--no-sync`
+### `--skip-sync`
 
 Skip automatic synchronization before running the command (automatically set if --remote-dir is used)
 

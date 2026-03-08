@@ -11,7 +11,7 @@ flag "-s --silent" help="Suppress all output, including remote command stdout/st
 arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true
 cmd run help="Run commands on remote host" {
     alias r
-    flag --no-sync help="Skip automatic synchronization before running the command (automatically set if --remote-dir is used)"
+    flag --skip-sync help="Skip automatic synchronization before running the command (automatically set if --remote-dir is used)"
     flag --sync help="Force automatic synchronization before running the command"
     flag --sync-root help="Base directory to start the synchronization from. Overrides the current working directory" {
         arg <SYNC_ROOT>
