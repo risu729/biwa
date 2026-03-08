@@ -153,7 +153,7 @@ pub(super) fn collect_local_files(
 		let path = entry.path();
 		if path.is_file() {
 			let relative = path.strip_prefix(root).wrap_err("Failed to strip prefix")?;
-			let absolute_str = path.to_string_lossy().replace('\\', "/");
+			let absolute_str = path.to_string_lossy().into_owned();
 
 			if exclude_globs
 				.as_ref()
@@ -169,10 +169,9 @@ pub(super) fn collect_local_files(
 				continue;
 			}
 
-			let hash = hash_file(path)?;
 			result.push(LocalFile {
 				path: relative.to_path_buf(),
-				hash,
+				hash: hash_file(path)?,
 			});
 		}
 	}
