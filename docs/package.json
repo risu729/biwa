@@ -13,7 +13,7 @@
 		"typescript": "6.0.0-dev.20260305",
 		"vitepress": "2.0.0-alpha.16",
 		"vitepress-plugin-mermaid": "2.0.17",
-		"vue-tsc": "3.2.4",
+		"vue-tsc": "3.2.5",
 		"wrangler": "4.66.0"
 	},
 	"overrides": {
