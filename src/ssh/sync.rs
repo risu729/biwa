@@ -138,8 +138,11 @@ pub(super) fn collect_local_files(
 	builder.hidden(false); // Include hidden files (e.g. .env, .gitignore)
 	builder.require_git(false); // Respect .gitignore even outside of git repositories
 
-	let mut combined_exclude = config_exclude.to_vec();
-	combined_exclude.extend_from_slice(&options.exclude);
+	let combined_exclude = config_exclude
+		.iter()
+		.chain(options.exclude.iter())
+		.map(ToString::to_string)
+		.collect::<Vec<_>>();
 	let exclude_globs = build_globset(&combined_exclude)?;
 	let include_globs = build_globset(&options.include)?;
 
