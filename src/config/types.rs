@@ -68,6 +68,9 @@ pub struct SshConfig {
 	/// Password authentication: `false` (default), `true` (prompt), or a string value.
 	#[config(default = false, env = "BIWA_SSH_PASSWORD")]
 	pub password: PasswordConfig,
+	/// Umask to apply before executing commands.
+	#[config(default = "077", env = "BIWA_SSH_UMASK")]
+	pub umask: String,
 }
 
 /// Logging configuration settings.

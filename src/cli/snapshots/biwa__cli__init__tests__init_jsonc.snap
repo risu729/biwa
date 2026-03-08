@@ -39,6 +39,13 @@ expression: content
     //
     // Default value: false
     //"password": false,
+
+    // Umask to apply before executing commands.
+    //
+    // Can also be specified via environment variable `BIWA_SSH_UMASK`.
+    //
+    // Default value: "077"
+    //"umask": "077",
   },
 
   // Remote synchronization configuration.

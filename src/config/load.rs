@@ -273,7 +273,8 @@ mod tests {
 		    "port": 22,
 		    "user": "z1234567",
 		    "key_path": null,
-		    "password": false
+		    "password": false,
+		    "umask": "077"
 		  },
 		  "sync": {
 		    "auto": true,

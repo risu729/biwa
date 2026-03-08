@@ -79,14 +79,15 @@ async fn run_command(
 	client: &Client,
 	full_command: &str,
 	working_dir: Option<&str>,
+	umask: &str,
 	quiet: bool,
 	silent: bool,
 ) -> Result<u32> {
 	let effective_command = working_dir.map_or_else(
-		|| full_command.to_owned(),
+		|| format!("umask {umask} && {full_command}"),
 		|dir| {
 			let quoted_dir = shell_quote_path(dir);
-			format!("cd {quoted_dir} && {full_command}")
+			format!("umask {umask} && cd {quoted_dir} && {full_command}")
 		},
 	);
 	debug!(command = %effective_command, "Executing remote command");
@@ -162,7 +163,15 @@ pub async fn execute_command(
 ) -> Result<u32> {
 	let client = connect(config, quiet || silent).await?;
 	let full_command = build_command(command, args);
-	run_command(&client, &full_command, working_dir, quiet, silent).await
+	run_command(
+		&client,
+		&full_command,
+		working_dir,
+		&config.ssh.umask,
+		quiet,
+		silent,
+	)
+	.await
 }
 
 #[cfg(test)]
