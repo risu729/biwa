@@ -141,6 +141,10 @@
           "maximum": 65535,
           "minimum": 0
         },
+        "umask": {
+          "description": "Umask to apply before executing commands.",
+          "type": "string"
+        },
         "user": {
           "description": "Username for the SSH connection.",
           "type": "string"
@@ -150,7 +154,8 @@
         "host",
         "port",
         "user",
-        "password"
+        "password",
+        "umask"
       ]
     },
     "SyncConfig": {
