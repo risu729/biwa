@@ -113,7 +113,7 @@ mod tests {
 	fn should_sync() {
 		#[expect(
 			clippy::unreachable,
-			reason = "panicking is acceptable in test helpers"
+			reason = "unreachable is acceptable in test helpers"
 		)]
 		let parse_run = |args: &[&str]| -> super::Run {
 			let cli = Cli::parse_from(args);
