@@ -161,26 +161,26 @@ fn e2e_sync_permissions(
 	let dir = tempfile::tempdir()?;
 	let dir_path = dir.path().join("subdir");
 	fs::create_dir_all(&dir_path)?;
-	
+
 	let secret_path = dir_path.join("secret.txt");
 	fs::write(&secret_path, "secret")?;
 
 	// Create an executable file
 	let script_path = dir_path.join("script.sh");
 	fs::write(&script_path, "#!/bin/sh\necho hi")?;
-	
+
 	let group_path = dir_path.join("group.txt");
 	fs::write(&group_path, "group")?;
 
 	#[cfg(unix)]
 	{
 		use std::os::unix::fs::PermissionsExt as _;
-		
+
 		// 0775 for subdir
 		let mut perms = fs::metadata(&dir_path)?.permissions();
 		perms.set_mode(0o775);
 		fs::set_permissions(&dir_path, perms)?;
-		
+
 		// 0644 for secret.txt (to verify permissive umask doesn't add perms)
 		let mut perms = fs::metadata(&secret_path)?.permissions();
 		perms.set_mode(0o644);
@@ -202,13 +202,13 @@ fn e2e_sync_permissions(
 		cmd = cmd.env("BIWA_SSH_UMASK", u);
 	}
 
-	let output = cmd
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
+	let output = cmd.stdout_capture().stderr_capture().unchecked().run()?;
 
-	assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+	assert!(
+		output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
 
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 	let remote_dir = format!("{remote_proj_dir}/subdir");
@@ -244,7 +244,7 @@ fn e2e_sync_permissions(
 		ls_script_stdout.contains(expected_script),
 		"script stdout: {ls_script_stdout}"
 	);
-	
+
 	let remote_group = format!("{remote_dir}/group.txt");
 	let ls_group_output = biwa_cmd_tilde(&["run", "ls", "-l", &remote_group], dir.path())
 		.stdout_capture()
