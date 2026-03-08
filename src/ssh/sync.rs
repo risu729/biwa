@@ -14,6 +14,7 @@ use sha2::{Digest as _, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use tokio::fs::{File as AsyncFile, metadata};
