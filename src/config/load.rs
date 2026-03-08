@@ -778,4 +778,30 @@ remote_root = "xdg_libs"
 		assert!(result.is_ok(), "Failed to parse valid JSON5");
 		Ok(())
 	}
+
+	#[serial]
+	#[test]
+	fn sync_exclude_resolution() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let path = dir.path().join("config.toml");
+		fs::write(
+			&path,
+			r#"
+[sync]
+exclude = ["relative/path", "/absolute/path"]
+"#,
+		)?;
+
+		let partial = Config::load_partial(&path, ConfigFormat::Toml, dir.path())?;
+		
+		let expected_root = dir.path().display().to_string().replace('\\', "/");
+		let expected_root = expected_root.trim_end_matches('/');
+
+		let exclude = partial.sync.exclude.expect("exclude should be parsed");
+		assert_eq!(exclude.len(), 2);
+		assert_eq!(exclude[0], format!("{}/relative/path", expected_root));
+		assert_eq!(exclude[1], "/absolute/path");
+
+		Ok(())
+	}
 }
