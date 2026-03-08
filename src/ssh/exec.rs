@@ -73,8 +73,7 @@ fn build_command(command: &str, args: &[String]) -> String {
 /// unless `silent` is set.
 ///
 /// If `working_dir` is set, the command is executed after `cd`-ing into that
-/// directory. If the directory does not exist, the command will fail
-/// without executing.
+/// directory. If the directory does not exist, it will be created first.
 async fn run_command(
 	client: &Client,
 	full_command: &str,
@@ -87,7 +86,7 @@ async fn run_command(
 		|| format!("umask {umask} && {full_command}"),
 		|dir| {
 			let quoted_dir = shell_quote_path(dir);
-			format!("umask {umask} && cd {quoted_dir} && {full_command}")
+			format!("umask {umask} && mkdir -p -- {quoted_dir} && cd {quoted_dir} && {full_command}")
 		},
 	);
 	debug!(command = %effective_command, "Executing remote command");
