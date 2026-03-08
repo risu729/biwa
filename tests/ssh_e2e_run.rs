@@ -11,7 +11,7 @@ use common::{Result, biwa_cmd};
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_command() -> Result<()> {
-	let output = biwa_cmd(&["run", "--no-sync", "echo", "hello e2e from biwa"])
+	let output = biwa_cmd(&["run", "--skip-sync", "echo", "hello e2e from biwa"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
 		.stderr_capture()
@@ -30,7 +30,7 @@ fn e2e_run_command() -> Result<()> {
 fn e2e_run_stdout_stderr() -> Result<()> {
 	let output = biwa_cmd(&[
 		"run",
-		"--no-sync",
+		"--skip-sync",
 		"--",
 		"bash",
 		"-c",
@@ -56,7 +56,7 @@ fn e2e_run_stdout_stderr() -> Result<()> {
 fn e2e_run_streaming() -> Result<()> {
 	let mut reader = biwa_cmd(&[
 		"run",
-		"--no-sync",
+		"--skip-sync",
 		"--",
 		"bash",
 		"-c",
@@ -85,7 +85,7 @@ fn e2e_run_streaming() -> Result<()> {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_quiet() -> Result<()> {
-	let output = biwa_cmd(&["--quiet", "run", "--no-sync", "echo", "hello quiet"])
+	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "echo", "hello quiet"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -106,7 +106,7 @@ fn e2e_run_quiet() -> Result<()> {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_silent() -> Result<()> {
-	let output = biwa_cmd(&["--silent", "run", "--no-sync", "echo", "hello silent"])
+	let output = biwa_cmd(&["--silent", "run", "--skip-sync", "echo", "hello silent"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -124,7 +124,7 @@ fn e2e_run_silent() -> Result<()> {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_exit_code() -> Result<()> {
-	let output = biwa_cmd(&["run", "--no-sync", "--", "bash", "-c", "exit 42"])
+	let output = biwa_cmd(&["run", "--skip-sync", "--", "bash", "-c", "exit 42"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stderr_capture()
 		.unchecked()
@@ -160,7 +160,7 @@ fn e2e_run_remote_dir() -> Result<()> {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_remote_dir_tilde() -> Result<()> {
-	let home_output = biwa_cmd(&["run", "--no-sync", "sh", "-c", "echo $HOME"])
+	let home_output = biwa_cmd(&["run", "--skip-sync", "sh", "-c", "echo $HOME"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
 		.stderr_capture()

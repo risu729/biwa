@@ -34,7 +34,7 @@ _Example_: running `biwa sync --exclude "tests/**"` from a subdirectory will cor
 
 When running `biwa run`, commands execute inside the synced project directory on the remote server, not in the home directory. This means `pwd` will output the synced project path (e.g. `~/.cache/biwa/projects/myproject-a1b2c3d4`).
 
-If the synced directory does not exist (e.g. with `--no-sync` on a fresh server), it will be created automatically before the command runs.
+If the synced directory does not exist (e.g. with `--skip-sync` on a fresh server), it will be created automatically before the command runs.
 
 ### Overriding with `--remote-dir`
 
@@ -55,4 +55,4 @@ biwa run -d /tmp/my-project --sync ls
 ```
 
 When used with `biwa sync`, `--remote-dir` replaces the automatically computed `remote_root + project_name` path.
-To prevent accidental data overwrites when executing standard commands across different remote paths, **using `-d` with `biwa run` automatically disables project synchronization (`--no-sync`)**. If you want to sync your project to a custom directory and run a command there in one step, you must explicitly pass the `--sync` flag.
+To prevent accidental data overwrites when executing standard commands across different remote paths, **using `-d` with `biwa run` automatically disables project synchronization (`--skip-sync`)**. If you want to sync your project to a custom directory and run a command there in one step, you must explicitly pass the `--sync` flag.

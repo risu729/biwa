@@ -627,7 +627,7 @@ fn e2e_sync_remote_dir() -> Result<()> {
 	// Cleanup
 	#[expect(clippy::unused_result_ok, reason = "Cleanup failure is acceptable")]
 	biwa_cmd(
-		&["run", "--no-sync", "rm", "-rf", remote_dir_path],
+		&["run", "--skip-sync", "rm", "-rf", remote_dir_path],
 		dir.path(),
 	)
 	.run()
@@ -673,7 +673,7 @@ fn e2e_sync_remote_dir_tilde() -> Result<()> {
 	assert!(stdout_cat.contains("tilde test"));
 
 	// Check that we didn't create a literal "~" directory
-	let output_test = biwa_cmd(&["run", "--no-sync", "test", "-d", "./~"], dir.path())
+	let output_test = biwa_cmd(&["run", "--skip-sync", "test", "-d", "./~"], dir.path())
 		.unchecked()
 		.run()?;
 	assert!(
@@ -684,7 +684,7 @@ fn e2e_sync_remote_dir_tilde() -> Result<()> {
 	// Cleanup
 	#[expect(clippy::unused_result_ok, reason = "Cleanup failure is acceptable")]
 	biwa_cmd(
-		&["run", "--no-sync", "rm", "-rf", remote_dir_path],
+		&["run", "--skip-sync", "rm", "-rf", remote_dir_path],
 		dir.path(),
 	)
 	.run()

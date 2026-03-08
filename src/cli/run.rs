@@ -13,10 +13,10 @@ use clap::Args;
 pub(super) struct Run {
 	/// Skip automatic synchronization before running the command (automatically set if --remote-dir is used).
 	#[arg(long, overrides_with = "sync")]
-	no_sync: bool,
+	skip_sync: bool,
 
 	/// Force automatic synchronization before running the command.
-	#[arg(long, overrides_with = "no_sync")]
+	#[arg(long, overrides_with = "skip_sync")]
 	sync: bool,
 
 	/// Synchronization options.
@@ -37,7 +37,7 @@ impl Run {
 	const fn should_sync(&self, config_sync_auto: bool) -> bool {
 		if self.sync {
 			true
-		} else if self.no_sync || self.sync_args.remote_dir.is_some() {
+		} else if self.skip_sync || self.sync_args.remote_dir.is_some() {
 			false
 		} else {
 			config_sync_auto
@@ -128,8 +128,8 @@ mod tests {
 		// Default (no flags) with config.sync.auto = false
 		assert!(!parse_run(&["biwa", "run", "ls"]).should_sync(false));
 
-		// --no-sync flag overrides config.sync.auto = true
-		assert!(!parse_run(&["biwa", "run", "--no-sync", "ls"]).should_sync(true));
+		// --skip-sync flag overrides config.sync.auto = true
+		assert!(!parse_run(&["biwa", "run", "--skip-sync", "ls"]).should_sync(true));
 
 		// --sync flag overrides config.sync.auto = false
 		assert!(parse_run(&["biwa", "run", "--sync", "ls"]).should_sync(false));
@@ -141,7 +141,7 @@ mod tests {
 		assert!(parse_run(&["biwa", "run", "-d", "/tmp", "--sync", "ls"]).should_sync(false));
 
 		// Test clap's overrides_with behavior: last flag wins
-		assert!(!parse_run(&["biwa", "run", "--sync", "--no-sync", "ls"]).should_sync(true));
-		assert!(parse_run(&["biwa", "run", "--no-sync", "--sync", "ls"]).should_sync(false));
+		assert!(!parse_run(&["biwa", "run", "--sync", "--skip-sync", "ls"]).should_sync(true));
+		assert!(parse_run(&["biwa", "run", "--skip-sync", "--sync", "ls"]).should_sync(false));
 	}
 }
