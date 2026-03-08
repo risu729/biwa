@@ -829,3 +829,22 @@ fn e2e_sync_remote_file_symlink_overwrite() -> Result<()> {
 
 	Ok(())
 }
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_hidden_file() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join(".secret_config"), "my secret config")?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+	Ok(())
+}
+
