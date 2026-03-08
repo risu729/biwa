@@ -4,9 +4,9 @@
 )]
 #![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
 
-use std::{fs, path::Path};
 use color_eyre::eyre::eyre;
 use common::Result;
+use std::{fs, path::Path};
 
 mod common;
 
