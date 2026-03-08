@@ -732,10 +732,7 @@ fn e2e_sync_remote_file_symlink_overwrite() -> Result<()> {
 		String::from_utf8_lossy(&output.stdout),
 		stderr
 	);
-	assert!(
-		stderr.contains("1 uploaded"),
-		"stderr: {stderr}"
-	);
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
 
 	// Verify the original sensitive file was not overwritten
 	let output_sensitive = biwa_cmd_tilde(
@@ -746,7 +743,10 @@ fn e2e_sync_remote_file_symlink_overwrite() -> Result<()> {
 	.stderr_capture()
 	.run()?;
 	let stdout_sensitive = String::from_utf8_lossy(&output_sensitive.stdout);
-	assert!(stdout_sensitive.contains("secret"), "Sensitive file was overwritten or missing!");
+	assert!(
+		stdout_sensitive.contains("secret"),
+		"Sensitive file was overwritten or missing!"
+	);
 
 	// Verify the synced file is correct
 	let output_synced = biwa_cmd_tilde(
@@ -757,7 +757,10 @@ fn e2e_sync_remote_file_symlink_overwrite() -> Result<()> {
 	.stderr_capture()
 	.run()?;
 	let stdout_synced = String::from_utf8_lossy(&output_synced.stdout);
-	assert!(stdout_synced.contains("overwritten"), "Synced file content is incorrect: {stdout_synced}");
+	assert!(
+		stdout_synced.contains("overwritten"),
+		"Synced file content is incorrect: {stdout_synced}"
+	);
 
 	Ok(())
 }
