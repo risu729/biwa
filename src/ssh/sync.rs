@@ -244,17 +244,19 @@ async fn fetch_remote_hashes(
 	remote_dir: &str,
 ) -> Result<HashMap<String, String>> {
 	let quoted_remote_dir = shell_quote_path(remote_dir);
-	let umask_str = &config.ssh.umask;
-	let umask_val = u32::from_str_radix(umask_str, 8)?;
-	let dir_mode = format!("{:04o}", 0o777 & !umask_val);
+	let dir_mode = format!(
+		"{:04o}",
+		0o777 & !u32::from_str_radix(&config.ssh.umask, 8)?
+	);
 
-	// 1. Create remote dir with target permissions and fetch current hashes
+	// Create remote dir with target permissions and fetch current hashes
 	let script = format!(
-		"umask {umask_str} && mkdir -p -- {quoted_remote_dir} && \
+		"umask {} && mkdir -p -- {quoted_remote_dir} && \
 		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
 		 cd -- {quoted_remote_dir} && \
 		 (find . -type d -exec chmod {dir_mode} {{}} + || true) && \
-		 (find . -type f -exec sha256sum {{}} + || true)"
+		 (find . -type f -exec sha256sum {{}} + || true)",
+		&config.ssh.umask
 	);
 
 	let result = client
@@ -477,8 +479,7 @@ async fn apply_sync_actions(
 			.map(|d| shell_quote_path(&d))
 			.collect::<Vec<_>>()
 			.join(" ");
-		let umask_str = &config.ssh.umask;
-		let mkdir_cmd = format!("umask {umask_str} && mkdir -p -- {mkdirs}");
+		let mkdir_cmd = format!("umask {} && mkdir -p -- {mkdirs}", config.ssh.umask);
 		client
 			.execute(&mkdir_cmd)
 			.await
