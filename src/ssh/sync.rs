@@ -265,9 +265,9 @@ async fn fetch_remote_hashes(
 	if result.exit_status != 0 {
 		let stderr = result.stderr.trim();
 		if stderr.contains("remote directory is a symlink") {
-			color_eyre::eyre::bail!("remote directory is a symlink");
+			bail!("remote directory is a symlink");
 		}
-		color_eyre::eyre::bail!(
+		bail!(
 			"Remote script failed with code {}: {}",
 			result.exit_status,
 			stderr
