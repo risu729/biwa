@@ -6,6 +6,7 @@
 
 use color_eyre::eyre::eyre;
 use common::Result;
+use rstest::rstest;
 use std::{fs, path::Path};
 
 mod common;
@@ -143,32 +144,71 @@ fn e2e_sync_cleaning() -> Result<()> {
 	Ok(())
 }
 
-#[test]
+#[rstest]
+#[case::default(None, "drwx------", "-rw-------", "-rwx------", "-rw-------")]
+#[case::umask_0077(Some("0077"), "drwx------", "-rw-------", "-rwx------", "-rw-------")]
+#[case::umask_0022(Some("0022"), "drwxr-xr-x", "-rw-r--r--", "-rwxr-xr-x", "-rw-r--r--")]
+#[case::umask_0002(Some("0002"), "drwxrwxr-x", "-rw-r--r--", "-rwxr-xr-x", "-rw-rw-r--")]
+#[case::umask_0027(Some("0027"), "drwxr-x---", "-rw-r-----", "-rwxr-x---", "-rw-r-----")]
 #[ignore = "requires running SSH server"]
-fn e2e_sync_permissions() -> Result<()> {
+fn e2e_sync_permissions(
+	#[case] umask: Option<&str>,
+	#[case] expected_dir: &str,
+	#[case] expected_secret: &str,
+	#[case] expected_script: &str,
+	#[case] expected_group: &str,
+) -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let dir_path = dir.path().join("subdir");
 	fs::create_dir_all(&dir_path)?;
-	fs::write(dir_path.join("secret.txt"), "secret")?;
+	
+	let secret_path = dir_path.join("secret.txt");
+	fs::write(&secret_path, "secret")?;
 
 	// Create an executable file
 	let script_path = dir_path.join("script.sh");
 	fs::write(&script_path, "#!/bin/sh\necho hi")?;
+	
+	let group_path = dir_path.join("group.txt");
+	fs::write(&group_path, "group")?;
+
 	#[cfg(unix)]
 	{
 		use std::os::unix::fs::PermissionsExt as _;
+		
+		// 0775 for subdir
+		let mut perms = fs::metadata(&dir_path)?.permissions();
+		perms.set_mode(0o775);
+		fs::set_permissions(&dir_path, perms)?;
+		
+		// 0644 for secret.txt (to verify permissive umask doesn't add perms)
+		let mut perms = fs::metadata(&secret_path)?.permissions();
+		perms.set_mode(0o644);
+		fs::set_permissions(&secret_path, perms)?;
+
+		// 0755 for script.sh
 		let mut perms = fs::metadata(&script_path)?.permissions();
-		perms.set_mode(0o755); // rwxr-xr-x
+		perms.set_mode(0o755);
 		fs::set_permissions(&script_path, perms)?;
+
+		// 0664 for group.txt
+		let mut perms = fs::metadata(&group_path)?.permissions();
+		perms.set_mode(0o664);
+		fs::set_permissions(&group_path, perms)?;
 	}
 
-	let output = biwa_cmd_tilde(&["sync"], dir.path())
+	let mut cmd = biwa_cmd_tilde(&["sync"], dir.path());
+	if let Some(u) = umask {
+		cmd = cmd.env("BIWA_SSH_UMASK", u);
+	}
+
+	let output = cmd
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
 		.run()?;
 
-	assert!(output.status.success());
+	assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
 
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 	let remote_dir = format!("{remote_proj_dir}/subdir");
@@ -179,7 +219,7 @@ fn e2e_sync_permissions() -> Result<()> {
 		.run()?;
 
 	let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
-	assert!(ls_stdout.contains("drwx------"), "stdout: {ls_stdout}");
+	assert!(ls_stdout.contains(expected_dir), "dir stdout: {ls_stdout}");
 
 	let remote_file = format!("{remote_dir}/secret.txt");
 	let ls_file_output = biwa_cmd_tilde(&["run", "ls", "-l", &remote_file], dir.path())
@@ -189,8 +229,8 @@ fn e2e_sync_permissions() -> Result<()> {
 
 	let ls_file_stdout = String::from_utf8_lossy(&ls_file_output.stdout);
 	assert!(
-		ls_file_stdout.contains("-rw-------"),
-		"stdout: {ls_file_stdout}"
+		ls_file_stdout.contains(expected_secret),
+		"secret stdout: {ls_file_stdout}"
 	);
 
 	let remote_script = format!("{remote_dir}/script.sh");
@@ -201,8 +241,20 @@ fn e2e_sync_permissions() -> Result<()> {
 
 	let ls_script_stdout = String::from_utf8_lossy(&ls_script_output.stdout);
 	assert!(
-		ls_script_stdout.contains("-rwx------"),
-		"stdout: {ls_script_stdout}"
+		ls_script_stdout.contains(expected_script),
+		"script stdout: {ls_script_stdout}"
+	);
+	
+	let remote_group = format!("{remote_dir}/group.txt");
+	let ls_group_output = biwa_cmd_tilde(&["run", "ls", "-l", &remote_group], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.run()?;
+
+	let ls_group_stdout = String::from_utf8_lossy(&ls_group_output.stdout);
+	assert!(
+		ls_group_stdout.contains(expected_group),
+		"group stdout: {ls_group_stdout}"
 	);
 	Ok(())
 }
