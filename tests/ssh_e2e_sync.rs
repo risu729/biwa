@@ -847,4 +847,3 @@ fn e2e_sync_hidden_file() -> Result<()> {
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
 	Ok(())
 }
-
