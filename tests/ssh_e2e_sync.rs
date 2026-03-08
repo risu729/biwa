@@ -688,3 +688,76 @@ fn e2e_sync_remote_dir_tilde() -> Result<()> {
 
 	Ok(())
 }
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_sync_remote_file_symlink_overwrite() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+
+	// Create a secondary dummy project just to run setup commands without BIWA trying to CD
+	// into `remote_dir`
+	let setup_dir = tempfile::tempdir()?;
+
+	// Create a dummy dir to point the file symlink to
+	let dummy_dir = format!("{remote_dir}_dummy");
+	biwa_cmd_tilde(
+		&[
+			"run",
+			"sh",
+			"-c",
+			&format!(
+				"mkdir -p {dummy_dir} && echo 'secret' > {dummy_dir}/sensitive.txt && \
+				 mkdir -p {remote_dir} && ln -s {dummy_dir}/sensitive.txt {remote_dir}/test.txt"
+			),
+		],
+		setup_dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.run()?;
+
+	// Now try to run sync, it should succeed and replace the file symlink
+	fs::write(dir.path().join("test.txt"), "overwritten")?;
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(
+		output.status.success(),
+		"Expected success but failed.\nstdout: {}\nstderr: {}",
+		String::from_utf8_lossy(&output.stdout),
+		stderr
+	);
+	assert!(
+		stderr.contains("1 uploaded"),
+		"stderr: {stderr}"
+	);
+
+	// Verify the original sensitive file was not overwritten
+	let output_sensitive = biwa_cmd_tilde(
+		&["run", "cat", &format!("{dummy_dir}/sensitive.txt")],
+		setup_dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.run()?;
+	let stdout_sensitive = String::from_utf8_lossy(&output_sensitive.stdout);
+	assert!(stdout_sensitive.contains("secret"), "Sensitive file was overwritten or missing!");
+
+	// Verify the synced file is correct
+	let output_synced = biwa_cmd_tilde(
+		&["run", "cat", &format!("{remote_dir}/test.txt")],
+		setup_dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.run()?;
+	let stdout_synced = String::from_utf8_lossy(&output_synced.stdout);
+	assert!(stdout_synced.contains("overwritten"), "Synced file content is incorrect: {stdout_synced}");
+
+	Ok(())
+}

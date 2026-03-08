@@ -359,6 +359,14 @@ async fn upload_file(
 
 	let sftp_path = resolve_sftp_path(remote_path);
 
+	if let Ok(attrs) = sftp.symlink_metadata(sftp_path).await
+		&& attrs.is_symlink()
+	{
+		sftp.remove_file(sftp_path)
+			.await
+			.wrap_err_with(|| format!("Failed to remove remote symlink: {sftp_path}"))?;
+	}
+
 	if matches!(permissions, SftpPermissions::Recreate) {
 		let should_remove = sftp
 			.metadata(sftp_path)
