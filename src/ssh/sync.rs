@@ -185,19 +185,20 @@ pub(super) fn compute_remote_path(
 	project_name: &str,
 	relative: &Path,
 ) -> String {
-	let root_str = remote_root.display().to_string().replace('\\', "/");
-	let mut parts = Vec::new();
-	if !root_str.is_empty() {
-		parts.push(root_str);
+	let mut path = remote_root.to_string_lossy().into_owned();
+	if !path.ends_with('/') {
+		path.push('/');
 	}
-	parts.push(project_name.to_owned());
+	path.push_str(project_name);
 
-	let rel_str = relative.display().to_string().replace('\\', "/");
+	let rel_str = relative.to_string_lossy();
 	if !rel_str.is_empty() {
-		parts.push(rel_str);
+		if !path.ends_with('/') && !rel_str.starts_with('/') {
+			path.push('/');
+		}
+		path.push_str(&rel_str);
 	}
-
-	parts.join("/")
+	path
 }
 
 /// Computes a unique project name based on the project root's canonical path.
@@ -297,7 +298,7 @@ fn calculate_sync_actions(
 	let mut local_paths_str = HashSet::new();
 
 	for local_file in local_files {
-		let rel_path_str = local_file.path.display().to_string().replace('\\', "/");
+		let rel_path_str = local_file.path.to_string_lossy().into_owned();
 		local_paths_str.insert(rel_path_str.clone());
 
 		if !options.force
@@ -464,7 +465,7 @@ async fn apply_sync_actions(
 	let mut dirs_to_create = HashSet::new();
 	for rel_path in &actions.to_upload {
 		if let Some(parent) = rel_path.parent() {
-			let p_str = parent.display().to_string().replace('\\', "/");
+			let p_str = parent.to_string_lossy().into_owned();
 			if !p_str.is_empty() {
 				dirs_to_create.insert(format!("{remote_dir}/{p_str}"));
 			}
@@ -496,7 +497,7 @@ async fn apply_sync_actions(
 		}
 
 		let local_path = project_root.join(&rel_path);
-		let rel_str = rel_path.display().to_string().replace('\\', "/");
+		let rel_str = rel_path.to_string_lossy().into_owned();
 		let remote_path = format!("{remote_dir}/{rel_str}");
 
 		// Read local permissions
