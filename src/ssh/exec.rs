@@ -82,6 +82,7 @@ async fn run_command(
 	quiet: bool,
 	silent: bool,
 ) -> Result<u32> {
+	u32::from_str_radix(umask, 8).wrap_err_with(|| format!("Invalid umask: {umask}"))?;
 	let effective_command = working_dir.map_or_else(
 		|| format!("umask {umask} && {full_command}"),
 		|dir| {
