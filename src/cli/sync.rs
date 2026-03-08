@@ -47,19 +47,15 @@ impl SyncArgs {
 		let cwd_str = cwd.display().to_string().replace('\\', "/");
 		let cwd_str = cwd_str.trim_end_matches('/');
 
-		let mut exclude = self.exclude.clone();
-		for e in &mut exclude {
-			if !e.starts_with('/') {
-				*e = format!("{cwd_str}/{}", e.trim_start_matches('/'));
+		let make_absolute = |p: &String| {
+			if p.starts_with('/') {
+				p.clone()
+			} else {
+				format!("{cwd_str}/{}", p.trim_start_matches('/'))
 			}
-		}
-
-		let mut include = self.include.clone();
-		for i in &mut include {
-			if !i.starts_with('/') {
-				*i = format!("{cwd_str}/{}", i.trim_start_matches('/'));
-			}
-		}
+		};
+		let exclude = self.exclude.iter().map(make_absolute).collect::<Vec<_>>();
+		let include = self.include.iter().map(make_absolute).collect::<Vec<_>>();
 
 		Options {
 			force: self.force,
@@ -92,5 +88,37 @@ impl Sync {
 		)
 		.await?;
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use pretty_assertions::assert_eq;
+
+	#[test]
+	fn resolve_options_absolute_paths() {
+		let cwd = env::current_dir().ok().map_or_else(
+			|| ".".to_owned(),
+			|d| d.display().to_string().replace('\\', "/"),
+		);
+		let cwd_str = cwd.trim_end_matches('/');
+
+		let args = SyncArgs {
+			exclude: vec!["/abs/exclude".to_owned(), "rel/exclude".to_owned()],
+			include: vec!["/abs/include".to_owned(), "rel/include".to_owned()],
+			..Default::default()
+		};
+
+		let options = args.resolve_options();
+
+		assert_eq!(
+			options.exclude,
+			vec!["/abs/exclude".to_owned(), format!("{cwd_str}/rel/exclude")]
+		);
+		assert_eq!(
+			options.include,
+			vec!["/abs/include".to_owned(), format!("{cwd_str}/rel/include")]
+		);
 	}
 }
