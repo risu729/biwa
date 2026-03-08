@@ -86,7 +86,9 @@ async fn run_command(
 		|| format!("umask {umask} && {full_command}"),
 		|dir| {
 			let quoted_dir = shell_quote_path(dir);
-			format!("umask {umask} && mkdir -p -- {quoted_dir} && cd {quoted_dir} && {full_command}")
+			format!(
+				"umask {umask} && mkdir -p -- {quoted_dir} && cd {quoted_dir} && {full_command}"
+			)
 		},
 	);
 	debug!(command = %effective_command, "Executing remote command");
