@@ -3,6 +3,7 @@ use crate::config::types::Config;
 use crate::ssh::sync::{Options, sync_project};
 use clap::Args;
 use std::env;
+use std::fs::canonicalize;
 use std::path::PathBuf;
 
 /// Arguments for synchronization.
@@ -34,16 +35,18 @@ impl SyncArgs {
 	///
 	/// Priority: CLI flag > config file > current working directory.
 	pub fn resolve_sync_root(&self, config: &Config) -> Result<PathBuf> {
-		Ok(self
+		let root = self
 			.sync_root
 			.clone()
 			.or_else(|| config.sync.sync_root.clone())
-			.map_or_else(env::current_dir, Ok)?)
+			.map_or_else(env::current_dir, Ok)?;
+		Ok(canonicalize(&root).unwrap_or(root))
 	}
 
 	/// Resolve the sync options.
 	pub fn resolve_options(&self) -> Options {
 		let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+		let cwd = canonicalize(&cwd).unwrap_or(cwd);
 		let cwd_str = cwd.display().to_string().replace('\\', "/");
 		let cwd_str = cwd_str.trim_end_matches('/');
 
@@ -98,11 +101,10 @@ mod tests {
 
 	#[test]
 	fn resolve_options_absolute_paths() {
-		let cwd = env::current_dir().ok().map_or_else(
-			|| ".".to_owned(),
-			|d| d.display().to_string().replace('\\', "/"),
-		);
-		let cwd_str = cwd.trim_end_matches('/');
+		let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+		let cwd = canonicalize(&cwd).unwrap_or(cwd);
+		let cwd_str = cwd.display().to_string().replace('\\', "/");
+		let cwd_str = cwd_str.trim_end_matches('/');
 
 		let args = SyncArgs {
 			exclude: vec!["/abs/exclude".to_owned(), "rel/exclude".to_owned()],

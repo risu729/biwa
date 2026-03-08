@@ -3,6 +3,7 @@ use super::types::Config;
 use crate::Result;
 use color_eyre::eyre::{WrapErr as _, bail};
 use confique::Config as _;
+use std::fs::canonicalize;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
 
@@ -130,6 +131,7 @@ impl Config {
 		resolve(&mut partial.ssh.key_path);
 
 		if let Some(exclude_list) = &mut partial.sync.exclude {
+			let root = canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
 			let root_str = root.display().to_string().replace('\\', "/");
 			let root_str = root_str.trim_end_matches('/');
 			for glob in exclude_list {
@@ -794,7 +796,8 @@ exclude = ["relative/path", "/absolute/path"]
 
 		let partial = Config::load_partial(&path, ConfigFormat::Toml, dir.path())?;
 
-		let expected_root = dir.path().display().to_string().replace('\\', "/");
+		let expected_root = canonicalize(dir.path()).unwrap_or_else(|_| dir.path().to_path_buf());
+		let expected_root = expected_root.display().to_string().replace('\\', "/");
 		let expected_root = expected_root.trim_end_matches('/');
 
 		let exclude = partial.sync.exclude.expect("exclude should be parsed");

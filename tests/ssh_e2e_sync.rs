@@ -3,6 +3,10 @@
 	reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
 )]
 #![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
+#![expect(
+	clippy::shadow_unrelated,
+	reason = "some tests have repeated variable names"
+)]
 
 use color_eyre::eyre::eyre;
 use common::Result;
