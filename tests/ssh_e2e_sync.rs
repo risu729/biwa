@@ -152,7 +152,6 @@ fn e2e_sync_cleaning() -> Result<()> {
 #[case::default(None, "drwx------", "-rw-------", "-rwx------", "-rw-------")]
 #[case::umask_0077(Some("0077"), "drwx------", "-rw-------", "-rwx------", "-rw-------")]
 #[case::umask_0022(Some("0022"), "drwxr-xr-x", "-rw-r--r--", "-rwxr-xr-x", "-rw-r--r--")]
-#[case::umask_0002(Some("0002"), "drwxrwxr-x", "-rw-r--r--", "-rwxr-xr-x", "-rw-rw-r--")]
 #[case::umask_0027(Some("0027"), "drwxr-x---", "-rw-r-----", "-rwxr-x---", "-rw-r-----")]
 #[ignore = "requires running SSH server"]
 fn e2e_sync_permissions(
@@ -201,12 +200,19 @@ fn e2e_sync_permissions(
 		fs::set_permissions(&group_path, perms)?;
 	}
 
-	let mut cmd = biwa_cmd_tilde(&["sync"], dir.path());
-	if let Some(u) = umask {
-		cmd = cmd.env("BIWA_SSH_UMASK", u);
-	}
+	let run_cmd = |args: &[&str]| {
+		let mut cmd = biwa_cmd_tilde(args, dir.path());
+		if let Some(u) = umask {
+			cmd = cmd.env("BIWA_SSH_UMASK", u);
+		}
+		cmd
+	};
 
-	let output = cmd.stdout_capture().stderr_capture().unchecked().run()?;
+	let output = run_cmd(&["sync"])
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
 
 	assert!(
 		output.status.success(),
@@ -217,7 +223,7 @@ fn e2e_sync_permissions(
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 	let remote_dir = format!("{remote_proj_dir}/subdir");
 
-	let ls_output = biwa_cmd_tilde(&["run", "ls", "-ld", &remote_dir], dir.path())
+	let ls_output = run_cmd(&["run", "ls", "-ld", &remote_dir])
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -226,7 +232,7 @@ fn e2e_sync_permissions(
 	assert!(ls_stdout.contains(expected_dir), "dir stdout: {ls_stdout}");
 
 	let remote_file = format!("{remote_dir}/secret.txt");
-	let ls_file_output = biwa_cmd_tilde(&["run", "ls", "-l", &remote_file], dir.path())
+	let ls_file_output = run_cmd(&["run", "ls", "-l", &remote_file])
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -238,7 +244,7 @@ fn e2e_sync_permissions(
 	);
 
 	let remote_script = format!("{remote_dir}/script.sh");
-	let ls_script_output = biwa_cmd_tilde(&["run", "ls", "-l", &remote_script], dir.path())
+	let ls_script_output = run_cmd(&["run", "ls", "-l", &remote_script])
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;
@@ -250,7 +256,7 @@ fn e2e_sync_permissions(
 	);
 
 	let remote_group = format!("{remote_dir}/group.txt");
-	let ls_group_output = biwa_cmd_tilde(&["run", "ls", "-l", &remote_group], dir.path())
+	let ls_group_output = run_cmd(&["run", "ls", "-l", &remote_group])
 		.stdout_capture()
 		.stderr_capture()
 		.run()?;

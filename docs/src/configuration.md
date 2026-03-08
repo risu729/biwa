@@ -52,6 +52,15 @@ For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will 
 | `user`     | string         | `"z5555555"`        | Username (your zID)                                                         |
 | `key_path` | string?        | `null`              | Path to SSH private key (auto-detected if not set)                          |
 | `password` | bool \| string | `false`             | `false`: disabled, `true`: interactive prompt, `"string"`: literal password |
+| `umask`    | string         | `"077"`             | Umask applied to the remote SSH execution environment and sync actions      |
+
+::: tip Understanding `umask`
+The `umask` setting ensures that any directories or files synced/created on the remote server maintain secure permissions (by default `077` prevents group and other access).
+
+**Note that you cannot *loosen* the default umask set by the server itself.** For example, the UNSW CSE server has a default umask of `0027`. Even if you set biwa's umask to `0022`, the server's restrictiveness will take precedence during file creation.
+
+If you need looser permissions (e.g. making a file readable by others), you must manually run `chmod`. However, be aware that biwa's umask does not protect against manual `chmod` operations. If you mistakenly run `chmod +r` or `chmod +x` without restricting it to the user (e.g., `chmod u+x`), you might accidentally grant read/execute permissions to everyone.
+:::
 
 ::: warning Password in Config
 Storing your password in a configuration file is **not recommended** for security reasons. If you must use password authentication, prefer `password = true` for an interactive prompt or use environment variables (`BIWA_SSH_PASSWORD`).

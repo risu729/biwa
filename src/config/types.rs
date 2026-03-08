@@ -68,7 +68,10 @@ pub struct SshConfig {
 	/// Password authentication: `false` (default), `true` (prompt), or a string value.
 	#[config(default = false, env = "BIWA_SSH_PASSWORD")]
 	pub password: PasswordConfig,
-	/// Umask to apply before executing commands.
+	/// Umask to apply before executing commands and creating directories.
+	/// Note that you cannot loosen the default umask set by the server (e.g., 0027 in UNSW CSE).
+	/// You need to use `chmod` manually if you want looser permissions. However, this umask setting
+	/// cannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).
 	#[config(default = "077", env = "BIWA_SSH_UMASK")]
 	pub umask: String,
 }

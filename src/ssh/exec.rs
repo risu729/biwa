@@ -7,9 +7,11 @@ use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use bytes::Bytes;
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
+use core::time::Duration;
 use std::io::Error as IoError;
 use tokio::io::{copy, stderr, stdout};
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::StreamReader;
@@ -29,19 +31,35 @@ pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 		)))
 	};
 
-	let client = Client::connect(
-		(ssh.host.as_str(), ssh.port),
-		ssh.user.as_str(),
-		auth_method,
-		ServerCheckMethod::NoCheck,
-	)
-	.await
-	.wrap_err_with(|| {
-		format!(
-			"Failed to connect to {}@{}:{}",
-			ssh.user, ssh.host, ssh.port
+	let mut retries = 3_usize;
+	let mut delay = Duration::from_millis(500);
+
+	let client = loop {
+		match Client::connect(
+			(ssh.host.as_str(), ssh.port),
+			ssh.user.as_str(),
+			auth_method.clone(),
+			ServerCheckMethod::NoCheck,
 		)
-	})?;
+		.await
+		{
+			Ok(c) => break c,
+			Err(e) if retries > 0 => {
+				tracing::debug!("Failed to connect to SSH server, retrying in {delay:?}... ({e})");
+				sleep(delay).await;
+				retries = retries.saturating_sub(1);
+				delay = delay.saturating_mul(2);
+			}
+			Err(e) => {
+				return Err(e).wrap_err_with(|| {
+					format!(
+						"Failed to connect to {}@{}:{}",
+						ssh.user, ssh.host, ssh.port
+					)
+				});
+			}
+		}
+	};
 
 	spinner.as_ref().inspect(|s| s.finish_and_clear());
 	info!(

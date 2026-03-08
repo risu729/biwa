@@ -40,7 +40,10 @@ expression: content
     // Default value: false
     //password: false,
 
-    // Umask to apply before executing commands.
+    // Umask to apply before executing commands and creating directories.
+    // Note that you cannot loosen the default umask set by the server (e.g., 0027 in UNSW CSE).
+    // You need to use `chmod` manually if you want looser permissions. However, this umask setting
+    // cannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).
     //
     // Can also be specified via environment variable `BIWA_SSH_UMASK`.
     //
