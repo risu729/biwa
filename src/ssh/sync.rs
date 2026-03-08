@@ -234,15 +234,22 @@ pub fn compute_project_remote_dir(config: &Config, project_root: &Path) -> Resul
 }
 
 /// Fetches the SHA-256 hashes of the files currently in the remote directory.
-async fn fetch_remote_hashes(client: &Client, remote_dir: &str) -> Result<HashMap<String, String>> {
+async fn fetch_remote_hashes(
+	client: &Client,
+	config: &Config,
+	remote_dir: &str,
+) -> Result<HashMap<String, String>> {
 	let quoted_remote_dir = shell_quote_path(remote_dir);
+	let umask_str = &config.ssh.umask;
+	let umask_val = u32::from_str_radix(umask_str, 8)?;
+	let dir_mode = format!("{:04o}", 0o777 & !umask_val);
 
-	// 1. Create remote dir with 0700 and fetch current hashes
+	// 1. Create remote dir with target permissions and fetch current hashes
 	let script = format!(
-		"umask 077 && mkdir -p -- {quoted_remote_dir} && \
+		"umask {umask_str} && mkdir -p -- {quoted_remote_dir} && \
 		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
 		 cd -- {quoted_remote_dir} && \
-		 (find . -type d -exec chmod 0700 {{}} + || true) && \
+		 (find . -type d -exec chmod {dir_mode} {{}} + || true) && \
 		 (find . -type f -exec sha256sum {{}} + || true)"
 	);
 
@@ -441,7 +448,7 @@ async fn apply_sync_actions(
 		stats.deleted = stats.deleted.saturating_add(1);
 	}
 
-	// Pre-create subdirectories with 0700 permissions
+	// Pre-create subdirectories respecting umask
 	let mut dirs_to_create = HashSet::new();
 	for rel_path in &actions.to_upload {
 		if let Some(parent) = rel_path.parent() {
@@ -458,14 +465,15 @@ async fn apply_sync_actions(
 			.map(|d| shell_quote_path(&d))
 			.collect::<Vec<_>>()
 			.join(" ");
-		let mkdir_cmd = format!("umask 077 && mkdir -p -- {mkdirs}");
+		let umask_str = &config.ssh.umask;
+		let mkdir_cmd = format!("umask {umask_str} && mkdir -p -- {mkdirs}");
 		client
 			.execute(&mkdir_cmd)
 			.await
 			.wrap_err("Failed to create remote directories")?;
 	}
 
-	// Upload files and change permissions to match local user permissions (removing group/other)
+	// Upload files and change permissions to match local user permissions (respecting umask)
 	let total_to_upload = actions.to_upload.len();
 	for (i, rel_path) in actions.to_upload.into_iter().enumerate() {
 		if let Some(s) = spinner {
@@ -485,8 +493,10 @@ async fn apply_sync_actions(
 			.wrap_err_with(|| format!("Failed to read metadata for {}", local_path.display()))?
 			.permissions()
 			.mode();
-		// Preserve user permissions but clear group/other permissions
-		let secure_mode = local_mode & 0o700;
+		// Apply configured umask to local permissions
+		let umask_val = u32::from_str_radix(&config.ssh.umask, 8)
+			.wrap_err_with(|| format!("Failed to parse umask: {}", config.ssh.umask))?;
+		let secure_mode = local_mode & !umask_val;
 
 		upload_file(
 			&sftp,
@@ -549,7 +559,7 @@ pub async fn sync_project(
 		String::from,
 	);
 
-	let remote_hashes = fetch_remote_hashes(&client, &remote_dir).await?;
+	let remote_hashes = fetch_remote_hashes(&client, config, &remote_dir).await?;
 
 	let mut stats = Stats::default();
 	let actions = calculate_sync_actions(&local_files, &remote_hashes, options);
