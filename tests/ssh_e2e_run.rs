@@ -11,7 +11,7 @@ use common::{Result, biwa_cmd};
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_command() -> Result<()> {
-	let output = biwa_cmd(&["run", "echo", "hello e2e from biwa"])
+	let output = biwa_cmd(&["run", "--skip-sync", "echo", "hello e2e from biwa"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
 		.stderr_capture()
@@ -28,12 +28,19 @@ fn e2e_run_command() -> Result<()> {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_stdout_stderr() -> Result<()> {
-	let output = biwa_cmd(&["run", "--", "bash", "-c", "echo 'out'; echo 'err' >&2"])
-		.env("BIWA_LOG_QUIET", "true")
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
+	let output = biwa_cmd(&[
+		"run",
+		"--skip-sync",
+		"--",
+		"bash",
+		"-c",
+		"echo 'out'; echo 'err' >&2",
+	])
+	.env("BIWA_LOG_QUIET", "true")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 	let stderr = String::from_utf8_lossy(&output.stderr);
@@ -49,6 +56,7 @@ fn e2e_run_stdout_stderr() -> Result<()> {
 fn e2e_run_streaming() -> Result<()> {
 	let mut reader = biwa_cmd(&[
 		"run",
+		"--skip-sync",
 		"--",
 		"bash",
 		"-c",
@@ -77,7 +85,7 @@ fn e2e_run_streaming() -> Result<()> {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_quiet() -> Result<()> {
-	let output = biwa_cmd(&["--quiet", "run", "echo", "hello quiet"])
+	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "echo", "hello quiet"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -98,7 +106,7 @@ fn e2e_run_quiet() -> Result<()> {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_silent() -> Result<()> {
-	let output = biwa_cmd(&["--silent", "run", "echo", "hello silent"])
+	let output = biwa_cmd(&["--silent", "run", "--skip-sync", "echo", "hello silent"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -116,7 +124,7 @@ fn e2e_run_silent() -> Result<()> {
 #[test]
 #[ignore = "requires running SSH server"]
 fn e2e_run_exit_code() -> Result<()> {
-	let output = biwa_cmd(&["run", "--", "bash", "-c", "exit 42"])
+	let output = biwa_cmd(&["run", "--skip-sync", "--", "bash", "-c", "exit 42"])
 		.env("BIWA_LOG_QUIET", "true")
 		.stderr_capture()
 		.unchecked()
@@ -129,5 +137,49 @@ fn e2e_run_exit_code() -> Result<()> {
 		stderr.contains("Remote command exited with code 42"),
 		"stderr was: {stderr}"
 	);
+	Ok(())
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_run_remote_dir() -> Result<()> {
+	let output = biwa_cmd(&["run", "-d", "/tmp", "pwd"])
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stdout = String::from_utf8_lossy(&output.stdout);
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(stdout.trim(), "/tmp");
+	Ok(())
+}
+
+#[test]
+#[ignore = "requires running SSH server"]
+fn e2e_run_remote_dir_tilde() -> Result<()> {
+	let home_output = biwa_cmd(&["run", "--skip-sync", "sh", "-c", "echo $HOME"])
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let home_dir = String::from_utf8_lossy(&home_output.stdout)
+		.trim()
+		.to_owned();
+
+	let output = biwa_cmd(&["run", "-d", "~", "pwd"])
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stdout = String::from_utf8_lossy(&output.stdout);
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(stdout.trim(), home_dir);
 	Ok(())
 }

@@ -12,6 +12,8 @@ mod init;
 mod run;
 /// Configuration schema generation command.
 mod schema;
+/// File synchronization command.
+mod sync;
 /// Usage specification generation command.
 mod usage;
 
@@ -56,6 +58,8 @@ struct Cli {
 enum Commands {
 	/// Run commands on remote host.
 	Run(run::Run),
+	/// Synchronize files to remote host.
+	Sync(sync::Sync),
 	/// Initialize a biwa configuration file.
 	Init(init::Init),
 	/// Generate the JSON schema for the configuration.
@@ -71,6 +75,7 @@ impl Commands {
 	async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
 		match self {
 			Self::Run(cmd) => cmd.run(config, quiet, silent).await,
+			Self::Sync(cmd) => cmd.run(config, quiet).await,
 			Self::Init(cmd) => cmd.run(),
 			Self::Schema(cmd) => cmd.run(),
 			Self::Completion(cmd) => cmd.run(),
@@ -108,6 +113,7 @@ pub async fn run() -> Result<()> {
 			&config,
 			cli.run_command_args.first().expect("Command is empty"),
 			cli.run_command_args.get(1..).expect("Arguments are empty"),
+			None,
 			quiet,
 			silent,
 		)

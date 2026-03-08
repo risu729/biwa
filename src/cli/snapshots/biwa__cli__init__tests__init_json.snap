@@ -20,14 +20,22 @@ expression: content
     "key_path": null,
     "password": false,
     "port": 22,
+    "umask": "077",
     "user": "z1234567"
   },
   "sync": {
-    "ignore_files": [
-      ".git",
-      "target",
-      "node_modules"
+    "auto": true,
+    "engine": "sftp",
+    "exclude": [
+      "**/.git/**",
+      "**/target/**",
+      "**/node_modules/**"
     ],
-    "remote_root": "~/.cache/biwa/projects"
+    "remote_root": "~/.cache/biwa/projects",
+    "sftp": {
+      "max_files_to_sync": 100,
+      "permissions": "recreate"
+    },
+    "sync_root": null
   }
 }

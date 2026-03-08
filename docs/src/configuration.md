@@ -52,6 +52,15 @@ For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will 
 | `user`     | string         | `"z5555555"`        | Username (your zID)                                                         |
 | `key_path` | string?        | `null`              | Path to SSH private key (auto-detected if not set)                          |
 | `password` | bool \| string | `false`             | `false`: disabled, `true`: interactive prompt, `"string"`: literal password |
+| `umask`    | string         | `"077"`             | Umask applied to the remote SSH execution environment and sync actions      |
+
+::: tip Understanding `umask`
+The `umask` setting ensures that any directories or files synced/created on the remote server maintain secure permissions (by default `077` prevents group and other access).
+
+**Note that you cannot _loosen_ the default umask set by the server itself.** For example, the UNSW CSE server has a default umask of `0027`. Even if you set biwa's umask to `0022`, the server's restrictiveness will take precedence during file creation.
+
+If you need looser permissions (e.g. making a file readable by others), you must manually run `chmod`. However, be aware that biwa's umask does not protect against manual `chmod` operations. If you mistakenly run `chmod +r` or `chmod +x` without restricting it to the user (e.g., `chmod u+x`), you might accidentally grant read/execute permissions to everyone.
+:::
 
 ::: warning Password in Config
 Storing your password in a configuration file is **not recommended** for security reasons. If you must use password authentication, prefer `password = true` for an interactive prompt or use environment variables (`BIWA_SSH_PASSWORD`).
@@ -63,6 +72,39 @@ Storing your password in a configuration file is **not recommended** for securit
 | -------- | ------- | ------- | --------------------------------------------------------------- |
 | `quiet`  | boolean | `false` | Suppress biwa internal logs, only showing remote command output |
 | `silent` | boolean | `false` | Suppress all output, including remote command stdout/stderr     |
+
+### `[sync]` — Synchronization Settings
+
+| Key           | Type    | Default                                                | Description                                                                                 |
+| ------------- | ------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `auto`        | boolean | `true`                                                 | Automatically synchronize the project before running remote commands                        |
+| `sync_root`   | string? | `null`                                                 | Base directory to start the synchronization from. If not specified, uses current directory. |
+| `engine`      | string  | `"sftp"`                                               | The synchronization engine to use (`"sftp"` or `"mutagen"`)                                 |
+| `remote_root` | string  | `"~/.cache/biwa/projects"`                             | Remote directory to sync the project to                                                     |
+| `exclude`     | array   | `["**/.git/**", "**/target/**", "**/node_modules/**"]` | List of target strings (using globset) to exclude during synchronization                    |
+
+#### `[sync.sftp]` — SFTP Engine Settings
+
+| Key                 | Type    | Default      | Description                                                               |
+| ------------------- | ------- | ------------ | ------------------------------------------------------------------------- |
+| `max_files_to_sync` | integer | `100`        | Abort synchronization if the number of files to upload exceeds this limit |
+| `permissions`       | string  | `"recreate"` | Strategy for enforcing file permissions on uploaded files                 |
+
+##### Permission Strategies
+
+`biwa` ensures uploaded files have secure permissions (owner-only, no group/other access). Two strategies are available:
+
+- **`recreate`** (default) — Deletes the remote file before re-creating it with the correct permissions set atomically at creation time. This is the most compatible strategy and works on all SFTP servers.
+
+- **`setstat`** — Uses the SFTP `setstat` operation to set permissions after writing. This avoids deleting the file but **is not supported by all servers**. If `setstat` fails, biwa will log a warning suggesting you switch to `recreate`.
+
+::: info SFTP Server Restrictions
+Some SSH environments (notably UNSW CSE, which uses OpenSSH on networked filesystems) reject `setstat` / `fsetstat` SFTP operations with "Permission denied". If you see this error, ensure `sync.sftp.permissions` is set to `"recreate"` (the default).
+:::
+
+::: warning Absolute Remote Root
+It is strongly recommended to use a relative path starting with `~` for your `remote_root`. Using an absolute path (e.g., `/home/user/cache`) can lead to unexpected directory structures and permissions issues on the remote server. Biwa will emit a warning if an absolute path is detected.
+:::
 
 ## Schema Validation
 
