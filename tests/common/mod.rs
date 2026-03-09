@@ -9,6 +9,7 @@
 )]
 pub type Result<T> = color_eyre::Result<T>;
 
+use gethostname::gethostname;
 use sha2::Digest as _;
 use std::path::Path;
 
@@ -41,7 +42,8 @@ pub fn biwa_cmd(args: &[&str]) -> duct::Expression {
 ///
 /// Mimics how `biwa` internally generates a unique project directory string on the
 /// remote server by taking the project directory name and appending an
-/// 8-character hex slice of the SHA-256 hash of its canonical absolute path.
+/// 8-character hex slice of the SHA-256 hash of its hostname and canonical
+/// absolute path.
 #[allow(dead_code, reason = "May not be used in all integration tests.")]
 pub fn get_remote_project_dir(local_dir: &Path) -> Result<String> {
 	let proj_name = local_dir
@@ -49,6 +51,8 @@ pub fn get_remote_project_dir(local_dir: &Path) -> Result<String> {
 		.ok_or_else(|| color_eyre::eyre::eyre!("no file name"))?
 		.to_string_lossy();
 	let mut hasher = sha2::Sha256::new();
+	sha2::Digest::update(&mut hasher, gethostname().to_string_lossy().as_bytes());
+	sha2::Digest::update(&mut hasher, [0]);
 	sha2::Digest::update(
 		&mut hasher,
 		local_dir.canonicalize()?.to_string_lossy().as_bytes(),
