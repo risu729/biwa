@@ -135,23 +135,42 @@ jobs:
       - test
       - lint
       - build
-    if: |
-      always() &&
-      needs.test.result == 'success' &&
-      needs.lint.result == 'success' &&
-      (
-        github.event_name != 'pull_request' ||
-        (
-          needs.paths.result == 'success' &&
-          (needs.build.result == 'success' || needs.build.result == 'skipped')
-        )
-      )
+    if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
-      - name: Confirm CI workflow status
-        run: echo "CI check passed"
+      - name: Verify required CI results
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PATHS_RESULT: ${{ needs.paths.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          [[ "${TEST_RESULT}" == "success" ]] || {
+            echo "Test job result was ${TEST_RESULT}"
+            exit 1
+          }
+
+          [[ "${LINT_RESULT}" == "success" ]] || {
+            echo "Lint job result was ${LINT_RESULT}"
+            exit 1
+          }
+
+          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+            [[ "${PATHS_RESULT}" == "success" ]] || {
+              echo "paths job result was ${PATHS_RESULT}"
+              exit 1
+            }
+
+            [[ "${BUILD_RESULT}" == "success" || "${BUILD_RESULT}" == "skipped" ]] || {
+              echo "Build job result was ${BUILD_RESULT}"
+              exit 1
+            }
+          fi
+
+          echo "CI check passed"
 
   actions-timeline:
     name: Generate Actions Timeline
