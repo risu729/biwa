@@ -36,7 +36,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
-          version: 2026.3.6
+          version: 2026.3.7
           cache_save: false
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
@@ -90,7 +90,7 @@ jobs:
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         if: needs.plan.outputs.publishing == 'true'
         with:
-          version: 2026.3.6
+          version: 2026.3.7
           cache_save: false
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
@@ -99,7 +99,7 @@ jobs:
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         if: steps.install-mise.outcome == 'skipped'
         with:
-          version: 2026.3.6
+          version: 2026.3.7
 
       - name: Re-install Rust
         # cache doesn't work well with rust
@@ -171,7 +171,7 @@ jobs:
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         if: needs.plan.outputs.publishing == 'true'
         with:
-          version: 2026.3.6
+          version: 2026.3.7
           cache_save: false
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
@@ -180,7 +180,7 @@ jobs:
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         if: steps.install-mise.outcome == 'skipped'
         with:
-          version: 2026.3.6
+          version: 2026.3.7
 
       - name: Re-install Rust
         # cache doesn't work well with rust
@@ -238,7 +238,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
-          version: 2026.3.6
+          version: 2026.3.7
           cache: false
           cache_save: false
         env:
