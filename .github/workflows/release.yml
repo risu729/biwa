@@ -1,8 +1,7 @@
 name: Release
 
 on:
-  pull_request:
-  # zizmor: ignore[cache-poisoning] false positive for PRs
+  workflow_call:
   push:
     tags:
       - v*
