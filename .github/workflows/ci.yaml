@@ -27,7 +27,7 @@ jobs:
       pull-requests: read # for changed files
 
     outputs:
-      release: ${{ steps.filter.outputs.release }}
+      build: ${{ steps.filter.outputs.build }}
 
     steps:
       - name: Check release-affecting files
@@ -35,7 +35,7 @@ jobs:
         uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         with:
           filters: |
-            release:
+            build:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'src/**'
@@ -121,31 +121,42 @@ jobs:
           LINT: true
           GITHUB_TOKEN: ${{ github.token }}
 
-  release:
-    name: Release
+  build:
+    name: Build
     needs:
       - paths
-    if: github.event_name == 'pull_request' && needs.paths.outputs.release == 'true'
+    if: needs.paths.outputs.build == 'true'
     uses: ./.github/workflows/release.yml
 
-  release-check:
-    name: Release Check
+  ci-check:
+    name: CI Check
     needs:
       - paths
-      - release
-    if: github.event_name == 'pull_request' && always() && needs.paths.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped')
+      - test
+      - lint
+      - build
+    if: |
+      always() &&
+      needs.test.result == 'success' &&
+      needs.lint.result == 'success' &&
+      (
+        github.event_name != 'pull_request' ||
+        (
+          needs.paths.result == 'success' &&
+          (needs.build.result == 'success' || needs.build.result == 'skipped')
+        )
+      )
     runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
-      - name: Confirm release workflow status
-        run: echo "Release check passed or skipped"
+      - name: Confirm CI workflow status
+        run: echo "CI check passed"
 
   actions-timeline:
     name: Generate Actions Timeline
     needs:
-      - test
-      - lint
+      - ci-check
     if: ${{ !cancelled() }}
 
     runs-on: ubuntu-24.04
