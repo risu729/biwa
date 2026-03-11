@@ -208,7 +208,6 @@ jobs:
     needs:
       - plan # required for safe context access
       - build-local-artifacts
-      - attest-local-artifacts
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
