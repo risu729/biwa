@@ -55,7 +55,7 @@ impl<'de> Deserialize<'de> for Umask {
 		let n = u32::from_str_radix(&s, 8)
 			.map_err(|e| D::Error::custom(format!("Invalid umask (expected octal): {s} ({e})")))?;
 		validate_umask(n).map_err(D::Error::custom)?;
-		Ok(Umask(format!("{n:03o}")))
+		Ok(Self(format!("{n:03o}")))
 	}
 }
 

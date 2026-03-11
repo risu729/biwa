@@ -45,13 +45,13 @@ For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will 
 
 ### `[ssh]` — SSH Connection Settings
 
-| Key        | Type           | Default             | Description                                                                 |
-| ---------- | -------------- | ------------------- | --------------------------------------------------------------------------- |
-| `host`     | string         | `"cse.unsw.edu.au"` | SSH server hostname                                                         |
-| `port`     | integer        | `22`                | SSH server port                                                             |
-| `user`     | string         | `"z5555555"`        | Username (your zID)                                                         |
-| `key_path` | string?        | `null`              | Path to SSH private key (auto-detected if not set)                          |
-| `password` | bool \| string | `false`             | `false`: disabled, `true`: interactive prompt, `"string"`: literal password |
+| Key        | Type           | Default             | Description                                                                                               |
+| ---------- | -------------- | ------------------- | --------------------------------------------------------------------------------------------------------- |
+| `host`     | string         | `"cse.unsw.edu.au"` | SSH server hostname                                                                                       |
+| `port`     | integer        | `22`                | SSH server port                                                                                           |
+| `user`     | string         | `"z5555555"`        | Username (your zID)                                                                                       |
+| `key_path` | string?        | `null`              | Path to SSH private key (auto-detected if not set)                                                        |
+| `password` | bool \| string | `false`             | `false`: disabled, `true`: interactive prompt, `"string"`: literal password                               |
 | `umask`    | string         | `"077"`             | Umask (3-digit octal: owner/group/other) applied to the remote SSH execution environment and sync actions |
 
 ::: tip Understanding `umask`
