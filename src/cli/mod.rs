@@ -3,6 +3,9 @@ use crate::{config::types::Config, ssh::exec::execute_command};
 use clap::{ArgAction, Parser, Subcommand};
 use color_eyre::eyre::bail;
 use tracing::Level;
+use tracing_subscriber::{
+	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
+};
 
 /// Shell completion generation command.
 mod completion;
@@ -99,10 +102,11 @@ pub async fn run() -> Result<()> {
 			2 => Level::DEBUG,
 			_ => Level::TRACE,
 		};
-		tracing_subscriber::fmt()
-			.pretty()
-			.with_max_level(log_level)
-			.without_time()
+
+		let log_targets = Targets::new().with_target("biwa", log_level);
+		registry()
+			.with(log_targets)
+			.with(fmt::layer().pretty().without_time())
 			.init();
 	}
 
@@ -127,7 +131,51 @@ pub async fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use alloc::sync::Arc;
 	use pretty_assertions::assert_eq;
+	use std::{io, sync::Mutex};
+	use tracing::subscriber;
+	use tracing_subscriber::fmt::MakeWriter;
+
+	#[derive(Clone, Default)]
+	struct SharedWriter {
+		buf: Arc<Mutex<Vec<u8>>>,
+	}
+
+	struct SharedGuard {
+		buf: Arc<Mutex<Vec<u8>>>,
+	}
+
+	impl SharedWriter {
+		fn output(&self) -> String {
+			let buf = self.buf.lock().expect("buffer lock should succeed");
+			String::from_utf8_lossy(&buf).into_owned()
+		}
+	}
+
+	impl<'a> MakeWriter<'a> for SharedWriter {
+		type Writer = SharedGuard;
+
+		fn make_writer(&'a self) -> Self::Writer {
+			SharedGuard {
+				buf: Arc::clone(&self.buf),
+			}
+		}
+	}
+
+	impl io::Write for SharedGuard {
+		fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+			self.buf
+				.lock()
+				.map_err(|_e| io::Error::other("failed to acquire buffer lock"))?
+				.extend_from_slice(buf);
+			Ok(buf.len())
+		}
+
+		fn flush(&mut self) -> io::Result<()> {
+			Ok(())
+		}
+	}
 
 	#[test]
 	fn cli_run_subcommand() {
@@ -181,5 +229,30 @@ mod tests {
 		let cli = Cli::parse_from(["biwa", "-q", "-vv", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.verbose, 2);
+	}
+
+	#[test]
+	fn verbose_filter_only_logs_biwa_targets() {
+		let writer = SharedWriter::default();
+		let subscriber = registry()
+			.with(Targets::new().with_target("biwa", Level::TRACE))
+			.with(
+				fmt::layer()
+					.with_ansi(false)
+					.without_time()
+					.with_writer(writer.clone()),
+			);
+
+		subscriber::with_default(subscriber, || {
+			tracing::info!(target: "biwa::cli::tests", "biwa-target-log");
+			tracing::info!(target: "dependency::tests", "dependency-target-log");
+		});
+
+		let output = writer.output();
+		assert!(output.contains("biwa-target-log"), "logs were: {output}");
+		assert!(
+			!output.contains("dependency-target-log"),
+			"logs were: {output}"
+		);
 	}
 }

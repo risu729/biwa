@@ -15,7 +15,7 @@ use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::StreamReader;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Connect to the SSH server using the resolved authentication method.
 pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
@@ -45,7 +45,12 @@ pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 		{
 			Ok(c) => break c,
 			Err(e) if retries > 0 => {
-				tracing::debug!("Failed to connect to SSH server, retrying in {delay:?}... ({e})");
+				debug!(
+					error = %e,
+					retry_delay_ms = delay.as_millis(),
+					retries_remaining = retries,
+					"Failed to connect to SSH server; retrying"
+				);
 				sleep(delay).await;
 				retries = retries.saturating_sub(1);
 				delay = delay.saturating_mul(2);
@@ -155,6 +160,7 @@ async fn run_command(
 	debug!(exit_status, "Remote command completed");
 
 	if exit_status != 0 && !quiet {
+		warn!(exit_status, "Remote command exited with non-zero status");
 		eprintln!(
 			"{} Process exited with code {}",
 			style("✗").red().bold(),
@@ -181,6 +187,14 @@ pub async fn execute_command(
 	quiet: bool,
 	silent: bool,
 ) -> Result<u32> {
+	info!(
+		command,
+		args_count = args.len(),
+		has_working_dir = working_dir.is_some(),
+		quiet,
+		silent,
+		"Starting remote command execution"
+	);
 	let client = connect(config, quiet || silent).await?;
 	let full_command = build_command(command, args);
 	run_command(

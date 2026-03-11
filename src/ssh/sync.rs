@@ -542,6 +542,14 @@ pub async fn sync_project(
 	if config.sync.engine != SyncEngine::Sftp {
 		bail!("Only SFTP sync engine is currently supported");
 	}
+	info!(
+		project_root = %project_root.display(),
+		force = options.force,
+		include_patterns = options.include.len(),
+		exclude_patterns = options.exclude.len(),
+		has_remote_override = remote_dir_override.is_some(),
+		"Starting project synchronization"
+	);
 
 	check_remote_root(&config.sync.remote_root);
 
@@ -555,6 +563,7 @@ pub async fn sync_project(
 			.await
 			.wrap_err("Failed to join blocking task")??
 	};
+	info!(local_files = local_files.len(), "Collected local files");
 
 	let client = connect(config, quiet).await?;
 
@@ -577,10 +586,21 @@ pub async fn sync_project(
 	);
 
 	let remote_hashes = fetch_remote_hashes(&client, config, &remote_dir).await?;
+	debug!(
+		remote_dir = %remote_dir,
+		remote_files = remote_hashes.len(),
+		"Fetched remote file hashes"
+	);
 
 	let mut stats = Stats::default();
 	let actions = calculate_sync_actions(&local_files, &remote_hashes, options);
 	stats.unchanged = local_files.len().saturating_sub(actions.to_upload.len());
+	info!(
+		to_upload = actions.to_upload.len(),
+		to_delete = actions.to_delete.len(),
+		unchanged = stats.unchanged,
+		"Calculated synchronization actions"
+	);
 
 	if actions.to_upload.len() > config.sync.sftp.max_files_to_sync {
 		if let Some(s) = spinner {

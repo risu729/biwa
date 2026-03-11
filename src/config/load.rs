@@ -6,6 +6,7 @@ use confique::Config as _;
 use std::fs::canonicalize;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
+use tracing::{debug, info};
 
 impl Config {
 	/// Loads the configuration based on global, user, and project-local paths.
@@ -13,6 +14,7 @@ impl Config {
 		let home = homedir::my_home().ok().flatten();
 		let xdg = env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
 		let cwd = env::current_dir().ok();
+		debug!(home = ?home, xdg = ?xdg, cwd = ?cwd, "Loading configuration");
 		Self::load_internal(home.as_ref(), xdg.as_ref(), cwd.as_ref())
 	}
 
@@ -58,6 +60,10 @@ impl Config {
 			for path in &layers {
 				// Don't load config from .config directory itself
 				if path.file_name().and_then(|s| s.to_str()) == Some(".config") {
+					debug!(
+						path = %path.display(),
+						"Skipping .config directory while resolving config layers"
+					);
 					continue;
 				}
 
@@ -75,6 +81,12 @@ impl Config {
 
 				if let Some((config_path, format)) = find_single_config(&local_candidates)? {
 					let partial = Self::load_partial(&config_path, format, config_root)?;
+					info!(
+						path = %config_path.display(),
+						format = ?format,
+						root = %config_root.display(),
+						"Loaded local configuration layer"
+					);
 					builder = builder.preloaded(partial);
 				}
 			}
@@ -87,6 +99,12 @@ impl Config {
 				.as_deref()
 				.unwrap_or_else(|| config_path.parent().unwrap_or_else(|| Path::new("")));
 			let partial = Self::load_partial(&config_path, format, config_root)?;
+			info!(
+				path = %config_path.display(),
+				format = ?format,
+				root = %config_root.display(),
+				"Loaded global configuration layer"
+			);
 			builder = builder.preloaded(partial);
 		}
 
