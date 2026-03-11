@@ -6,32 +6,59 @@
   "properties": {
     "env": {
       "description": "Environment variables configuration.",
-      "$ref": "#/$defs/EnvConfig"
+      "$ref": "#/$defs/EnvConfig",
+      "default": {
+        "vars": []
+      }
     },
     "hooks": {
       "description": "Lifecycle hooks for synchronization.",
-      "$ref": "#/$defs/HooksConfig"
+      "$ref": "#/$defs/HooksConfig",
+      "default": {
+        "post_sync": null,
+        "pre_sync": null
+      }
     },
     "log": {
       "description": "Logging configuration.",
-      "$ref": "#/$defs/LogConfig"
+      "$ref": "#/$defs/LogConfig",
+      "default": {
+        "quiet": false,
+        "silent": false
+      }
     },
     "ssh": {
       "description": "SSH connection configuration.",
-      "$ref": "#/$defs/SshConfig"
+      "$ref": "#/$defs/SshConfig",
+      "default": {
+        "host": "cse.unsw.edu.au",
+        "key_path": null,
+        "password": false,
+        "port": 22,
+        "umask": "077",
+        "user": "z1234567"
+      }
     },
     "sync": {
       "description": "Remote synchronization configuration.",
-      "$ref": "#/$defs/SyncConfig"
+      "$ref": "#/$defs/SyncConfig",
+      "default": {
+        "auto": true,
+        "engine": "sftp",
+        "exclude": [
+          "**/.git/**",
+          "**/target/**",
+          "**/node_modules/**"
+        ],
+        "remote_root": "~/.cache/biwa/projects",
+        "sftp": {
+          "max_files_to_sync": 100,
+          "permissions": "recreate"
+        },
+        "sync_root": null
+      }
     }
   },
-  "required": [
-    "ssh",
-    "sync",
-    "env",
-    "hooks",
-    "log"
-  ],
   "$defs": {
     "EnvConfig": {
       "description": "Environment settings.",
@@ -40,14 +67,12 @@
         "vars": {
           "description": "Environment variable keys to inherit/send.",
           "type": "array",
+          "default": [],
           "items": {
             "type": "string"
           }
         }
-      },
-      "required": [
-        "vars"
-      ]
+      }
     },
     "HooksConfig": {
       "description": "Hook settings.",
@@ -75,17 +100,15 @@
       "properties": {
         "quiet": {
           "description": "Suppresses biwa internal logs; only remote command output is shown.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         },
         "silent": {
           "description": "Suppresses all output, including remote command stdout/stderr.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": false
         }
-      },
-      "required": [
-        "quiet",
-        "silent"
-      ]
+      }
     },
     "PasswordConfig": {
       "description": "Password authentication configuration.\n\n- `false` (default): No password authentication.\n- `true`: Interactively prompt for a password.\n- `\"string\"`: Use the provided password value.",
@@ -121,7 +144,8 @@
       "properties": {
         "host": {
           "description": "Hostname or IP address of the remote host.",
-          "type": "string"
+          "type": "string",
+          "default": "cse.unsw.edu.au"
         },
         "key_path": {
           "description": "Optional path to the SSH private key.",
@@ -132,31 +156,28 @@
         },
         "password": {
           "description": "Password authentication: `false` (default), `true` (prompt), or a string value.",
-          "$ref": "#/$defs/PasswordConfig"
+          "$ref": "#/$defs/PasswordConfig",
+          "default": false
         },
         "port": {
           "description": "Port to connect to on the remote host.",
           "type": "integer",
           "format": "uint16",
+          "default": 22,
           "maximum": 65535,
           "minimum": 0
         },
         "umask": {
           "description": "Umask to apply before executing commands and creating directories (3-digit octal: owner/group/other).\nTo set the first digit (setuid/setgid/sticky), run `umask` manually on the remote server.\nNote that you cannot loosen the default umask set by the server (e.g., 027 in UNSW CSE).\nYou need to use `chmod` manually if you want looser permissions. However, this umask setting\ncannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).",
-          "$ref": "#/$defs/Umask"
+          "$ref": "#/$defs/Umask",
+          "default": "077"
         },
         "user": {
           "description": "Username for the SSH connection.",
-          "type": "string"
+          "type": "string",
+          "default": "z1234567"
         }
-      },
-      "required": [
-        "host",
-        "port",
-        "user",
-        "password",
-        "umask"
-      ]
+      }
     },
     "SyncConfig": {
       "description": "Synchronization settings.",
@@ -164,22 +185,30 @@
       "properties": {
         "auto": {
           "description": "Automatically synchronize the project before running remote commands.",
-          "type": "boolean"
+          "type": "boolean",
+          "default": true
         },
         "engine": {
           "description": "The synchronization engine to use.",
-          "$ref": "#/$defs/SyncEngine"
+          "$ref": "#/$defs/SyncEngine",
+          "default": "sftp"
         },
         "exclude": {
           "description": "Files and directories to exclude during synchronization using globset patterns.",
           "type": "array",
+          "default": [
+            "**/.git/**",
+            "**/target/**",
+            "**/node_modules/**"
+          ],
           "items": {
             "type": "string"
           }
         },
         "remote_root": {
           "description": "Remote directory to sync the project to.",
-          "type": "string"
+          "type": "string",
+          "default": "~/.cache/biwa/projects"
         },
         "sftp": {
           "description": "SFTP engine specific configuration.",
@@ -194,10 +223,6 @@
         }
       },
       "required": [
-        "auto",
-        "remote_root",
-        "exclude",
-        "engine",
         "sftp"
       ]
     },
@@ -224,17 +249,15 @@
           "description": "Abort synchronization if the number of files to upload exceeds this limit.",
           "type": "integer",
           "format": "uint",
+          "default": 100,
           "minimum": 0
         },
         "permissions": {
           "description": "Strategy for enforcing file permissions on uploaded files.",
-          "$ref": "#/$defs/SftpPermissions"
+          "$ref": "#/$defs/SftpPermissions",
+          "default": "recreate"
         }
-      },
-      "required": [
-        "max_files_to_sync",
-        "permissions"
-      ]
+      }
     },
     "Umask": {
       "description": "Umask value for SSH execution and sync, stored as a normalized 3-digit octal string.\n\nDeserializes from a string parsed as octal (e.g. `\"077\"`, `\"022\"`). Only the lower three\ndigits (owner/group/other) are supported. To set the first digit (setuid/setgid/sticky),\nrun `umask` manually on the remote server. Always serialized as a 3-digit octal string.",
