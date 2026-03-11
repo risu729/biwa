@@ -131,8 +131,6 @@ jobs:
     permissions:
       contents: write # required by called workflow's release job declaration
       actions: read # required by called workflow's actions-timeline declaration
-      id-token: write # required by called workflow's attestation job
-      attestations: write # required by called workflow's attestation job
     uses: ./.github/workflows/release.yml
 
   ci-check:
