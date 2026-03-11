@@ -127,9 +127,8 @@ jobs:
       - paths
     if: needs.paths.outputs.build == 'true'
     permissions:
-      contents: read # for checkout in called workflow
-      id-token: write # for code signing and attestations in called workflow
-      attestations: write # for artifact attestations in called workflow
+      contents: write # required by called workflow's release job declaration
+      actions: read # required by called workflow's actions-timeline declaration
     uses: ./.github/workflows/release.yml
 
   ci-check:

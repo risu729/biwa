@@ -22,9 +22,9 @@ jobs:
 
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-      tag-flag: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('--tag={0}', github.ref_name) || '' }}
-      publishing: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') }}
+      tag: ${{ steps.mode.outputs.tag }}
+      tag-flag: ${{ steps.mode.outputs.tag_flag }}
+      publishing: ${{ steps.mode.outputs.publishing }}
 
     steps:
       - name: Checkout
@@ -44,6 +44,25 @@ jobs:
         # cache doesn't work well with rust
         run: mise install rust --force
 
+      - name: Resolve release mode
+        id: mode
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            {
+              echo "publishing=true"
+              echo "tag=${GITHUB_REF_NAME}"
+              echo "tag_flag=--tag=${GITHUB_REF_NAME}"
+              echo "dist_args=host --steps=create --tag=${GITHUB_REF_NAME}"
+            } >> "${GITHUB_OUTPUT}"
+          else
+            {
+              echo "publishing=false"
+              echo "tag="
+              echo "tag_flag="
+              echo "dist_args=plan"
+            } >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Plan Release
         id: plan
         run: |
@@ -53,7 +72,7 @@ jobs:
           echo "manifest=$(jq --compact-output . plan-dist-manifest.json)" >> "${GITHUB_OUTPUT}"
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DIST_ARGS: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && format('host --steps=create --tag={0}', github.ref_name) || 'plan' }}
+          DIST_ARGS: ${{ steps.mode.outputs.dist_args }}
 
       - name: Upload dist manifest
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -69,8 +88,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read # for checkout
-      id-token: write # for attestation
-      attestations: write # for attestation
 
     strategy:
       matrix: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix }}
@@ -122,11 +139,6 @@ jobs:
         env:
           TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
           DIST_ARGS: ${{ matrix.dist_args }}
-
-      - name: Attest build provenance
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
-        with:
-          subject-path: target/distrib/*${{ join(matrix.targets, ', ') }}*
 
       - name: Store built artifact paths
         id: paths
