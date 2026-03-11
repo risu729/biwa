@@ -18,8 +18,43 @@ defaults:
     shell: bash
 
 jobs:
+  paths:
+    name: Detect changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read # for changed files
+
+    outputs:
+      build: ${{ steps.filter.outputs.build }}
+      test: ${{ steps.filter.outputs.test }}
+
+    steps:
+      - name: Check release-affecting files
+        id: filter
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        with:
+          filters: |
+            build: &build
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'src/**'
+              - '.github/workflows/release.yml'
+              - 'dist-workspace.toml'
+              - 'mise.toml'
+            test:
+              - *build
+              - 'tests/**'
+              - 'tarpaulin.toml'
+              - 'tasks.toml'
+              - '.github/workflows/ci.yml'
+
   test:
     name: Test
+    needs:
+      - paths
+    if: ${{ !cancelled() && !failure() && needs.paths.outputs.test == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -98,11 +133,39 @@ jobs:
           LINT: true
           GITHUB_TOKEN: ${{ github.token }}
 
-  actions-timeline:
-    name: Generate Actions Timeline
+  build:
+    name: Build
+    needs:
+      - paths
+    if: ${{ !cancelled() && !failure() && needs.paths.outputs.build == 'true' }}
+    # All permissions in the callee workflow are required for the reusable workflow
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+      actions: read
+    uses: ./.github/workflows/release.yml
+
+  ci-check:
+    name: CI Check
     needs:
       - test
       - lint
+      - build
+    # ref: https://github.com/aquaproj/aqua-registry/pull/38449#issuecomment-3038859524
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Fail CI Check
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
+
+  actions-timeline:
+    name: Generate Actions Timeline
+    needs:
+      - ci-check
     if: ${{ !cancelled() }}
 
     runs-on: ubuntu-24.04

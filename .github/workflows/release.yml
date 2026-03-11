@@ -1,8 +1,8 @@
 name: Release
 
 on:
-  pull_request:
-  # zizmor: ignore[cache-poisoning] false positive for PRs
+  workflow_call:
+  # zizmor: ignore[cache-poisoning] mutually exclusive fallback
   push:
     tags:
       - v*
@@ -23,9 +23,9 @@ jobs:
 
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ !github.event.pull_request && github.ref_name || '' }}
-      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
-      publishing: ${{ !github.event.pull_request }}
+      tag: ${{ steps.mode.outputs.tag }}
+      tag-flag: ${{ steps.mode.outputs.tag_flag }}
+      publishing: ${{ steps.mode.outputs.publishing }}
 
     steps:
       - name: Checkout
@@ -33,15 +33,37 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Resolve release mode
+        id: mode
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == refs/tags/* ]]; then
+            {
+              echo "publishing=true"
+              echo "tag=${GITHUB_REF_NAME}"
+              echo "tag_flag=--tag=${GITHUB_REF_NAME}"
+              echo "dist_args=host --steps=create --tag=${GITHUB_REF_NAME}"
+            } >> "${GITHUB_OUTPUT}"
+          else
+            {
+              echo "publishing=false"
+              echo "tag="
+              echo "tag_flag="
+              echo "dist_args=plan"
+            } >> "${GITHUB_OUTPUT}"
+          fi
+
       - name: Install mise
+        id: install-mise
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
-          cache_save: false
+          cache: ${{ steps.mode.outputs.publishing == 'false' }}
+          cache_key: "{{default}}-release"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
       - name: Re-install Rust
+        if: steps.install-mise.outputs.cache-hit == 'true'
         # cache doesn't work well with rust
         run: mise install rust --force
 
@@ -54,7 +76,7 @@ jobs:
           echo "manifest=$(jq --compact-output . plan-dist-manifest.json)" >> "${GITHUB_OUTPUT}"
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DIST_ARGS: ${{ github.event.pull_request && 'plan' || format('host --steps=create --tag={0}', github.ref_name) }}
+          DIST_ARGS: ${{ steps.mode.outputs.dist_args }}
 
       - name: Upload dist manifest
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -70,8 +92,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read # for checkout
-      id-token: write # for attestation
-      attestations: write # for attestation
 
     strategy:
       matrix: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix }}
@@ -88,20 +108,15 @@ jobs:
       - name: Install mise
         id: install-mise
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-        if: needs.plan.outputs.publishing == 'true'
         with:
           version: 2026.3.7
-          cache_save: false
+          cache: ${{ needs.plan.outputs.publishing == 'false' }}
+          cache_key: "{{default}}-release"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
-      - name: Install mise
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-        if: steps.install-mise.outcome == 'skipped'
-        with:
-          version: 2026.3.7
-
       - name: Re-install Rust
+        if: steps.install-mise.outputs.cache-hit == 'true'
         # cache doesn't work well with rust
         run: mise install rust --force
 
@@ -124,11 +139,6 @@ jobs:
           TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
           DIST_ARGS: ${{ matrix.dist_args }}
 
-      - name: Attest build provenance
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
-        with:
-          subject-path: target/distrib/*${{ join(matrix.targets, ', ') }}*
-
       - name: Store built artifact paths
         id: paths
         run: |
@@ -146,6 +156,31 @@ jobs:
           path: |
             ${{ steps.paths.outputs.paths }}
             ${{ env.BUILD_MANIFEST_NAME }}
+
+  attest-local-artifacts:
+    name: Attest local artifacts
+    needs:
+      - plan # required for safe context access
+      - build-local-artifacts
+    if: github.event_name == 'push' && needs.plan.outputs.publishing == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      id-token: write # for attestation
+      attestations: write # for attestation
+
+    steps:
+      - name: Download local artifacts
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          pattern: artifacts-build-local-*
+          path: target/distrib/
+          merge-multiple: true
+
+      - name: Attest build provenance
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: target/distrib/*
 
   build-global-artifacts:
     name: Build global artifacts
@@ -169,20 +204,15 @@ jobs:
       - name: Install mise
         id: install-mise
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-        if: needs.plan.outputs.publishing == 'true'
         with:
           version: 2026.3.7
-          cache_save: false
+          cache: ${{ needs.plan.outputs.publishing == 'false' }}
+          cache_key: "{{default}}-release"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
-      - name: Install mise
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-        if: steps.install-mise.outcome == 'skipped'
-        with:
-          version: 2026.3.7
-
       - name: Re-install Rust
+        if: steps.install-mise.outputs.cache-hit == 'true'
         # cache doesn't work well with rust
         run: mise install rust --force
 
@@ -222,8 +252,15 @@ jobs:
     name: Release
     needs:
       - plan # required for safe context access
+      - attest-local-artifacts
       - build-global-artifacts
-    if: github.repository_owner == 'risu729' && needs.plan.outputs.publishing == 'true'
+    if: |
+      always() &&
+      github.repository_owner == 'risu729' &&
+      needs.plan.outputs.publishing == 'true' &&
+      needs.plan.result == 'success' &&
+      (needs.attest-local-artifacts.result == 'success' || needs.attest-local-artifacts.result == 'skipped') &&
+      needs.build-global-artifacts.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -240,26 +277,8 @@ jobs:
         with:
           version: 2026.3.7
           cache: false
-          cache_save: false
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
-
-      - name: Fetch artifacts
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
-        with:
-          pattern: artifacts-*
-          path: target/distrib/
-          merge-multiple: true
-
-      - name: Host
-        id: host
-        run: |
-          # shellcheck disable=SC2086 # intentional word-splitting
-          dist host ${TAG_FLAG} --steps=upload --steps=release --output-format=json > dist-manifest.json
-          jq --color-output . dist-manifest.json
-          echo "manifest=$(jq --compact-output . dist-manifest.json)" >> "${GITHUB_OUTPUT}"
-        env:
-          TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
 
       - name: Download local and global artifacts
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
@@ -268,12 +287,32 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Generate dist manifest
+        id: dist-manifest
+        run: |
+          mkdir -p target/distrib
+          cp artifacts/* target/distrib/
+          # shellcheck disable=SC2086 # intentional word-splitting
+          dist host ${TAG_FLAG} --steps=upload --steps=release --output-format=json > dist-manifest.json
+          jq --color-output . dist-manifest.json
+          {
+            echo "announcement_is_prerelease=$(jq --raw-output .announcement_is_prerelease dist-manifest.json)"
+            echo "announcement_title=$(jq --raw-output .announcement_title dist-manifest.json)"
+            echo "announcement_github_body<<EOF"
+            jq --raw-output .announcement_github_body dist-manifest.json
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+        env:
+          TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
+
       - name: Remove granular manifests
         run: rm -f artifacts/*-dist-manifest.json
 
       - name: Create GitHub Release
         run: |
-          echo "${BODY}" > "${RUNNER_TEMP}/notes.txt"
+          cat <<EOF > "${RUNNER_TEMP}/notes.txt"
+          ${BODY}
+          EOF
           # shellcheck disable=SC2086 # intentional word-splitting
           gh release create "${TAG}"\
             --verify-tag\
@@ -285,16 +324,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TAG: ${{ needs.plan.outputs.tag }}
-          PRERELEASE_FLAG: ${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}
-          TITLE: ${{ fromJson(steps.host.outputs.manifest).announcement_title }}
-          BODY: ${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}
+          PRERELEASE_FLAG: ${{ steps.dist-manifest.outputs.announcement_is_prerelease == 'true' && '--prerelease' || '' }}
+          TITLE: ${{ steps.dist-manifest.outputs.announcement_title }}
+          BODY: ${{ steps.dist-manifest.outputs.announcement_github_body }}
           RELEASE_COMMIT: ${{ github.sha }}
 
   actions-timeline:
     name: Generate Actions Timeline
     needs:
       - release
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name == 'push' }}
 
     runs-on: ubuntu-24.04
     timeout-minutes: 5
