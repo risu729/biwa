@@ -128,8 +128,11 @@ jobs:
     needs:
       - paths
     if: needs.paths.outputs.build == 'true'
+    # All permissions in the callee workflow are required for the reusable workflow
     permissions:
-      contents: read # for checkout in reusable workflow jobs
+      contents: write
+      attestations: write
+      id-token: write
     uses: ./.github/workflows/release.yml
 
   ci-check:
