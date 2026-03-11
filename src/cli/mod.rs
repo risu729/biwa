@@ -165,9 +165,8 @@ mod tests {
 
 	impl io::Write for SharedGuard {
 		fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-			self.buf
-				.lock()
-				.map_err(|_error| io::Error::other("buffer lock should succeed"))?
+            .lock()
+                .map_err(|_| io::Error::other("failed to acquire buffer lock"))?
 				.extend_from_slice(buf);
 			Ok(buf.len())
 		}
