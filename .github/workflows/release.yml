@@ -53,27 +53,17 @@ jobs:
           fi
 
       - name: Install mise
-        id: install-mise-publishing
-        if: steps.mode.outputs.publishing == 'true'
+        id: install-mise
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
-          cache: false
-        env:
-          MISE_ENABLE_TOOLS: rust,cargo-dist
-
-      - name: Install mise
-        id: install-mise-non-publishing
-        if: steps.install-mise-publishing.outcome == 'skipped'
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-        with:
-          version: 2026.3.7
-          cache_key: "{{default}}-{{env.MISE_ENABLE_TOOLS}}"
+          cache: ${{ steps.mode.outputs.publishing == 'false' }}
+          cache_key: "{{default}}-release"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
       - name: Re-install Rust
-        if: steps.install-mise-non-publishing.outcome == 'success'
+        if: steps.install-mise.outputs.cache-hit == 'true'
         # cache doesn't work well with rust
         run: mise install rust --force
 
@@ -116,33 +106,23 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        id: install-mise-publishing
-        if: needs.plan.outputs.publishing == 'true'
+        id: install-mise
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
-          cache: false
+          cache: ${{ needs.plan.outputs.publishing == 'false' }}
+          cache_key: "{{default}}-release"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
-
-      - name: Install mise
-        id: install-mise-non-publishing
-        if: steps.install-mise-publishing.outcome == 'skipped'
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-        with:
-          version: 2026.3.7
-          cache_key: "{{default}}-{{env.MISE_ENABLE_TOOLS}}"
-        env:
-          MISE_ENABLE_TOOLS: rust,cargo-dist
-
+  
       - name: Re-install Rust
-        if: steps.install-mise-non-publishing.outcome == 'success'
+        if: steps.install-mise.outputs.cache-hit == 'true'
         # cache doesn't work well with rust
         run: mise install rust --force
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
-        if: steps.install-mise-non-publishing.outcome == 'success'
+        if: needs.plan.outputs.publishing == 'false'
         with:
           key: ${{ join(matrix.targets, '-') }}
 
@@ -222,27 +202,17 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        id: install-mise-publishing
-        if: needs.plan.outputs.publishing == 'true'
+        id: install-mise
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
-          cache: false
+          cache: ${{ needs.plan.outputs.publishing == 'false' }}
+          cache_key: "{{default}}-release"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
-
-      - name: Install mise
-        id: install-mise-non-publishing
-        if: steps.install-mise-publishing.outcome == 'skipped'
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
-        with:
-          version: 2026.3.7
-          cache_key: "{{default}}-{{env.MISE_ENABLE_TOOLS}}"
-        env:
-          MISE_ENABLE_TOOLS: rust,cargo-dist
-
+    
       - name: Re-install Rust
-        if: steps.install-mise-non-publishing.outcome == 'success'
+        if: steps.install-mise.outputs.cache-hit == 'true'
         # cache doesn't work well with rust
         run: mise install rust --force
 
@@ -284,7 +254,13 @@ jobs:
       - plan # required for safe context access
       - attest-local-artifacts
       - build-global-artifacts
-    if: github.repository_owner == 'risu729' && needs.plan.outputs.publishing == 'true'
+    if: |
+      always() &&
+      github.repository_owner == 'risu729' &&
+      needs.plan.outputs.publishing == 'true' &&
+      needs.plan.result == 'success' &&
+      (needs.attest-local-artifacts.result == 'success' || needs.attest-local-artifacts.result == 'skipped') &&
+      needs.build-global-artifacts.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
