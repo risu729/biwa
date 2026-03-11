@@ -2,6 +2,7 @@ name: Release
 
 on:
   workflow_call:
+  # zizmor: ignore[cache-poisoning] mutually exclusive fallback
   push:
     tags:
       - v*
