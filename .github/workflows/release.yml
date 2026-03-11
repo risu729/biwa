@@ -347,7 +347,7 @@ jobs:
     name: Generate Actions Timeline
     needs:
       - release
-    if: ${{ !cancelled() }}
+    if: ${{ github.event_name != 'workflow_call' && !cancelled() }}
 
     runs-on: ubuntu-24.04
     timeout-minutes: 5
