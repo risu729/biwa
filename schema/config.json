@@ -142,7 +142,7 @@
           "minimum": 0
         },
         "umask": {
-          "description": "Umask to apply before executing commands and creating directories.\nNote that you cannot loosen the default umask set by the server (e.g., 0027 in UNSW CSE).\nYou need to use `chmod` manually if you want looser permissions. However, this umask setting\ncannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).\nAccepts an octal string (e.g. `\"077\"`, `\"0022\"`) or a decimal integer (e.g. `63` for 0o77).",
+          "description": "Umask to apply before executing commands and creating directories (3-digit octal: owner/group/other).\nTo set the first digit (setuid/setgid/sticky), run `umask` manually on the remote server.\nNote that you cannot loosen the default umask set by the server (e.g., 027 in UNSW CSE).\nYou need to use `chmod` manually if you want looser permissions. However, this umask setting\ncannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).",
           "$ref": "#/$defs/Umask"
         },
         "user": {
@@ -237,7 +237,7 @@
       ]
     },
     "Umask": {
-      "description": "Umask value for SSH execution and sync, stored as a normalized octal string.\n\nDeserializes from either a string (parsed as octal, e.g. `\"077\"` or `\"0022\"`) or an integer\n(the decimal value of the umask, e.g. `63` for 0o77). Always serialized as an octal string.",
+      "description": "Umask value for SSH execution and sync, stored as a normalized 3-digit octal string.\n\nDeserializes from a string parsed as octal (e.g. `\"077\"`, `\"022\"`). Only the lower three\ndigits (owner/group/other) are supported. To set the first digit (setuid/setgid/sticky),\nrun `umask` manually on the remote server. Always serialized as a 3-digit octal string.",
       "type": "string"
     }
   }

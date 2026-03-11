@@ -20,7 +20,7 @@ expression: content
     "key_path": null,
     "password": false,
     "port": 22,
-    "umask": "0077",
+    "umask": "077",
     "user": "z1234567"
   },
   "sync": {
