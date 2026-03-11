@@ -114,10 +114,9 @@ pub async fn run() -> Result<()> {
 	if let Some(command) = cli.command {
 		command.run(&config, quiet, silent).await?;
 	} else if !cli.run_command_args.is_empty() {
-		let (command, args) = cli
-			.run_command_args
-			.split_first()
-			.unwrap_or_else(|| unreachable!("branch only taken when run_command_args is non-empty"));
+		let (command, args) = cli.run_command_args.split_first().unwrap_or_else(|| {
+			unreachable!("branch only taken when run_command_args is non-empty")
+		});
 		run::run_remote(
 			&config,
 			&SyncArgs::default(),
