@@ -1,9 +1,10 @@
 use core::fmt;
-use core::ops::Deref;
+use derive_more::Deref;
 use schemars::JsonSchema;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::path::PathBuf;
+use std::str::FromStr;
 
 /// Maximum allowed umask value (0o777 = 511). Three digits (owner/group/other) only.
 const UMASK_MAX: u32 = 0o777;
@@ -13,7 +14,7 @@ const UMASK_MAX: u32 = 0o777;
 /// Deserializes from a string parsed as octal (e.g. `"077"`, `"022"`). Only the lower three
 /// digits (owner/group/other) are supported. To set the first digit (setuid/setgid/sticky),
 /// run `umask` manually on the remote server. Always serialized as a 3-digit octal string.
-#[derive(Debug, Clone, Serialize, JsonSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Deref, Serialize, JsonSchema, PartialEq, Eq)]
 #[serde(transparent)]
 pub struct Umask(String);
 
@@ -38,11 +39,14 @@ impl fmt::Display for Umask {
 	}
 }
 
-impl Deref for Umask {
-	type Target = str;
+impl FromStr for Umask {
+	type Err = String;
 
-	fn deref(&self) -> &Self::Target {
-		&self.0
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let n = u32::from_str_radix(s, 8)
+			.map_err(|e| format!("Invalid umask (expected octal): {s} ({e})"))?;
+		validate_umask(n)?;
+		Ok(Umask(format!("{n:03o}")))
 	}
 }
 
@@ -52,10 +56,7 @@ impl<'de> Deserialize<'de> for Umask {
 		D: Deserializer<'de>,
 	{
 		let s = String::deserialize(deserializer)?;
-		let n = u32::from_str_radix(&s, 8)
-			.map_err(|e| D::Error::custom(format!("Invalid umask (expected octal): {s} ({e})")))?;
-		validate_umask(n).map_err(D::Error::custom)?;
-		Ok(Self(format!("{n:03o}")))
+		Self::from_str(&s).map_err(D::Error::custom)
 	}
 }
 
