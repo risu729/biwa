@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::path::PathBuf;
-use std::str::FromStr;
+use core::str::FromStr;
 
 /// Maximum allowed umask value (0o777 = 511). Three digits (owner/group/other) only.
 const UMASK_MAX: u32 = 0o777;
@@ -46,7 +46,7 @@ impl FromStr for Umask {
 		let n = u32::from_str_radix(s, 8)
 			.map_err(|e| format!("Invalid umask (expected octal): {s} ({e})"))?;
 		validate_umask(n)?;
-		Ok(Umask(format!("{n:03o}")))
+		Ok(Self(format!("{n:03o}")))
 	}
 }
 
