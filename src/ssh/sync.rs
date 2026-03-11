@@ -248,10 +248,7 @@ async fn fetch_remote_hashes(
 	remote_dir: &str,
 ) -> Result<HashMap<String, String>> {
 	let quoted_remote_dir = shell_quote_path(remote_dir);
-	let dir_mode = format!(
-		"{:04o}",
-		0o777 & !u32::from_str_radix(&config.ssh.umask, 8)?
-	);
+	let dir_mode = format!("{:04o}", 0o777 & !config.ssh.umask.as_u32());
 
 	// Create remote dir with target permissions and fetch current hashes
 	let script = format!(
@@ -511,9 +508,7 @@ async fn apply_sync_actions(
 			.permissions()
 			.mode();
 		// Apply configured umask to local permissions
-		let umask_val = u32::from_str_radix(&config.ssh.umask, 8)
-			.wrap_err_with(|| format!("Failed to parse umask: {}", config.ssh.umask))?;
-		let secure_mode = local_mode & !umask_val;
+		let secure_mode = local_mode & !config.ssh.umask.as_u32();
 
 		upload_file(
 			&sftp,

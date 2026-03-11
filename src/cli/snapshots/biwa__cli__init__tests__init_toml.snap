@@ -45,6 +45,7 @@ expression: content
 # Note that you cannot loosen the default umask set by the server (e.g., 0027 in UNSW CSE).
 # You need to use `chmod` manually if you want looser permissions. However, this umask setting
 # cannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).
+# Accepts an octal string (e.g. `"077"`, `"0022"`) or a decimal integer (e.g. `63` for 0o77).
 #
 # Can also be specified via environment variable `BIWA_SSH_UMASK`.
 #

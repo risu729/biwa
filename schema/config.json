@@ -142,8 +142,8 @@
           "minimum": 0
         },
         "umask": {
-          "description": "Umask to apply before executing commands and creating directories.\nNote that you cannot loosen the default umask set by the server (e.g., 0027 in UNSW CSE).\nYou need to use `chmod` manually if you want looser permissions. However, this umask setting\ncannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).",
-          "type": "string"
+          "description": "Umask to apply before executing commands and creating directories.\nNote that you cannot loosen the default umask set by the server (e.g., 0027 in UNSW CSE).\nYou need to use `chmod` manually if you want looser permissions. However, this umask setting\ncannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).\nAccepts an octal string (e.g. `\"077\"`, `\"0022\"`) or a decimal integer (e.g. `63` for 0o77).",
+          "$ref": "#/$defs/Umask"
         },
         "user": {
           "description": "Username for the SSH connection.",
@@ -235,6 +235,10 @@
         "max_files_to_sync",
         "permissions"
       ]
+    },
+    "Umask": {
+      "description": "Umask value for SSH execution and sync, stored as a normalized octal string.\n\nDeserializes from either a string (parsed as octal, e.g. `\"077\"` or `\"0022\"`) or an integer\n(the decimal value of the umask, e.g. `63` for 0o77). Always serialized as an octal string.",
+      "type": "string"
     }
   }
 }

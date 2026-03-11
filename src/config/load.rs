@@ -294,7 +294,7 @@ mod tests {
 		    "user": "z1234567",
 		    "key_path": null,
 		    "password": false,
-		    "umask": "077"
+		    "umask": "0077"
 		  },
 		  "sync": {
 		    "auto": true,
