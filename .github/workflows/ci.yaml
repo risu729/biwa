@@ -40,6 +40,8 @@ jobs:
               - 'Cargo.lock'
               - 'src/**'
               - '.github/workflows/release.yml'
+              - 'dist-workspace.toml'
+              - 'mise.toml'
 
   test:
     name: Test
