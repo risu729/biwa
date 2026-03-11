@@ -129,8 +129,7 @@ jobs:
       - paths
     if: needs.paths.outputs.build == 'true'
     permissions:
-      contents: write # required by called workflow's release job declaration
-      actions: read # required by called workflow's actions-timeline declaration
+      contents: read # for checkout in reusable workflow jobs
     uses: ./.github/workflows/release.yml
 
   ci-check:
