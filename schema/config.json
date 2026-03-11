@@ -212,7 +212,11 @@
         },
         "sftp": {
           "description": "SFTP engine specific configuration.",
-          "$ref": "#/$defs/SyncSftpConfig"
+          "$ref": "#/$defs/SyncSftpConfig",
+          "default": {
+            "max_files_to_sync": 100,
+            "permissions": "recreate"
+          }
         },
         "sync_root": {
           "description": "Base directory to start the synchronization from. If not specified, uses the current working directory.",
@@ -221,10 +225,7 @@
             "null"
           ]
         }
-      },
-      "required": [
-        "sftp"
-      ]
+      }
     },
     "SyncEngine": {
       "description": "The synchronization engine to use.",

@@ -267,6 +267,12 @@ pub struct SyncSftpConfig {
 	pub permissions: SftpPermissions,
 }
 
+impl Default for SyncSftpConfig {
+	fn default() -> Self {
+		Config::default().sync.sftp
+	}
+}
+
 /// Synchronization settings.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncConfig {
@@ -291,6 +297,7 @@ pub struct SyncConfig {
 	pub engine: SyncEngine,
 	/// SFTP engine specific configuration.
 	#[config(nested)]
+	#[schemars(default)]
 	pub sftp: SyncSftpConfig,
 }
 
