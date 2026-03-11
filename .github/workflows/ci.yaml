@@ -133,6 +133,7 @@ jobs:
       contents: write
       attestations: write
       id-token: write
+      actions: read
     uses: ./.github/workflows/release.yml
 
   ci-check:
