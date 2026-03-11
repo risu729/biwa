@@ -6,17 +6,11 @@ run = "cargo build"
 description = "Build the project."
 
 [test]
-usage = """
-flag "--skip-ssh" help="Skip SSH tests" default="{% if env.CI is defined %}false{% else %}true{% endif %}" negate="--no-skip-ssh"
-"""
-run = "cargo test {% if not usage.skip_ssh %}-- --include-ignored{% endif %}"
+run = "cargo test"
 description = "Run the tests."
 
 ["test:coverage"]
-usage = """
-flag "--skip-ssh" help="Skip SSH tests" default="{% if env.CI is defined %}false{% else %}true{% endif %}" negate="--no-skip-ssh"
-"""
-run = "cargo tarpaulin {% if not usage.skip_ssh %}-- --include-ignored{% endif %}"
+run = "cargo tarpaulin"
 description = "Run the tests with coverage."
 
 ["test:update-snapshot"]
