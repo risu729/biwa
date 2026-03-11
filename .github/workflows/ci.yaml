@@ -135,46 +135,16 @@ jobs:
   ci-check:
     name: CI Check
     needs:
-      - paths
       - test
       - lint
       - build
-    if: ${{ always() }}
+    # ref: https://github.com/aquaproj/aqua-registry/pull/38449#issuecomment-3038859524
+    if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
-      - name: Verify required CI results
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PATHS_RESULT: ${{ needs.paths.result }}
-          TEST_RESULT: ${{ needs.test.result }}
-          LINT_RESULT: ${{ needs.lint.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
-        run: |
-          [[ "${TEST_RESULT}" == "success" ]] || {
-            echo "Test job result was ${TEST_RESULT}"
-            exit 1
-          }
-
-          [[ "${LINT_RESULT}" == "success" ]] || {
-            echo "Lint job result was ${LINT_RESULT}"
-            exit 1
-          }
-
-          if [[ "${EVENT_NAME}" == "pull_request" ]]; then
-            [[ "${PATHS_RESULT}" == "success" ]] || {
-              echo "paths job result was ${PATHS_RESULT}"
-              exit 1
-            }
-
-            [[ "${BUILD_RESULT}" == "success" || "${BUILD_RESULT}" == "skipped" ]] || {
-              echo "Build job result was ${BUILD_RESULT}"
-              exit 1
-            }
-          fi
-
-          echo "CI check passed"
+      - run: exit 1
 
   actions-timeline:
     name: Generate Actions Timeline
