@@ -333,7 +333,9 @@ jobs:
 
       - name: Create GitHub Release
         run: |
-          echo "${BODY}" > "${RUNNER_TEMP}/notes.txt"
+          cat <<EOF > "${RUNNER_TEMP}/notes.txt"
+          ${BODY}
+          EOF
           # shellcheck disable=SC2086 # intentional word-splitting
           gh release create "${TAG}"\
             --verify-tag\
