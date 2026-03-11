@@ -142,12 +142,14 @@ jobs:
       - lint
       - build
     # ref: https://github.com/aquaproj/aqua-registry/pull/38449#issuecomment-3038859524
-    if: ${{ always() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
-      - run: exit 1
+      - name: Fail CI Check
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
 
   actions-timeline:
     name: Generate Actions Timeline
