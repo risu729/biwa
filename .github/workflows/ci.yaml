@@ -54,7 +54,7 @@ jobs:
     name: Test
     needs:
       - paths
-    if: needs.paths.outputs.test == 'true'
+    if: ${{ !cancelled() && !failure() && needs.paths.outputs.test == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -137,7 +137,7 @@ jobs:
     name: Build
     needs:
       - paths
-    if: needs.paths.outputs.build == 'true'
+    if: ${{ !cancelled() && !failure() && needs.paths.outputs.build == 'true' }}
     # All permissions in the callee workflow are required for the reusable workflow
     permissions:
       contents: write
