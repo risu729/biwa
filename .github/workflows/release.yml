@@ -281,6 +281,7 @@ jobs:
     name: Release
     needs:
       - plan # required for safe context access
+      - attest-local-artifacts
       - build-global-artifacts
     if: github.repository_owner == 'risu729' && needs.plan.outputs.publishing == 'true'
     runs-on: ubuntu-24.04
