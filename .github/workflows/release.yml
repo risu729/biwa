@@ -2,12 +2,6 @@ name: Release
 
 on:
   workflow_call:
-    inputs:
-      run_actions_timeline:
-        description: "Run callee actions timeline when invoked as reusable workflow."
-        required: false
-        type: boolean
-        default: false
   push:
     tags:
       - v*
@@ -352,7 +346,7 @@ jobs:
     name: Generate Actions Timeline
     needs:
       - release
-    if: ${{ !cancelled() && (github.event_name == 'push' || inputs.run_actions_timeline) }}
+    if: ${{ !cancelled() && github.event_name == 'push' }}
 
     runs-on: ubuntu-24.04
     timeout-minutes: 5
