@@ -40,8 +40,9 @@ ssh:
   # Default value: false
   #password: false
 
-  # Umask to apply before executing commands and creating directories.
-  # Note that you cannot loosen the default umask set by the server (e.g., 0027 in UNSW CSE).
+  # Umask to apply before executing commands and creating directories (3-digit octal: owner/group/other).
+  # To set the first digit (setuid/setgid/sticky), run `umask` manually on the remote server.
+  # Note that you cannot loosen the default umask set by the server (e.g., 027 in UNSW CSE).
   # You need to use `chmod` manually if you want looser permissions. However, this umask setting
   # cannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).
   #

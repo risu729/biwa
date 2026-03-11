@@ -1,6 +1,73 @@
+use core::fmt;
+use core::str::FromStr;
+use derive_more::Deref;
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::path::PathBuf;
+
+/// Maximum allowed umask value (0o777 = 511). Three digits (owner/group/other) only.
+const UMASK_MAX: u32 = 0o777;
+
+/// Umask value for SSH execution and sync, stored as a normalized 3-digit octal string.
+///
+/// Deserializes from a string parsed as octal (e.g. `"077"`, `"022"`). Only the lower three
+/// digits (owner/group/other) are supported. To set the first digit (setuid/setgid/sticky),
+/// run `umask` manually on the remote server. Always serialized as a 3-digit octal string.
+#[derive(Debug, Clone, Deref, Serialize, JsonSchema, PartialEq, Eq)]
+#[serde(transparent)]
+pub struct Umask(String);
+
+impl Umask {
+	/// Returns the umask as a `u32` (e.g. for permission calculations).
+	#[must_use]
+	pub fn as_u32(&self) -> u32 {
+		// Validated at deserialization; only valid octal digits.
+		u32::from_str_radix(&self.0, 8).expect("umask stored as valid octal")
+	}
+}
+
+impl Default for Umask {
+	fn default() -> Self {
+		Self("077".to_owned())
+	}
+}
+
+impl fmt::Display for Umask {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		self.0.fmt(f)
+	}
+}
+
+impl FromStr for Umask {
+	type Err = String;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let n = u32::from_str_radix(s, 8)
+			.map_err(|e| format!("Invalid umask (expected octal): {s} ({e})"))?;
+		validate_umask(n)?;
+		Ok(Self(format!("{n:03o}")))
+	}
+}
+
+impl<'de> Deserialize<'de> for Umask {
+	fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+	where
+		D: Deserializer<'de>,
+	{
+		let s = String::deserialize(deserializer)?;
+		Self::from_str(&s).map_err(D::Error::custom)
+	}
+}
+
+/// Ensures the umask value is within the valid range (0..=0o777).
+fn validate_umask(n: u32) -> Result<(), String> {
+	if n > UMASK_MAX {
+		Err(format!("umask must be between 0 and 0o777 (got {n:#o})"))
+	} else {
+		Ok(())
+	}
+}
 
 /// Root configuration struct for biwa.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -68,12 +135,13 @@ pub struct SshConfig {
 	/// Password authentication: `false` (default), `true` (prompt), or a string value.
 	#[config(default = false, env = "BIWA_SSH_PASSWORD")]
 	pub password: PasswordConfig,
-	/// Umask to apply before executing commands and creating directories.
-	/// Note that you cannot loosen the default umask set by the server (e.g., 0027 in UNSW CSE).
+	/// Umask to apply before executing commands and creating directories (3-digit octal: owner/group/other).
+	/// To set the first digit (setuid/setgid/sticky), run `umask` manually on the remote server.
+	/// Note that you cannot loosen the default umask set by the server (e.g., 027 in UNSW CSE).
 	/// You need to use `chmod` manually if you want looser permissions. However, this umask setting
 	/// cannot restrict manual permission modifications via `chmod` (be careful with `chmod +x` or `+r`).
 	#[config(default = "077", env = "BIWA_SSH_UMASK")]
-	pub umask: String,
+	pub umask: Umask,
 }
 
 /// Logging configuration settings.
@@ -160,4 +228,41 @@ pub struct HooksConfig {
 	pub pre_sync: Option<String>,
 	/// Command to run after synchronization.
 	pub post_sync: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use pretty_assertions::assert_eq;
+
+	#[test]
+	fn umask_deserialize_string_octal() {
+		let u: Umask = serde_json::from_str(r#""077""#).unwrap();
+		assert_eq!(u.as_u32(), 0o77);
+		assert_eq!(u.to_string(), "077");
+		let u: Umask = serde_json::from_str(r#""022""#).unwrap();
+		assert_eq!(u.as_u32(), 0o22);
+		assert_eq!(u.to_string(), "022");
+	}
+
+	#[test]
+	fn umask_serialize_string() {
+		let u: Umask = serde_json::from_str(r#""022""#).unwrap();
+		let s = serde_json::to_string(&u).unwrap();
+		assert_eq!(s, r#""022""#);
+	}
+
+	#[test]
+	fn umask_invalid_string_rejected() {
+		let r: Result<Umask, _> = serde_json::from_str(r#""09""#);
+		let _: serde_json::Error = r.unwrap_err();
+		let r: Result<Umask, _> = serde_json::from_str(r#""not-a-number""#);
+		let _: serde_json::Error = r.unwrap_err();
+	}
+
+	#[test]
+	fn umask_out_of_range_rejected() {
+		let r: Result<Umask, _> = serde_json::from_str(r#""1000""#);
+		let _: serde_json::Error = r.unwrap_err();
+	}
 }
