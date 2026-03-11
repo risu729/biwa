@@ -28,6 +28,7 @@ jobs:
 
     outputs:
       build: ${{ steps.filter.outputs.build }}
+      test: ${{ steps.filter.outputs.test }}
 
     steps:
       - name: Check release-affecting files
@@ -35,16 +36,25 @@ jobs:
         uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
         with:
           filters: |
-            build:
+            build: &build
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'src/**'
               - '.github/workflows/release.yml'
               - 'dist-workspace.toml'
               - 'mise.toml'
+            test:
+              - *build
+              - 'tests/**'
+              - 'tarpaulin.toml'
+              - 'tasks.toml'
+              - '.github/workflows/ci.yml'
 
   test:
     name: Test
+    needs:
+      - paths
+    if: needs.paths.outputs.test == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
