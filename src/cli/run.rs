@@ -60,17 +60,19 @@ pub(super) async fn run_remote(
 	}
 
 	// Determine working directory: explicit --remote-dir > computed synced dir
-	let working_dir = if let Some(dir) = &sync_args.remote_dir {
-		dir.clone()
+	let computed_working_dir;
+	let working_dir: &str = if let Some(dir) = &sync_args.remote_dir {
+		dir.as_str()
 	} else {
-		compute_project_remote_dir(config, &sync_root)?
+		computed_working_dir = compute_project_remote_dir(config, &sync_root)?;
+		&computed_working_dir
 	};
 
 	execute_command(
 		config,
 		command,
 		command_args,
-		Some(&working_dir),
+		Some(working_dir),
 		quiet,
 		silent,
 	)
