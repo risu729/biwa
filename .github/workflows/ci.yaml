@@ -126,6 +126,10 @@ jobs:
     needs:
       - paths
     if: needs.paths.outputs.build == 'true'
+    permissions:
+      contents: read # for checkout in called workflow
+      id-token: write # for code signing and attestations in called workflow
+      attestations: write # for artifact attestations in called workflow
     uses: ./.github/workflows/release.yml
 
   ci-check:
