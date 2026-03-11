@@ -12,6 +12,9 @@ defaults:
   run:
     shell: bash
 
+env:
+  MISE_ENABLE_TOOLS: rust,cargo-dist
+
 jobs:
   plan:
     name: Plan
@@ -52,25 +55,23 @@ jobs:
           fi
 
       - name: Install mise
+        id: install-mise-publishing
         if: steps.mode.outputs.publishing == 'true'
         uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
           cache: false
           cache_save: false
-        env:
-          MISE_ENABLE_TOOLS: rust,cargo-dist
 
-      # zizmor: ignore[cache-poisoning] non-publishing validation path does not publish artifacts
       - name: Install mise
-        if: steps.mode.outputs.publishing == 'false'
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3 # zizmor: ignore[cache-poisoning] non-publishing validation path does not publish artifacts
+        id: install-mise-non-publishing
+        if: steps.install-mise-publishing.outcome == 'skipped'
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
-        env:
-          MISE_ENABLE_TOOLS: rust,cargo-dist
 
       - name: Re-install Rust
+        if: steps.install-mise-non-publishing.outcome == 'success'
         # cache doesn't work well with rust
         run: mise install rust --force
 
@@ -113,31 +114,29 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        id: install-mise
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        id: install-mise-publishing
         if: needs.plan.outputs.publishing == 'true'
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
           cache: false
           cache_save: false
-        env:
-          MISE_ENABLE_TOOLS: rust,cargo-dist
 
-      # zizmor: ignore[cache-poisoning] non-publishing validation path does not publish artifacts
       - name: Install mise
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3 # zizmor: ignore[cache-poisoning] non-publishing validation path does not publish artifacts
-        if: steps.install-mise.outcome == 'skipped'
+        id: install-mise-non-publishing
+        if: steps.install-mise-publishing.outcome == 'skipped'
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
 
       - name: Re-install Rust
+        if: steps.install-mise-non-publishing.outcome == 'success'
         # cache doesn't work well with rust
         run: mise install rust --force
 
-      # zizmor: ignore[cache-poisoning] cache is used only for non-publishing PR/validation builds
       - name: Rust Cache
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2 # zizmor: ignore[cache-poisoning] cache is used only for non-publishing PR/validation builds
-        if: needs.plan.outputs.publishing == 'false'
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        if: steps.install-mise-non-publishing.outcome == 'success'
         with:
           key: ${{ join(matrix.targets, '-') }}
 
@@ -217,24 +216,23 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        id: install-mise
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        id: install-mise-publishing
         if: needs.plan.outputs.publishing == 'true'
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
           cache: false
           cache_save: false
-        env:
-          MISE_ENABLE_TOOLS: rust,cargo-dist
 
-      # zizmor: ignore[cache-poisoning] non-publishing validation path does not publish artifacts
       - name: Install mise
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3 # zizmor: ignore[cache-poisoning] non-publishing validation path does not publish artifacts
-        if: steps.install-mise.outcome == 'skipped'
+        id: install-mise-non-publishing
+        if: steps.install-mise-publishing.outcome == 'skipped'
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
         with:
           version: 2026.3.7
 
       - name: Re-install Rust
+        if: steps.install-mise-non-publishing.outcome == 'success'
         # cache doesn't work well with rust
         run: mise install rust --force
 
@@ -293,8 +291,6 @@ jobs:
           version: 2026.3.7
           cache: false
           cache_save: false
-        env:
-          MISE_ENABLE_TOOLS: rust,cargo-dist
 
       - name: Fetch artifacts
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
