@@ -1,5 +1,6 @@
 use crate::Result;
-use crate::{config::types::Config, ssh::exec::execute_command};
+use crate::cli::sync::SyncArgs;
+use crate::config::types::Config;
 use clap::{ArgAction, Parser, Subcommand};
 use color_eyre::eyre::bail;
 use tracing::Level;
@@ -113,11 +114,14 @@ pub async fn run() -> Result<()> {
 	if let Some(command) = cli.command {
 		command.run(&config, quiet, silent).await?;
 	} else if !cli.run_command_args.is_empty() {
-		execute_command(
+		let command = cli.run_command_args.first().expect("Command is empty");
+		let args = cli.run_command_args.get(1..).expect("Arguments are empty");
+		run::run_remote(
 			&config,
-			cli.run_command_args.first().expect("Command is empty"),
-			cli.run_command_args.get(1..).expect("Arguments are empty"),
-			None,
+			&SyncArgs::default(),
+			command,
+			args,
+			config.sync.auto,
 			quiet,
 			silent,
 		)

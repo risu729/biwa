@@ -175,3 +175,68 @@ fn e2e_run_remote_dir_tilde() -> Result<()> {
 	pretty_assertions::assert_eq!(stdout.trim(), home_dir);
 	Ok(())
 }
+
+/// Implicit `biwa <args>` and `biwa run <args>` must use the same remote working directory.
+#[test]
+fn e2e_implicit_run_same_working_dir_as_explicit_run() -> Result<()> {
+	// Disable auto-sync so both commands just resolve and use the same project dir without syncing.
+	let explicit = biwa_cmd(&["run", "--skip-sync", "pwd"])
+		.env("BIWA_LOG_QUIET", "true")
+		.env("BIWA_SYNC_AUTO", "false")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let implicit = biwa_cmd(&["pwd"])
+		.env("BIWA_LOG_QUIET", "true")
+		.env("BIWA_SYNC_AUTO", "false")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(
+		explicit.status.success(),
+		"biwa run pwd failed: {}",
+		String::from_utf8_lossy(&explicit.stderr)
+	);
+	assert!(
+		implicit.status.success(),
+		"biwa pwd failed: {}",
+		String::from_utf8_lossy(&implicit.stderr)
+	);
+
+	let explicit_dir = String::from_utf8_lossy(&explicit.stdout).trim().to_owned();
+	let implicit_dir = String::from_utf8_lossy(&implicit.stdout).trim().to_owned();
+	pretty_assertions::assert_eq!(
+		implicit_dir,
+		explicit_dir,
+		"implicit run and explicit run must resolve to the same remote working directory"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_implicit_run_command_executes_in_resolved_dir() -> Result<()> {
+	// Implicit run should run in the resolved project dir, not remote home.
+	let output = biwa_cmd(&["pwd"])
+		.env("BIWA_LOG_QUIET", "true")
+		.env("BIWA_SYNC_AUTO", "false")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(
+		output.status.success(),
+		"biwa pwd failed: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+	// Default remote project dir is ~/.cache/biwa/projects/<name>-<hash>
+	assert!(
+		stdout.contains(".cache/biwa/projects/"),
+		"expected path under .cache/biwa/projects/, got: {stdout}"
+	);
+	Ok(())
+}
