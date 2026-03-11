@@ -280,16 +280,18 @@ jobs:
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
-      - name: Fetch artifacts
+      - name: Download local and global artifacts
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           pattern: artifacts-*
-          path: target/distrib/
+          path: artifacts
           merge-multiple: true
 
-      - name: Host
-        id: host
+      - name: Generate dist manifest
+        id: dist-manifest
         run: |
+          mkdir -p target/distrib
+          cp artifacts/* target/distrib/
           # shellcheck disable=SC2086 # intentional word-splitting
           dist host ${TAG_FLAG} --steps=upload --steps=release --output-format=json > dist-manifest.json
           jq --color-output . dist-manifest.json
@@ -298,13 +300,6 @@ jobs:
           echo "announcement_github_body=$(jq --raw-output .announcement_github_body dist-manifest.json)" >> "${GITHUB_OUTPUT}"
         env:
           TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
-
-      - name: Download local and global artifacts
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
-        with:
-          pattern: artifacts-*
-          path: artifacts
-          merge-multiple: true
 
       - name: Remove granular manifests
         run: rm -f artifacts/*-dist-manifest.json
@@ -325,9 +320,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TAG: ${{ needs.plan.outputs.tag }}
-          PRERELEASE_FLAG: ${{ steps.host.outputs.announcement_is_prerelease && '--prerelease' || '' }}
-          TITLE: ${{ steps.host.outputs.announcement_title }}
-          BODY: ${{ steps.host.outputs.announcement_github_body }}
+          PRERELEASE_FLAG: ${{ steps.dist-manifest.outputs.announcement_is_prerelease && '--prerelease' || '' }}
+          TITLE: ${{ steps.dist-manifest.outputs.announcement_title }}
+          BODY: ${{ steps.dist-manifest.outputs.announcement_github_body }}
           RELEASE_COMMIT: ${{ github.sha }}
 
   actions-timeline:
