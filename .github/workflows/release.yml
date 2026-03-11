@@ -295,11 +295,13 @@ jobs:
           # shellcheck disable=SC2086 # intentional word-splitting
           dist host ${TAG_FLAG} --steps=upload --steps=release --output-format=json > dist-manifest.json
           jq --color-output . dist-manifest.json
-          echo "announcement_is_prerelease=$(jq --raw-output .announcement_is_prerelease dist-manifest.json)" >> "${GITHUB_OUTPUT}"
-          echo "announcement_title=$(jq --raw-output .announcement_title dist-manifest.json)" >> "${GITHUB_OUTPUT}"
-          echo "announcement_github_body<<EOF" >> "${GITHUB_OUTPUT}"
-          jq --raw-output .announcement_github_body dist-manifest.json >> "${GITHUB_OUTPUT}"
-          echo "EOF" >> "${GITHUB_OUTPUT}"
+          {
+            echo "announcement_is_prerelease=$(jq --raw-output .announcement_is_prerelease dist-manifest.json)"
+            echo "announcement_title=$(jq --raw-output .announcement_title dist-manifest.json)"
+            echo "announcement_github_body<<EOF"
+            jq --raw-output .announcement_github_body dist-manifest.json
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
         env:
           TAG_FLAG: ${{ needs.plan.outputs.tag-flag }}
 
