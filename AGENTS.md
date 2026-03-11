@@ -164,6 +164,14 @@ It captures the commands, conventions, and guardrails that are actually used her
 - Always use `pretty_assertions` in tests for diff quality.
 - For environment mutation in tests, keep `#[serial]` and cleanup guards.
 
+## Commit Message And PR Title Conventions
+
+- Use conventional commits: `type(scope): description`.
+- Types: `feat`, `fix`, `chore`, `ci`, `docs`, `test`, `refactor`, `style`.
+- Scope is optional; use when it clarifies the change (e.g. `deps`, `mise`, `clippy`, `schema`).
+- Use `ci:` for GitHub Actions and workflow changes, not `chore:`.
+- PR titles follow the same format; they are typically merged as-is into the commit message.
+
 ## Generated And Sensitive Files
 
 - Do not edit generated outputs directly when a render task exists.
