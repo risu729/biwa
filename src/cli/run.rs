@@ -32,6 +32,54 @@ pub(super) struct Run {
 	command_args: Vec<String>,
 }
 
+/// Shared execution path for remote commands (used by both `biwa run` and implicit `biwa <args>`).
+///
+/// Resolves sync root and working directory, optionally syncs, then runs the command
+/// in the resolved remote directory.
+pub(super) async fn run_remote(
+	config: &Config,
+	sync_args: &SyncArgs,
+	command: &str,
+	command_args: &[String],
+	should_sync: bool,
+	quiet: bool,
+	silent: bool,
+) -> Result<()> {
+	let sync_root = sync_args.resolve_sync_root(config)?;
+
+	if should_sync {
+		let options = sync_args.resolve_options();
+		sync_project(
+			config,
+			&sync_root,
+			&options,
+			sync_args.remote_dir.as_deref(),
+			quiet,
+		)
+		.await?;
+	}
+
+	// Determine working directory: explicit --remote-dir > computed synced dir
+	let computed_working_dir;
+	let working_dir: &str = if let Some(dir) = &sync_args.remote_dir {
+		dir.as_str()
+	} else {
+		computed_working_dir = compute_project_remote_dir(config, &sync_root)?;
+		&computed_working_dir
+	};
+
+	execute_command(
+		config,
+		command,
+		command_args,
+		Some(working_dir),
+		quiet,
+		silent,
+	)
+	.await?;
+	Ok(())
+}
+
 impl Run {
 	/// Determines whether synchronization should be performed before running the command.
 	const fn should_sync(&self, config_sync_auto: bool) -> bool {
@@ -46,37 +94,16 @@ impl Run {
 
 	/// Run the execution logic for remote command.
 	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
-		let sync_root = self.sync_args.resolve_sync_root(config)?;
-
-		if self.should_sync(config.sync.auto) {
-			let options = self.sync_args.resolve_options();
-			sync_project(
-				config,
-				&sync_root,
-				&options,
-				self.sync_args.remote_dir.as_deref(),
-				quiet,
-			)
-			.await?;
-		}
-
-		// Determine working directory: explicit --remote-dir > computed synced dir
-		let working_dir = if let Some(dir) = &self.sync_args.remote_dir {
-			dir.clone()
-		} else {
-			compute_project_remote_dir(config, &sync_root)?
-		};
-
-		execute_command(
+		run_remote(
 			config,
+			&self.sync_args,
 			&self.command,
 			&self.command_args,
-			Some(&working_dir),
+			self.should_sync(config.sync.auto),
 			quiet,
 			silent,
 		)
-		.await?;
-		Ok(())
+		.await
 	}
 }
 
