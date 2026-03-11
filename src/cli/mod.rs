@@ -114,10 +114,9 @@ pub async fn run() -> Result<()> {
 	if let Some(command) = cli.command {
 		command.run(&config, quiet, silent).await?;
 	} else if !cli.run_command_args.is_empty() {
-		let (command, args) = cli
-			.run_command_args
-			.split_first()
-			.ok_or_else(|| eyre!("No command provided. Use `biwa --help` for usage information."))?;
+		let (command, args) = cli.run_command_args.split_first().ok_or_else(|| {
+			eyre!("No command provided. Use `biwa --help` for usage information.")
+		})?;
 		run::run_remote(
 			&config,
 			&SyncArgs::default(),
