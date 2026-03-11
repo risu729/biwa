@@ -1,10 +1,10 @@
 use core::fmt;
+use core::str::FromStr;
 use derive_more::Deref;
 use schemars::JsonSchema;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::path::PathBuf;
-use core::str::FromStr;
 
 /// Maximum allowed umask value (0o777 = 511). Three digits (owner/group/other) only.
 const UMASK_MAX: u32 = 0o777;
