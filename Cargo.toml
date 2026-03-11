@@ -50,7 +50,7 @@ insta = { version = "=1.46.3", features = ["json"] }
 pretty_assertions = { version = "=1.4.1", features = ["unstable"] }
 rstest = "=0.26.1"
 serial_test = "=3.4.0"
-tempfile = "=3.26.0"
+tempfile = "=3.27.0"
 
 [profile.dist]
 inherits = "release"
