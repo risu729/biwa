@@ -167,7 +167,7 @@ mod tests {
 		fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
 			self.buf
 				.lock()
-				.map_err(|_| io::Error::other("failed to acquire buffer lock"))?
+				.map_err(|_e| io::Error::other("failed to acquire buffer lock"))?
 				.extend_from_slice(buf);
 			Ok(buf.len())
 		}
