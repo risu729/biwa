@@ -1,0 +1,16 @@
+#:schema https://pitchfork.jdx.dev/schema.json
+
+[settings]
+general.mise = true
+
+[daemons.ssh-server]
+run = "docker compose up"
+watch = ["docker-compose.yml"]
+auto = ["start", "stop"]
+ready_port = 2222
+
+[daemons.docs]
+run = "mise run docs:dev --strictPort"
+watch = ["docs/package.json", "docs/bun.lock", "docs/.vitepress/config.ts"]
+auto = ["start", "stop"]
+ready_http = "http://localhost:5173"

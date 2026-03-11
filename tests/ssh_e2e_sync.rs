@@ -24,7 +24,6 @@ fn biwa_cmd_tilde(args: &[&str], current_dir: &Path) -> duct::Expression {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_basic() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("hello.txt"), "world")?;
@@ -69,7 +68,6 @@ fn e2e_sync_basic() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_absolute_path() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("absolute.txt"), "hello absolute")?;
@@ -120,7 +118,6 @@ fn e2e_sync_absolute_path() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_cleaning() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let file_path = dir.path().join("to_delete.txt");
@@ -153,7 +150,6 @@ fn e2e_sync_cleaning() -> Result<()> {
 #[case::umask_0077(Some("0077"), "drwx------", "-rw-------", "-rwx------", "-rw-------")]
 #[case::umask_0022(Some("0022"), "drwxr-xr-x", "-rw-r--r--", "-rwxr-xr-x", "-rw-r--r--")]
 #[case::umask_0027(Some("0027"), "drwxr-x---", "-rw-r-----", "-rwxr-x---", "-rw-r-----")]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_permissions(
 	#[case] umask: Option<&str>,
 	#[case] expected_dir: &str,
@@ -270,7 +266,6 @@ fn e2e_sync_permissions(
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_hashing() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let file_path = dir.path().join("hash.txt");
@@ -305,7 +300,6 @@ fn e2e_sync_hashing() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_abort() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("file1.txt"), "1")?;
@@ -326,7 +320,6 @@ fn e2e_sync_abort() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_ignore_gitignore() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join(".gitignore"), "ignored.txt\n")?;
@@ -346,7 +339,6 @@ fn e2e_sync_ignore_gitignore() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_ignore_biwaignore() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join(".biwaignore"), ".env\n")?;
@@ -366,7 +358,6 @@ fn e2e_sync_ignore_biwaignore() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_exclude_globset() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let tests_dir = dir.path().join("tests");
@@ -388,7 +379,6 @@ fn e2e_sync_exclude_globset() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_exclude_config() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(
@@ -411,7 +401,6 @@ fn e2e_sync_exclude_config() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_force() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("file.txt"), "content")?;
@@ -434,7 +423,6 @@ fn e2e_sync_force() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_large_file() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	// 1MB file
@@ -454,7 +442,6 @@ fn e2e_sync_large_file() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_remote_symlink() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let remote_dir = common::get_remote_project_dir(dir.path())?;
@@ -502,7 +489,6 @@ fn e2e_sync_remote_symlink() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_shell_injection() -> Result<()> {
 	let base_dir = tempfile::tempdir()?;
 	let malicious_name = "test_dir_$(echo injection_attempt)_'\"`";
@@ -539,7 +525,6 @@ fn e2e_sync_shell_injection() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_intermediate_dir_permissions() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let deep_dir = dir.path().join("a").join("b").join("c");
@@ -581,7 +566,6 @@ fn e2e_sync_intermediate_dir_permissions() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_existing_dir_permissions() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let sub_dir = dir.path().join("preexisting");
@@ -652,7 +636,6 @@ fn e2e_sync_existing_dir_permissions() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_remote_dir() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("hello.txt"), "remote dir test")?;
@@ -704,7 +687,6 @@ fn e2e_sync_remote_dir() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_remote_dir_tilde() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("hello.txt"), "tilde test")?;
@@ -765,7 +747,6 @@ fn e2e_sync_remote_dir_tilde() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_remote_file_symlink_overwrite() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let remote_dir = common::get_remote_project_dir(dir.path())?;
@@ -841,7 +822,6 @@ fn e2e_sync_remote_file_symlink_overwrite() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires running SSH server"]
 fn e2e_sync_hidden_file() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join(".secret_config"), "my secret config")?;
