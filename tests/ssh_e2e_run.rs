@@ -6,7 +6,10 @@
 use std::io::{BufRead as _, BufReader, Read as _};
 
 mod common;
+use color_eyre::eyre::WrapErr as _;
 use common::{Result, biwa_cmd};
+use rstest::rstest;
+use std::{fs, path::PathBuf};
 
 #[test]
 fn e2e_run_command() -> Result<()> {
@@ -237,6 +240,38 @@ fn e2e_implicit_run_command_executes_in_resolved_dir() -> Result<()> {
 	assert!(
 		stdout.contains(".cache/biwa/projects/"),
 		"expected path under .cache/biwa/projects/, got: {stdout}"
+	);
+	Ok(())
+}
+
+/// CLI loads config from each schema fixture when used as biwa.toml.
+#[rstest]
+fn e2e_run_config_from_schema_fixture(
+	#[files("schema/fixtures/toml/*.toml")] fixture: PathBuf,
+) -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let target_path = dir.path().join("biwa.toml");
+
+	fs::copy(&fixture, &target_path).wrap_err_with(|| {
+		format!(
+			"failed to copy {} to {}",
+			fixture.display(),
+			target_path.display()
+		)
+	})?;
+
+	let output = biwa_cmd(&["run", "--skip-sync", ":"])
+		.dir(dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(
+		output.status.success(),
+		"fixture {}: biwa run failed: {}",
+		fixture.display(),
+		String::from_utf8_lossy(&output.stderr)
 	);
 	Ok(())
 }

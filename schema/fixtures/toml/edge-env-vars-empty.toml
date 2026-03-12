@@ -1,0 +1,4 @@
+# Edge case: env.vars empty array
+
+[env]
+vars = []

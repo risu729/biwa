@@ -1,0 +1,6 @@
+# Edge case: umask 022
+
+[ssh]
+host = "host"
+user = "u"
+umask = "022"

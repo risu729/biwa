@@ -1,0 +1,5 @@
+# Edge case: sync engine mutagen
+
+[sync]
+engine = "mutagen"
+remote_root = "~/projects"

@@ -162,7 +162,6 @@
         "port": {
           "description": "Port to connect to on the remote host.",
           "type": "integer",
-          "format": "uint16",
           "default": 22,
           "maximum": 65535,
           "minimum": 0
@@ -249,7 +248,6 @@
         "max_files_to_sync": {
           "description": "Abort synchronization if the number of files to upload exceeds this limit.",
           "type": "integer",
-          "format": "uint",
           "default": 100,
           "minimum": 0
         },

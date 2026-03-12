@@ -4,8 +4,11 @@
 	"[rust]": {
 		"editor.defaultFormatter": "rust-lang.rust-analyzer"
 	},
-	"[typescript][javascript][css][vue][json][jsonc][yaml][github-actions-workflow][toml][markdown]": {
+	"[typescript][javascript][css][vue][json][jsonc][yaml][github-actions-workflow][markdown]": {
 		"editor.defaultFormatter": "oxc.oxc-vscode"
+	},
+	"[toml]": {
+		"editor.defaultFormatter": "tombi-toml.tombi"
 	},
 
 	"files.readonlyInclude": {
@@ -13,6 +16,6 @@
 		"**/Cargo.lock": true,
 		"biwa.usage.kdl": true,
 		"docs/src/cli/*": true,
-		"schema/*": true
+		"schema/config.json": true
 	}
 }

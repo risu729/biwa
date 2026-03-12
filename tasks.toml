@@ -65,7 +65,14 @@ description = "Run yamllint to lint YAML files."
 
 ["check:oxfmt"]
 run = "oxfmt {% if env.LINT is defined %}--check{% endif %}"
-description = "Run oxfmt to format JS, TS, CSS, Vue, JSON, JSONC, YAML, TOML, and Markdown files."
+description = "Run oxfmt to format JS, TS, CSS, Vue, JSON, JSONC, YAML, and Markdown files."
+
+["check:tombi"]
+run = [
+	"tombi format {% if env.LINT is defined %}--check{% endif %}",
+	"tombi lint --error-on-warnings",
+]
+description = "Run tombi to format TOML files."
 
 ["check:typos"]
 run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
@@ -111,3 +118,20 @@ run = [
 	"usage generate markdown -m --out-dir docs/src/cli --url-prefix /cli --html-encode --file biwa.usage.kdl",
 ]
 description = "Generate usage spec and CLI reference docs."
+
+["util:noop"]
+run = ":"
+hide = true
+description = "No-op"
+
+[schema]
+depends = ["schema:*"]
+description = "Validate config schema."
+
+["schema:tombi"]
+depends = [
+	"{% if env.CI is defined %}util:noop{% else %}render:schema{% endif %}",
+]
+run = "tombi lint --error-on-warnings"
+dir = "schema"
+description = "Validate config schema with Tombi."

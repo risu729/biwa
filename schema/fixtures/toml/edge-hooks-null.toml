@@ -1,0 +1,3 @@
+# Edge case: hooks with no commands (optional keys omitted)
+
+[hooks]
