@@ -1,4 +1,9 @@
 {
 	// ref: https://code.visualstudio.com/docs/editor/extension-marketplace#_workspace-recommended-extensions
-	"recommendations": ["rust-lang.rust-analyzer", "github.vscode-github-actions", "oxc.oxc-vscode"]
+	"recommendations": [
+		"rust-lang.rust-analyzer",
+		"github.vscode-github-actions",
+		"oxc.oxc-vscode",
+		"tombi-toml.tombi"
+	]
 }

@@ -1,0 +1,26 @@
+# Full biwa config — all sections with typical values
+
+[ssh]
+host = "cse.unsw.edu.au"
+port = 22
+user = "z1234567"
+umask = "077"
+
+[sync]
+auto = true
+remote_root = "~/.cache/biwa/projects"
+exclude = ["**/.git/**", "**/target/**", "**/node_modules/**"]
+engine = "sftp"
+
+[sync.sftp]
+max_files_to_sync = 100
+permissions = "recreate"
+
+[env]
+vars = ["PATH", "HOME"]
+
+[hooks]
+
+[log]
+quiet = false
+silent = false

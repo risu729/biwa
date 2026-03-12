@@ -1,0 +1,5 @@
+# Edge case: sync_root not set (optional null) — use sync only with remote_root
+
+[sync]
+remote_root = "~/projects"
+engine = "sftp"

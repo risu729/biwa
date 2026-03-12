@@ -1,0 +1,6 @@
+# Partial config: only [ssh] section
+
+[ssh]
+host = "example.com"
+port = 22
+user = "deploy"

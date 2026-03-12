@@ -1,0 +1,6 @@
+# Partial config: only [sync] section
+
+[sync]
+auto = false
+remote_root = "~/projects"
+engine = "sftp"

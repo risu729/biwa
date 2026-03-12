@@ -1,0 +1,8 @@
+# Edge case: SFTP permissions strategy setstat
+
+[sync]
+engine = "sftp"
+remote_root = "~/projects"
+
+[sync.sftp]
+permissions = "setstat"

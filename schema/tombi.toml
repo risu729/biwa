@@ -1,0 +1,6 @@
+[format.rules]
+indent-style = "tab"
+
+[[schemas]]
+path = "config.json"
+include = ["fixtures/toml/**/*.toml"]
