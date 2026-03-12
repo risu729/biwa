@@ -13,7 +13,7 @@ include = ["/README.md", "/src/**/*.rs"]
 [dependencies]
 async-ssh2-tokio = "=0.12.2"
 bytes = "=1.11.1"
-clap = { version = "=4.5.61", features = ["derive"] }
+clap = { version = "=4.6.0", features = ["derive"] }
 color-eyre = "=0.6.5"
 confique = { version = "=0.4.0", features = ["json5", "toml", "yaml"] }
 console = "=0.16.2"
