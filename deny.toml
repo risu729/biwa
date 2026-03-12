@@ -18,7 +18,15 @@ ignore = [
 unused-ignored-advisory = "deny"
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "Unicode-3.0", "BSD-3-Clause", "ISC", "CC0-1.0", "OpenSSL"]
+allow = [
+	"MIT",
+	"Apache-2.0",
+	"Unicode-3.0",
+	"BSD-3-Clause",
+	"ISC",
+	"CC0-1.0",
+	"OpenSSL"
+]
 unused-allowed-license = "deny"
 unused-license-exception = "deny"
 

@@ -3,19 +3,19 @@ name = "biwa"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.93.1"
+description = "CLI to execute commands on UNSW CSE servers from local"
 repository = "https://github.com/risu729/biwa"
 license = "MIT"
-include = ["/README.md", "/src/**/*.rs"]
-description = "CLI to execute commands on UNSW CSE servers from local"
 keywords = ["unsw"]
 categories = ["command-line-utilities"]
+include = ["/README.md", "/src/**/*.rs"]
 
 [dependencies]
 async-ssh2-tokio = "=0.12.2"
 bytes = "=1.11.1"
 clap = { version = "=4.5.60", features = ["derive"] }
 color-eyre = "=0.6.5"
-confique = { version = "=0.4.0", features = ["toml", "yaml", "json5"] }
+confique = { version = "=0.4.0", features = ["json5", "toml", "yaml"] }
 console = "=0.16.2"
 derive_more = { version = "=2.1.1", features = ["deref"] }
 dialoguer = "=0.12.0"
@@ -53,20 +53,10 @@ rstest = "=0.26.1"
 serial_test = "=3.4.0"
 tempfile = "=3.27.0"
 
-[profile.dist]
-inherits = "release"
-lto = "thin"
-
 [lints.clippy]
-pedantic = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
-cargo = { level = "warn", priority = -1 }
-# cargo-deny checks some cases
-multiple_crate_versions = "allow"
 # We prefer disabling rules than enabling them
 blanket_clippy_restriction_lints = "allow"
-# ref: https://rust-lang.github.io/rust-clippy/master/?groups=restriction
-restriction = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
 default_numeric_fallback = "allow"
 default_union_representation = "allow"
 # We don't need to care about breaking changes in non-public APIs
@@ -86,10 +76,14 @@ min_ident_chars = "allow"
 missing_trait_methods = "allow"
 # Conflicts with `self_named_module_files`
 mod_module_files = "allow"
+# cargo-deny checks some cases
+multiple_crate_versions = "allow"
 # We live in the 2020s
 non_ascii_literal = "allow"
+nursery = { level = "warn", priority = -1 }
 # We can rely on Match Ergonomics
 pattern_type_mismatch = "allow"
+pedantic = { level = "warn", priority = -1 }
 # CLI needs to print to stderr and stdout
 print_stderr = "allow"
 print_stdout = "allow"
@@ -97,6 +91,8 @@ print_stdout = "allow"
 pub_with_shorthand = "allow"
 # We can use `?` operator
 question_mark_used = "allow"
+# ref: https://rust-lang.github.io/rust-clippy/master/?groups=restriction
+restriction = { level = "warn", priority = -1 }
 # Conflicts with `semicolon_inside_block`
 semicolon_outside_block = "allow"
 # Conflicts with `unseparated_literal_suffix`
@@ -114,3 +110,7 @@ unimplemented = "allow"
 
 # TODO: remove this after merging PRs to avoid conflicts
 arbitrary_source_item_ordering = "allow"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"

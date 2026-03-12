@@ -60,7 +60,11 @@ commit_parsers = [
 	{ message = "^chore", group = "<!-- 9 -->🧹 Chore" },
 	{ message = "^revert", group = "<!-- 10 -->◀️ Revert" },
 	# Renovate dependency updates
-	{ message = '^(chore|fix|ci)\(deps\):', group = "<!-- 99 -->📦️ Dependency Updates", scope = "" },
+	{
+		message = '^(chore|fix|ci)\(deps\):',
+		group = "<!-- 99 -->📦️ Dependency Updates",
+		scope = ""
+	},
 	{ message = "^chore: release", skip = true },
 ]
 link_parsers = [{ pattern = "#(\\d+)", href = "{{ remote.link }}/issues/$1" }]
