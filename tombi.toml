@@ -1,4 +1,4 @@
-toml-version = "v1.1.0"
+toml-version = "v1.0.0"
 
 [files]
 exclude = ["schema/fixtures/toml/**/*.toml"]

@@ -1,24 +1,9 @@
 disallowed-macros = [
-	{
-		path = "std::assert_eq",
-		reason = "Please use pretty_assertions::assert_eq! for better diff output in tests."
-	},
-	{
-		path = "std::assert_ne",
-		reason = "Please use pretty_assertions::assert_ne! for better diff output in tests."
-	},
+	{ path = "std::assert_eq", reason = "Please use pretty_assertions::assert_eq! for better diff output in tests." },
+	{ path = "std::assert_ne", reason = "Please use pretty_assertions::assert_ne! for better diff output in tests." },
 ]
 disallowed-types = [
-	{
-		path = "eyre::Result",
-		reason = "Please use `crate::Result` instead to ensure consistent error handling across the crate."
-	},
-	{
-		path = "color_eyre::Result",
-		reason = "Please use `crate::Result` instead to ensure consistent error handling across the crate."
-	},
-	{
-		path = "color_eyre::eyre::Result",
-		reason = "Please use `crate::Result` instead to ensure consistent error handling across the crate."
-	},
+	{ path = "eyre::Result", reason = "Please use `crate::Result` instead to ensure consistent error handling across the crate." },
+	{ path = "color_eyre::Result", reason = "Please use `crate::Result` instead to ensure consistent error handling across the crate." },
+	{ path = "color_eyre::eyre::Result", reason = "Please use `crate::Result` instead to ensure consistent error handling across the crate." },
 ]
