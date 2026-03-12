@@ -5,6 +5,7 @@ expression: content
 {
   "$schema": "https://biwa.takuk.me/schema/config.json",
   "env": {
+    "transfer_method": "export",
     "vars": []
   },
   "hooks": {

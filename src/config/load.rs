@@ -1,8 +1,10 @@
 use super::format::ConfigFormat;
 use super::types::Config;
 use crate::Result;
+use crate::env_vars::{EnvVars, merge_env_vars, parse_transfer_env_list};
 use color_eyre::eyre::{WrapErr as _, bail};
 use confique::Config as _;
+use serde_json::{Map as JsonMap, Value as JsonValue};
 use std::fs::canonicalize;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
@@ -108,7 +110,13 @@ impl Config {
 			builder = builder.preloaded(partial);
 		}
 
-		let config = builder.load()?;
+		let mut config = builder.load()?;
+
+		if let Ok(value) = env::var("BIWA_ENV_VARS") {
+			let mut specs = config.env.vars.specs()?;
+			specs.extend(parse_transfer_env_list(&value)?);
+			config.env.vars = EnvVars::from_specs(merge_env_vars(specs));
+		}
 
 		Ok(config)
 	}
@@ -120,7 +128,7 @@ impl Config {
 		config_root: &Path,
 	) -> Result<<Self as confique::Config>::Layer> {
 		let content = fs::read_to_string(path).wrap_err("Failed to read config file")?;
-		let mut partial: <Self as confique::Config>::Layer = match format {
+		let mut value: JsonValue = match format {
 			ConfigFormat::Toml => toml::from_str(&content).wrap_err("Failed to parse TOML")?,
 			ConfigFormat::Yaml => {
 				serde_yaml::from_str(&content).wrap_err("Failed to parse YAML")?
@@ -129,6 +137,11 @@ impl Config {
 				json5::from_str(&content).wrap_err("Failed to parse JSON")?
 			}
 		};
+
+		normalize_env_aliases(&mut value)?;
+
+		let mut partial: <Self as confique::Config>::Layer =
+			serde_json::from_value(value).wrap_err("Failed to deserialize config")?;
 
 		Self::resolve_paths_partial(&mut partial, config_root);
 
@@ -178,6 +191,45 @@ impl Config {
 			}
 		}
 	}
+}
+
+/// Normalizes top-level env aliases like `env_vars` into the nested `env` object.
+fn normalize_env_aliases(value: &mut JsonValue) -> Result<()> {
+	let Some(root) = value.as_object_mut() else {
+		return Ok(());
+	};
+
+	let env_vars = root.remove("env_vars");
+	let env_transfer_method = root.remove("env_transfer_method");
+
+	if env_vars.is_none() && env_transfer_method.is_none() {
+		return Ok(());
+	}
+
+	let env_value = root
+		.entry("env")
+		.or_insert_with(|| JsonValue::Object(JsonMap::new()));
+	let Some(env) = env_value.as_object_mut() else {
+		bail!("Invalid config: `env` must be a table/object")
+	};
+
+	if let Some(env_vars) = env_vars {
+		if env.contains_key("vars") {
+			bail!("Invalid config: use either `env_vars` or `env.vars`, not both")
+		}
+		env.insert("vars".to_owned(), env_vars);
+	}
+
+	if let Some(env_transfer_method) = env_transfer_method {
+		if env.contains_key("transfer_method") {
+			bail!(
+				"Invalid config: use either `env_transfer_method` or `env.transfer_method`, not both"
+			)
+		}
+		env.insert("transfer_method".to_owned(), env_transfer_method);
+	}
+
+	Ok(())
 }
 
 /// Expands a tilde (`~`) at the start of a path to the user's home directory.
@@ -232,6 +284,7 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::env_vars::{EnvTransferMethod, EnvVarSpec};
 	use crate::testing::EnvCleanup;
 	use pretty_assertions::{assert_eq, assert_matches, assert_ne};
 	use rstest::rstest;
@@ -312,7 +365,8 @@ mod tests {
 		    }
 		  },
 		  "env": {
-		    "vars": []
+		    "vars": [],
+		    "transfer_method": "export"
 		  },
 		  "hooks": {
 		    "pre_sync": null,
@@ -324,6 +378,95 @@ mod tests {
 		  }
 		}
 		"#);
+	}
+
+	#[test]
+	fn normalize_env_aliases_moves_top_level_keys() -> Result<()> {
+		let mut value = serde_json::json!({
+			"env_vars": ["NODE_ENV", "API_KEY=secret"],
+			"env_transfer_method": "setenv"
+		});
+
+		normalize_env_aliases(&mut value)?;
+
+		assert_eq!(
+			value,
+			serde_json::json!({
+				"env": {
+					"vars": ["NODE_ENV", "API_KEY=secret"],
+					"transfer_method": "setenv"
+				}
+			})
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn env_vars_can_be_loaded_from_biwa_env_vars() -> Result<()> {
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_ENV_VARS", "NODE_ENV,API_KEY");
+		}
+		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+
+		let config = Config::load_internal(None, None, None)?;
+		let specs = config.env.vars.specs()?;
+
+		assert!(specs.contains(&EnvVarSpec::transfer("NODE_ENV")));
+		assert!(specs.contains(&EnvVarSpec::transfer("API_KEY")));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn biwa_env_vars_extends_existing_config_env_vars() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"
+			[env_vars]
+			NODE_ENV = true
+		",
+		)?;
+
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_ENV_VARS", "API_KEY");
+		}
+		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let specs = config.env.vars.specs()?;
+
+		assert!(specs.contains(&EnvVarSpec::transfer("NODE_ENV")));
+		assert!(specs.contains(&EnvVarSpec::transfer("API_KEY")));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_supports_top_level_env_vars_table() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(
+			&path,
+			r#"
+			env_transfer_method = "export"
+
+			[env_vars]
+			NODE_ENV = true
+			API_KEY = "secret"
+		"#,
+		)?;
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let specs = config.env.vars.specs()?;
+
+		assert!(specs.contains(&EnvVarSpec::transfer("NODE_ENV")));
+		assert!(specs.contains(&EnvVarSpec::value("API_KEY", "secret")));
+		assert_eq!(config.env.transfer_method, EnvTransferMethod::Export);
+		Ok(())
 	}
 
 	#[rstest]

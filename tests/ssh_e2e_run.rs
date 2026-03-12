@@ -179,6 +179,54 @@ fn e2e_run_remote_dir_tilde() -> Result<()> {
 	Ok(())
 }
 
+#[test]
+fn e2e_run_env_transfer_from_flag() -> Result<()> {
+	let output = biwa_cmd(&[
+		"run",
+		"--skip-sync",
+		"--env",
+		"NODE_ENV",
+		"sh",
+		"-c",
+		"echo $NODE_ENV",
+	])
+	.env("BIWA_LOG_QUIET", "true")
+	.env("NODE_ENV", "development")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout).trim(),
+		"development"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_env_literal_from_flag() -> Result<()> {
+	let output = biwa_cmd(&[
+		"run",
+		"--skip-sync",
+		"--env",
+		"NODE_ENV=production",
+		"sh",
+		"-c",
+		"echo $NODE_ENV",
+	])
+	.env("BIWA_LOG_QUIET", "true")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "production");
+	Ok(())
+}
+
 /// Implicit `biwa <args>` and `biwa run <args>` must use the same remote working directory.
 #[test]
 fn e2e_implicit_run_same_working_dir_as_explicit_run() -> Result<()> {
@@ -262,6 +310,7 @@ fn e2e_run_config_from_schema_fixture(
 
 	let output = biwa_cmd(&["run", "--skip-sync", ":"])
 		.dir(dir.path())
+		.env("NODE_ENV", "test")
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()

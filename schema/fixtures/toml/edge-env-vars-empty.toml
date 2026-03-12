@@ -2,3 +2,4 @@
 
 [env]
 vars = []
+transfer_method = "export"

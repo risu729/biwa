@@ -26,6 +26,9 @@ cmd run help="Run commands on remote host" {
     flag "-i --include" help="Only synchronize files matching these paths or globs" var=#true {
         arg <INCLUDE>
     }
+    flag --env help="Send environment variables to the remote process" var=#true {
+        arg <ENV_VARS>
+    }
     arg <COMMAND> help="The command to run"
     arg "[COMMAND_ARGS]…" help="The arguments for the command" required=#false double_dash=automatic var=#true
 }

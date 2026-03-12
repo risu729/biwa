@@ -45,3 +45,7 @@ Exclude files matching these paths or globs
 ### `-i --include… <INCLUDE>`
 
 Only synchronize files matching these paths or globs
+
+### `--env… <ENV_VARS>`
+
+Send environment variables to the remote process

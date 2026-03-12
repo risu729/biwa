@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::cli::sync::SyncArgs;
+use crate::env_vars::parse_cli_env_vars;
 use crate::{
 	config::types::Config,
 	ssh::exec::execute_command,
@@ -23,6 +24,10 @@ pub(super) struct Run {
 	#[clap(flatten)]
 	sync_args: SyncArgs,
 
+	/// Send environment variables to the remote process.
+	#[arg(long = "env")]
+	env_vars: Vec<String>,
+
 	/// The command to run.
 	#[arg(required = true)]
 	command: String,
@@ -32,6 +37,16 @@ pub(super) struct Run {
 	command_args: Vec<String>,
 }
 
+/// Parsed remote command details shared across CLI entrypoints.
+pub(super) struct RemoteCommand<'a> {
+	/// Command name to execute remotely.
+	pub command: &'a str,
+	/// Command arguments to pass remotely.
+	pub command_args: &'a [String],
+	/// CLI `--env` arguments to merge with config env vars.
+	pub cli_env_vars: &'a [String],
+}
+
 /// Shared execution path for remote commands (used by both `biwa run` and implicit `biwa <args>`).
 ///
 /// Resolves sync root and working directory, optionally syncs, then runs the command
@@ -39,8 +54,7 @@ pub(super) struct Run {
 pub(super) async fn run_remote(
 	config: &Config,
 	sync_args: &SyncArgs,
-	command: &str,
-	command_args: &[String],
+	remote_command: RemoteCommand<'_>,
 	should_sync: bool,
 	quiet: bool,
 	silent: bool,
@@ -70,8 +84,9 @@ pub(super) async fn run_remote(
 
 	execute_command(
 		config,
-		command,
-		command_args,
+		remote_command.command,
+		remote_command.command_args,
+		&parse_cli_env_vars(remote_command.cli_env_vars)?,
 		Some(working_dir),
 		quiet,
 		silent,
@@ -97,8 +112,11 @@ impl Run {
 		run_remote(
 			config,
 			&self.sync_args,
-			&self.command,
-			&self.command_args,
+			RemoteCommand {
+				command: &self.command,
+				command_args: &self.command_args,
+				cli_env_vars: &self.env_vars,
+			},
 			self.should_sync(config.sync.auto),
 			quiet,
 			silent,
@@ -120,6 +138,7 @@ mod tests {
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(run.command, "ls");
 			assert_eq!(run.command_args, vec!["-la"]);
+			assert!(run.env_vars.is_empty());
 		} else {
 			assert_matches!(args.command, Some(Commands::Run(_)));
 		}
@@ -131,6 +150,28 @@ mod tests {
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(run.command, "pwd");
 			assert!(run.command_args.is_empty());
+			assert!(run.env_vars.is_empty());
+		} else {
+			assert_matches!(args.command, Some(Commands::Run(_)));
+		}
+	}
+
+	#[test]
+	fn run_supports_env_flag_forms() {
+		let args = Cli::parse_from([
+			"biwa",
+			"run",
+			"--env",
+			"NODE_ENV,API_KEY",
+			"--env",
+			"DEBUG=1",
+			"printenv",
+		]);
+		if let Some(Commands::Run(run)) = args.command {
+			assert_eq!(
+				run.env_vars,
+				vec!["NODE_ENV,API_KEY".to_owned(), "DEBUG=1".to_owned()]
+			);
 		} else {
 			assert_matches!(args.command, Some(Commands::Run(_)));
 		}

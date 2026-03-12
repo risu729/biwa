@@ -1,0 +1,7 @@
+# Edge case: env_vars top-level table and transfer method alias
+
+env_transfer_method = "export"
+
+[env_vars]
+NODE_ENV = true
+API_KEY = "secret"

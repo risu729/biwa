@@ -8,6 +8,7 @@
       "description": "Environment variables configuration.",
       "$ref": "#/$defs/EnvConfig",
       "default": {
+        "transfer_method": "export",
         "vars": []
       }
     },
@@ -64,15 +65,80 @@
       "description": "Environment settings.",
       "type": "object",
       "properties": {
+        "transfer_method": {
+          "description": "Transfer strategy for environment variables.",
+          "$ref": "#/$defs/EnvTransferMethod",
+          "default": "export"
+        },
         "vars": {
-          "description": "Environment variable keys to inherit/send.",
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
+          "description": "Environment variables to send to the remote process.\n\nSupports `env.vars = [\"NODE_ENV\", \"API_KEY=secret\"]`, top-level\n`env_vars = [...]`, or top-level `[env_vars]` table forms.",
+          "$ref": "#/$defs/EnvVars",
+          "default": []
         }
       }
+    },
+    "EnvTransferMethod": {
+      "description": "Strategy used to forward environment variables to the remote process.",
+      "oneOf": [
+        {
+          "description": "Prefix the command with shell `export` statements.",
+          "type": "string",
+          "const": "export"
+        },
+        {
+          "description": "Send environment variables through SSH `setenv` requests.",
+          "type": "string",
+          "const": "setenv"
+        }
+      ]
+    },
+    "EnvVarConfigValue": {
+      "description": "Config value used in table and inline-table env var forms.",
+      "anyOf": [
+        {
+          "description": "`true` means transfer the local value.",
+          "type": "boolean"
+        },
+        {
+          "description": "String values are sent literally.",
+          "type": "string"
+        }
+      ]
+    },
+    "EnvVarItem": {
+      "description": "An entry inside the array form of `env_vars`.",
+      "anyOf": [
+        {
+          "description": "String form such as `NODE_ENV` or `NODE_ENV=production`.",
+          "type": "string"
+        },
+        {
+          "description": "Inline table form such as `{ API_KEY = \"secret\" }`.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/EnvVarConfigValue"
+          }
+        }
+      ]
+    },
+    "EnvVars": {
+      "description": "Config representation for `env_vars`.",
+      "anyOf": [
+        {
+          "description": "Array form such as `env_vars = [\"NODE_ENV\", \"API_KEY=secret\"]`.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EnvVarItem"
+          }
+        },
+        {
+          "description": "Table form such as `[env_vars] NODE_ENV = true`.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/EnvVarConfigValue"
+          }
+        }
+      ]
     },
     "HooksConfig": {
       "description": "Hook settings.",

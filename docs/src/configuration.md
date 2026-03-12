@@ -73,6 +73,52 @@ Storing your password in a configuration file is **not recommended** for securit
 | `quiet`  | boolean | `false` | Suppress biwa internal logs, only showing remote command output |
 | `silent` | boolean | `false` | Suppress all output, including remote command stdout/stderr     |
 
+### Environment Variables
+
+`biwa` can forward local environment variables to the remote process, or send explicit values.
+
+#### Config keys
+
+| Key                   | Type           | Default    | Description                                         |
+| --------------------- | -------------- | ---------- | --------------------------------------------------- |
+| `env.vars`            | array \/ table | `[]`       | Environment variables to transfer or set            |
+| `env.transfer_method` | string         | `"export"` | Use `"export"` or `"setenv"` when sending variables |
+| `env_vars`            | array \/ table | -          | Top-level alias for `env.vars`                      |
+| `env_transfer_method` | string         | -          | Top-level alias for `env.transfer_method`           |
+
+#### Supported forms
+
+```toml
+[env]
+vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]
+transfer_method = "export"
+```
+
+```toml
+env_transfer_method = "export"
+
+[env_vars]
+NODE_ENV = true
+API_KEY = "secret"
+```
+
+- `NAME` or `NAME = true` transfers the local value from your machine to the remote process.
+- `NAME=value` or `NAME = "value"` sends a literal value.
+- `BIWA_ENV_VARS=NODE_ENV,API_KEY` adds transfer-only variables from the environment.
+
+::: warning Environment-dependent variables
+Using `= true` for machine-specific variables like `PATH`, `HOME`, or `LD_LIBRARY_PATH` copies the local value to the remote host. biwa warns when you do this because those values often do not match the remote machine.
+:::
+
+#### Transfer methods
+
+- `export` prepends shell-safe `export KEY=VALUE` statements to the remote command. This is the default and most compatible mode.
+- `setenv` uses SSH `setenv` requests before running the command. Some servers reject this feature; if that happens, switch back to `export`.
+
+::: warning Security
+Transferred variables are injected into the remote process environment. Be careful when sending secrets, and prefer only the variables you actually need.
+:::
+
 ### `[sync]` — Synchronization Settings
 
 | Key           | Type    | Default                                                | Description                                                                                 |
