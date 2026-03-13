@@ -4,10 +4,10 @@
 
 ## Config Keys
 
-| Key                   | Type          | Default    | Description                                         |
-| --------------------- | ------------- | ---------- | --------------------------------------------------- |
-| `env.vars`            | array / table | `[]`       | Environment variables to inherit or set            |
-| `env.forward_method`  | string        | `"export"` | Use `"export"` or `"setenv"` when sending variables |
+| Key                  | Type          | Default    | Description                                         |
+| -------------------- | ------------- | ---------- | --------------------------------------------------- |
+| `env.vars`           | array / table | `[]`       | Environment variables to inherit or set             |
+| `env.forward_method` | string        | `"export"` | Use `"export"` or `"setenv"` when sending variables |
 
 ## Supported Config Forms
 
