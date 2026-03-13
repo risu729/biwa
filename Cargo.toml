@@ -16,7 +16,7 @@ bytes = "=1.11.1"
 clap = { version = "=4.6.0", features = ["derive"] }
 color-eyre = "=0.6.5"
 confique = { version = "=0.4.0", features = ["json5", "toml", "yaml"] }
-console = "=0.16.2"
+console = "=0.16.3"
 derive_more = { version = "=2.1.1", features = ["deref"] }
 dialoguer = "=0.12.0"
 duct = "=1.1.1"
