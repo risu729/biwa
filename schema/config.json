@@ -71,7 +71,7 @@
           "default": "export"
         },
         "vars": {
-          "description": "Environment variables to send to the remote process.\n\nSupports `env.vars = [\"NODE_ENV\", \"API_KEY=secret\"]`, top-level\n`env_vars = [...]`, or top-level `[env_vars]` table forms.",
+          "description": "Environment variables to send to the remote process.\n\nSupports `vars = [\"NODE_ENV\", \"API_KEY=secret\"]` and `[env.vars]`\ntable forms.",
           "$ref": "#/$defs/EnvVars",
           "default": []
         }
@@ -106,7 +106,7 @@
       ]
     },
     "EnvVarItem": {
-      "description": "An entry inside the array form of `env_vars`.",
+      "description": "An entry inside the array form of `env.vars`.",
       "anyOf": [
         {
           "description": "String form such as `NODE_ENV` or `NODE_ENV=production`.",
@@ -122,17 +122,17 @@
       ]
     },
     "EnvVars": {
-      "description": "Config representation for `env_vars`.",
+      "description": "Config representation for `env.vars`.",
       "anyOf": [
         {
-          "description": "Array form such as `env_vars = [\"NODE_ENV\", \"API_KEY=secret\"]`.",
+          "description": "Array form such as `vars = [\"NODE_ENV\", \"API_KEY=secret\"]`.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/EnvVarItem"
           }
         },
         {
-          "description": "Table form such as `[env_vars] NODE_ENV = true`.",
+          "description": "Table form such as `[env.vars] NODE_ENV = true`.",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/EnvVarConfigValue"

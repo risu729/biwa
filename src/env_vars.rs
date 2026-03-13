@@ -15,13 +15,13 @@ pub enum EnvTransferMethod {
 	Setenv,
 }
 
-/// Config representation for `env_vars`.
+/// Config representation for `env.vars`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum EnvVars {
-	/// Array form such as `env_vars = ["NODE_ENV", "API_KEY=secret"]`.
+	/// Array form such as `vars = ["NODE_ENV", "API_KEY=secret"]`.
 	List(Vec<EnvVarItem>),
-	/// Table form such as `[env_vars] NODE_ENV = true`.
+	/// Table form such as `[env.vars] NODE_ENV = true`.
 	Table(BTreeMap<String, EnvVarConfigValue>),
 }
 
@@ -60,7 +60,7 @@ impl EnvVars {
 	}
 }
 
-/// An entry inside the array form of `env_vars`.
+/// An entry inside the array form of `env.vars`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum EnvVarItem {
@@ -83,7 +83,7 @@ impl EnvVarItem {
 
 				if specs.len() != 1 {
 					bail!(
-						"Inline env_vars table entries must contain exactly one key (got {})",
+						"Inline env.vars table entries must contain exactly one key (got {})",
 						specs.len()
 					);
 				}
@@ -155,7 +155,7 @@ impl EnvVarSpec {
 		match value {
 			EnvVarConfigValue::Transfer(true) => Ok(Self::transfer(name)),
 			EnvVarConfigValue::Transfer(false) => {
-				bail!("Invalid env_vars entry for {name}: only `true` is supported for transfer")
+				bail!("Invalid env.vars entry for {name}: only `true` is supported for transfer")
 			}
 			EnvVarConfigValue::Value(value) => Ok(Self::value(name, value)),
 		}
@@ -189,14 +189,14 @@ pub enum EnvVarSource {
 	Value(String),
 }
 
-/// Parses `--env` flag values.
-pub fn parse_cli_env_vars(values: &[String]) -> Result<Vec<EnvVarSpec>> {
+/// Parses comma-separated env var specs like `NAME` or `NAME=value`.
+pub fn parse_env_var_args(values: &[String], source: &str) -> Result<Vec<EnvVarSpec>> {
 	let mut specs = Vec::new();
 	for value in values {
 		for token in value.split(',') {
 			let token = token.trim();
 			if token.is_empty() {
-				bail!("`--env` entries cannot be empty");
+				bail!("{source} entries cannot be empty");
 			}
 			specs.push(EnvVarSpec::from_inline_string(token)?);
 		}
@@ -204,18 +204,14 @@ pub fn parse_cli_env_vars(values: &[String]) -> Result<Vec<EnvVarSpec>> {
 	Ok(specs)
 }
 
-/// Parses `BIWA_ENV_VARS`, which only supports transfer names.
-pub fn parse_transfer_env_list(value: &str) -> Result<Vec<EnvVarSpec>> {
-	let mut specs = Vec::new();
-	for token in value.split(',') {
-		let token = token.trim();
-		if token.is_empty() {
-			bail!("BIWA_ENV_VARS entries cannot be empty");
-		}
-		validate_env_var_name(token)?;
-		specs.push(EnvVarSpec::transfer(token));
-	}
-	Ok(specs)
+/// Parses `--env` flag values.
+pub fn parse_cli_env_vars(values: &[String]) -> Result<Vec<EnvVarSpec>> {
+	parse_env_var_args(values, "`--env`")
+}
+
+/// Parses `BIWA_ENV_VARS` values.
+pub fn parse_env_var_env(value: &str) -> Result<Vec<EnvVarSpec>> {
+	parse_env_var_args(&[value.to_owned()], "BIWA_ENV_VARS")
 }
 
 /// Merges env var specs, with later entries overriding earlier ones.
@@ -246,6 +242,17 @@ pub fn is_environment_dependent_env_var(name: &str) -> bool {
 				| "PWD" | "OLDPWD"
 				| "VIRTUAL_ENV"
 				| "CONDA_PREFIX"
+				| "PYTHONHOME"
+				| "PYTHONPATH"
+				| "NODE_PATH"
+				| "NPM_CONFIG_PREFIX"
+				| "JAVA_HOME"
+				| "CLASSPATH"
+				| "GOPATH" | "GOMODCACHE"
+				| "GOBIN" | "GEM_HOME"
+				| "GEM_PATH" | "BUNDLE_PATH"
+				| "BUNDLE_BIN"
+				| "PHP_INI_SCAN_DIR"
 				| "CARGO_HOME"
 				| "RUSTUP_HOME"
 		)
@@ -277,15 +284,22 @@ mod tests {
 
 	#[derive(Deserialize)]
 	struct EnvVarsWrapper {
-		env_vars: EnvVars,
+		env: EnvWrapper,
+	}
+
+	#[derive(Deserialize)]
+	struct EnvWrapper {
+		vars: EnvVars,
 	}
 
 	#[test]
 	fn env_vars_list_supports_transfer_and_literal_values() -> Result<()> {
 		let vars = toml::from_str::<EnvVarsWrapper>(
-			r#"env_vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
+			r#"[env]
+vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
 		)?
-		.env_vars;
+		.env
+		.vars;
 
 		assert_eq!(
 			vars.specs()?,
@@ -302,12 +316,13 @@ mod tests {
 	fn env_vars_table_supports_transfer_and_literal_values() -> Result<()> {
 		let vars = toml::from_str::<EnvVarsWrapper>(
 			r#"
-			[env_vars]
+			[env.vars]
 			NODE_ENV = true
 			API_KEY = "secret"
 		"#,
 		)?
-		.env_vars;
+		.env
+		.vars;
 
 		let specs = vars.specs()?;
 		assert!(specs.contains(&EnvVarSpec::transfer("NODE_ENV")));
@@ -319,14 +334,34 @@ mod tests {
 	fn env_vars_false_is_rejected() -> Result<()> {
 		let vars = toml::from_str::<EnvVarsWrapper>(
 			"
-			[env_vars]
+			[env.vars]
 			NODE_ENV = false
 		",
 		)?
-		.env_vars;
+		.env
+		.vars;
 
 		let error = vars.specs().unwrap_err().to_string();
 		assert!(error.contains("only `true` is supported"));
+		Ok(())
+	}
+
+	#[test]
+	fn env_vars_array_of_tables_supports_multiple_entries() -> Result<()> {
+		let vars = toml::from_str::<EnvVarsWrapper>(
+			r#"[env]
+vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]"#,
+		)?
+		.env
+		.vars;
+
+		assert_eq!(
+			vars.specs()?,
+			vec![
+				EnvVarSpec::value("NODE_ENV", "production"),
+				EnvVarSpec::value("API_KEY", "secret"),
+			]
+		);
 		Ok(())
 	}
 
@@ -345,12 +380,24 @@ mod tests {
 	}
 
 	#[test]
-	fn parse_transfer_env_list_supports_simple_names() -> Result<()> {
+	fn parse_env_var_env_supports_simple_names() -> Result<()> {
 		assert_eq!(
-			parse_transfer_env_list("NODE_ENV, API_KEY")?,
+			parse_env_var_env("NODE_ENV, API_KEY")?,
 			vec![
 				EnvVarSpec::transfer("NODE_ENV"),
 				EnvVarSpec::transfer("API_KEY")
+			]
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn parse_env_var_env_supports_values_and_transfer() -> Result<()> {
+		assert_eq!(
+			parse_env_var_env("NODE_ENV=prod,OTHER_ENV")?,
+			vec![
+				EnvVarSpec::value("NODE_ENV", "prod"),
+				EnvVarSpec::transfer("OTHER_ENV"),
 			]
 		);
 		Ok(())
@@ -372,6 +419,11 @@ mod tests {
 		assert!(is_environment_dependent_env_var("PATH"));
 		assert!(is_environment_dependent_env_var("LD_LIBRARY_PATH"));
 		assert!(is_environment_dependent_env_var("HOME"));
+		assert!(is_environment_dependent_env_var("PYTHONPATH"));
+		assert!(is_environment_dependent_env_var("NODE_PATH"));
+		assert!(is_environment_dependent_env_var("JAVA_HOME"));
+		assert!(is_environment_dependent_env_var("GOPATH"));
+		assert!(is_environment_dependent_env_var("GEM_HOME"));
 		assert!(!is_environment_dependent_env_var("NODE_ENV"));
 	}
 }

@@ -23,6 +23,7 @@ export default withMermaid(
 				{ link: "/about", text: "About" },
 				{ link: "/getting-started", text: "Getting Started" },
 				{ link: "/configuration", text: "Configuration" },
+				{ link: "/env-vars", text: "Env Vars" },
 			],
 			sidebar: [
 				{
@@ -36,6 +37,7 @@ export default withMermaid(
 					items: [
 						{ link: "/getting-started", text: "Getting Started" },
 						{ link: "/configuration", text: "Configuration" },
+						{ link: "/env-vars", text: "Environment Variables" },
 						{ link: "/ssh-key-setup", text: "SSH Key Setup" },
 						{ link: "/shell-completion", text: "Shell Completion" },
 						{ link: "/sync-behavior", text: "Sync Behavior" },

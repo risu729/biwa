@@ -84,7 +84,7 @@ pub(super) fn check_remote_root(remote_root: &Path) {
 /// If the path starts with `~/`, the `~` is replaced with `$HOME` and placed
 /// outside the quotes so the shell can expand it. Otherwise, the entire path
 /// is quoted with `shell_words::quote`.
-pub(super) fn shell_quote_path(path: &str) -> String {
+pub(super) fn shell_quote_remote_value(path: &str) -> String {
 	if path == "~" || path == "$HOME" {
 		return "\"$HOME\"".to_owned();
 	}
@@ -247,7 +247,7 @@ async fn fetch_remote_hashes(
 	config: &Config,
 	remote_dir: &str,
 ) -> Result<HashMap<String, String>> {
-	let quoted_remote_dir = shell_quote_path(remote_dir);
+	let quoted_remote_dir = shell_quote_remote_value(remote_dir);
 	let dir_mode = format!("{:04o}", 0o777 & !config.ssh.umask.as_u32());
 
 	// Create remote dir with target permissions and fetch current hashes
@@ -477,7 +477,7 @@ async fn apply_sync_actions(
 	if !dirs_to_create.is_empty() {
 		let mkdirs = dirs_to_create
 			.into_iter()
-			.map(|d| shell_quote_path(&d))
+			.map(|d| shell_quote_remote_value(&d))
 			.collect::<Vec<_>>()
 			.join(" ");
 		let mkdir_cmd = format!("umask {} && mkdir -p -- {mkdirs}", config.ssh.umask);
@@ -733,38 +733,41 @@ mod tests {
 	}
 
 	#[test]
-	fn shell_quote_path_tilde() {
+	fn shell_quote_remote_value_tilde() {
 		assert_eq!(
-			shell_quote_path("~/.cache/biwa/projects"),
+			shell_quote_remote_value("~/.cache/biwa/projects"),
 			"\"$HOME\"/.cache/biwa/projects"
 		);
 	}
 
 	#[test]
-	fn shell_quote_path_absolute() {
-		assert_eq!(shell_quote_path("/home/user/.cache"), "/home/user/.cache");
+	fn shell_quote_remote_value_absolute() {
+		assert_eq!(
+			shell_quote_remote_value("/home/user/.cache"),
+			"/home/user/.cache"
+		);
 	}
 
 	#[test]
-	fn shell_quote_path_special_chars() {
+	fn shell_quote_remote_value_special_chars() {
 		assert_eq!(
-			shell_quote_path("~/my project/dir"),
+			shell_quote_remote_value("~/my project/dir"),
 			"\"$HOME\"/'my project/dir'"
 		);
 	}
 
 	#[test]
-	fn shell_quote_path_bare_tilde() {
-		assert_eq!(shell_quote_path("~"), "\"$HOME\"");
+	fn shell_quote_remote_value_bare_tilde() {
+		assert_eq!(shell_quote_remote_value("~"), "\"$HOME\"");
 	}
 
 	#[test]
-	fn shell_quote_path_home_var() {
+	fn shell_quote_remote_value_home_var() {
 		assert_eq!(
-			shell_quote_path("$HOME/.cache/biwa/projects"),
+			shell_quote_remote_value("$HOME/.cache/biwa/projects"),
 			"\"$HOME\"/.cache/biwa/projects"
 		);
-		assert_eq!(shell_quote_path("$HOME"), "\"$HOME\"");
+		assert_eq!(shell_quote_remote_value("$HOME"), "\"$HOME\"");
 	}
 
 	#[test]

@@ -1,0 +1,5 @@
+# Edge case: env.vars array of inline tables
+
+[env]
+transfer_method = "export"
+vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]

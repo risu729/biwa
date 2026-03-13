@@ -17,7 +17,12 @@ max_files_to_sync = 100
 permissions = "recreate"
 
 [env]
-vars = ["PATH", "NODE_ENV=production", { API_KEY = "example" }]
+vars = [
+	"PATH",
+	"NODE_ENV=production",
+	{ API_KEY = "example" },
+	{ DEBUG = "1" },
+]
 transfer_method = "export"
 
 [hooks]

@@ -1,5 +1,5 @@
 use super::auth::resolve_auth;
-use super::sync::shell_quote_path;
+use super::sync::shell_quote_remote_value;
 use crate::Result;
 use crate::config::types::Config;
 use crate::env_vars::{
@@ -111,7 +111,7 @@ fn build_command(command: &str, args: &[String]) -> String {
 		command.to_owned()
 	} else {
 		let mut parts = vec![command.to_owned()];
-		parts.extend(args.iter().map(|a| shell_quote_path(a)));
+		parts.extend(args.iter().map(|a| shell_quote_remote_value(a)));
 		parts.join(" ")
 	}
 }
@@ -125,7 +125,7 @@ fn build_export_prefix(env_vars: &[ResolvedEnvVar]) -> String {
 			format!(
 				"export {}={}",
 				env_var.name,
-				shell_quote_path(&env_var.value)
+				shell_quote_remote_value(&env_var.value)
 			)
 		});
 		format!("{} && ", exports.collect::<Vec<_>>().join(" && "))
@@ -185,7 +185,7 @@ async fn run_command(
 	let effective_command = options.working_dir.map_or_else(
 		|| format!("umask {} && {command_with_env}", options.umask),
 		|dir| {
-			let quoted_dir = shell_quote_path(dir);
+			let quoted_dir = shell_quote_remote_value(dir);
 			format!(
 				"umask {} && mkdir -p -- {quoted_dir} && cd {quoted_dir} && {command_with_env}",
 				options.umask,
@@ -324,7 +324,7 @@ async fn execute_with_transfer_method(
 					Some(ChannelMsg::Failure) => {
 						warn!(
 							env_var = env_var.name,
-							"SSH server rejected setenv request; consider using env.transfer_method = \"export\""
+							"SSH server rejected setenv request; UNSW CSE does not support setenv, so use env.transfer_method = \"export\" there"
 						);
 						bail!("SSH server rejected environment variable transfer via setenv")
 					}

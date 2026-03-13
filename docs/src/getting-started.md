@@ -115,6 +115,7 @@ silent = true  # Suppress all output
 ## Next Steps
 
 - Read about [Configuration](/configuration) options
+- Learn how env forwarding works in [Environment Variables](/env-vars)
 - Set up [SSH Key Authentication](/ssh-key-setup)
 - Check [About biwa](/about)
 - Explore advanced features like hooks and mise integration
