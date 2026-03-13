@@ -49,5 +49,3 @@ Only synchronize files matching these paths or globs
 ### `--env… <ENV_VARS>`
 
 Send environment variables to the remote process
-
-Accepts repeated flags, comma-separated names, and `KEY=value` pairs
