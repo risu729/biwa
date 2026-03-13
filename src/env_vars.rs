@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 /// Strategy used to forward environment variables to the remote process.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
-pub enum EnvTransferMethod {
+pub enum EnvForwardMethod {
 	/// Prefix the command with shell `export` statements.
 	#[default]
 	Export,
@@ -50,7 +50,7 @@ impl EnvVars {
 			specs
 				.into_iter()
 				.map(|spec| match spec.source {
-					EnvVarSource::Transfer => EnvVarItem::String(spec.name),
+					EnvVarSource::Inherit => EnvVarItem::String(spec.name),
 					EnvVarSource::Value(value) => {
 						EnvVarItem::String(format!("{}={value}", spec.name))
 					}
@@ -98,8 +98,8 @@ impl EnvVarItem {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum EnvVarConfigValue {
-	/// `true` means transfer the local value.
-	Transfer(bool),
+	/// `true` means inherit the local value.
+	Inherit(bool),
 	/// String values are sent literally.
 	Value(String),
 }
@@ -114,12 +114,12 @@ pub struct EnvVarSpec {
 }
 
 impl EnvVarSpec {
-	/// Creates a transfer spec.
+	/// Creates an inheritance spec.
 	#[must_use]
-	pub fn transfer<T: Into<String>>(name: T) -> Self {
+	pub fn inherit<T: Into<String>>(name: T) -> Self {
 		Self {
 			name: name.into(),
-			source: EnvVarSource::Transfer,
+			source: EnvVarSource::Inherit,
 		}
 	}
 
@@ -145,7 +145,7 @@ impl EnvVarSpec {
 			Ok(Self::value(name, raw_value))
 		} else {
 			validate_env_var_name(trimmed)?;
-			Ok(Self::transfer(trimmed))
+			Ok(Self::inherit(trimmed))
 		}
 	}
 
@@ -153,9 +153,9 @@ impl EnvVarSpec {
 	fn from_config_value(name: &str, value: &EnvVarConfigValue) -> Result<Self> {
 		validate_env_var_name(name)?;
 		match value {
-			EnvVarConfigValue::Transfer(true) => Ok(Self::transfer(name)),
-			EnvVarConfigValue::Transfer(false) => {
-				bail!("Invalid env.vars entry for {name}: only `true` is supported for transfer")
+			EnvVarConfigValue::Inherit(true) => Ok(Self::inherit(name)),
+			EnvVarConfigValue::Inherit(false) => {
+				bail!("Invalid env.vars entry for {name}: only `true` is supported for inherit")
 			}
 			EnvVarConfigValue::Value(value) => Ok(Self::value(name, value)),
 		}
@@ -173,10 +173,10 @@ impl EnvVarSpec {
 		&self.source
 	}
 
-	/// Returns whether this variable transfers the local value.
+	/// Returns whether this variable inherits the local value.
 	#[must_use]
-	pub const fn is_transfer(&self) -> bool {
-		matches!(self.source, EnvVarSource::Transfer)
+	pub const fn is_inherited(&self) -> bool {
+		matches!(self.source, EnvVarSource::Inherit)
 	}
 }
 
@@ -184,7 +184,7 @@ impl EnvVarSpec {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EnvVarSource {
 	/// Copy the value from the local process environment.
-	Transfer,
+	Inherit,
 	/// Use a literal value.
 	Value(String),
 }
@@ -230,7 +230,7 @@ pub fn merge_env_vars(specs: Vec<EnvVarSpec>) -> Vec<EnvVarSpec> {
 	merged
 }
 
-/// Returns whether transferring this variable is likely to be machine-specific.
+/// Returns whether inheriting this variable is likely to be machine-specific.
 #[must_use]
 pub fn is_environment_dependent_env_var(name: &str) -> bool {
 	let upper = name.to_ascii_uppercase();
@@ -293,7 +293,7 @@ mod tests {
 	}
 
 	#[test]
-	fn env_vars_list_supports_transfer_and_literal_values() -> Result<()> {
+	fn env_vars_list_supports_inherit_and_literal_values() -> Result<()> {
 		let vars = toml::from_str::<EnvVarsWrapper>(
 			r#"[env]
 vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
@@ -304,7 +304,7 @@ vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
 		assert_eq!(
 			vars.specs()?,
 			vec![
-				EnvVarSpec::transfer("NODE_ENV"),
+				EnvVarSpec::inherit("NODE_ENV"),
 				EnvVarSpec::value("API_KEY", "secret"),
 				EnvVarSpec::value("DEBUG", "1"),
 			]
@@ -313,7 +313,7 @@ vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
 	}
 
 	#[test]
-	fn env_vars_table_supports_transfer_and_literal_values() -> Result<()> {
+	fn env_vars_table_supports_inherit_and_literal_values() -> Result<()> {
 		let vars = toml::from_str::<EnvVarsWrapper>(
 			r#"
 			[env.vars]
@@ -325,7 +325,7 @@ vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
 		.vars;
 
 		let specs = vars.specs()?;
-		assert!(specs.contains(&EnvVarSpec::transfer("NODE_ENV")));
+		assert!(specs.contains(&EnvVarSpec::inherit("NODE_ENV")));
 		assert!(specs.contains(&EnvVarSpec::value("API_KEY", "secret")));
 		Ok(())
 	}
@@ -371,8 +371,8 @@ vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]"#,
 		assert_eq!(
 			parse_cli_env_vars(&values)?,
 			vec![
-				EnvVarSpec::transfer("NODE_ENV"),
-				EnvVarSpec::transfer("API_KEY"),
+				EnvVarSpec::inherit("NODE_ENV"),
+				EnvVarSpec::inherit("API_KEY"),
 				EnvVarSpec::value("DEBUG", "1"),
 			]
 		);
@@ -384,20 +384,20 @@ vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]"#,
 		assert_eq!(
 			parse_env_var_env("NODE_ENV, API_KEY")?,
 			vec![
-				EnvVarSpec::transfer("NODE_ENV"),
-				EnvVarSpec::transfer("API_KEY")
+				EnvVarSpec::inherit("NODE_ENV"),
+				EnvVarSpec::inherit("API_KEY")
 			]
 		);
 		Ok(())
 	}
 
 	#[test]
-	fn parse_env_var_env_supports_values_and_transfer() -> Result<()> {
+	fn parse_env_var_env_supports_values_and_inherit() -> Result<()> {
 		assert_eq!(
 			parse_env_var_env("NODE_ENV=prod,OTHER_ENV")?,
 			vec![
 				EnvVarSpec::value("NODE_ENV", "prod"),
-				EnvVarSpec::transfer("OTHER_ENV"),
+				EnvVarSpec::inherit("OTHER_ENV"),
 			]
 		);
 		Ok(())
@@ -407,7 +407,7 @@ vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]"#,
 	fn merge_env_vars_prefers_later_entries() {
 		assert_eq!(
 			merge_env_vars(vec![
-				EnvVarSpec::transfer("NODE_ENV"),
+				EnvVarSpec::inherit("NODE_ENV"),
 				EnvVarSpec::value("NODE_ENV", "production"),
 			]),
 			vec![EnvVarSpec::value("NODE_ENV", "production")]

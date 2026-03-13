@@ -1,4 +1,4 @@
-use crate::env_vars::{EnvTransferMethod, EnvVars};
+use crate::env_vars::{EnvForwardMethod, EnvVars};
 use core::fmt;
 use core::str::FromStr;
 use derive_more::Deref;
@@ -318,10 +318,10 @@ pub struct EnvConfig {
 	#[config(default = [])]
 	#[schemars(default)]
 	pub vars: EnvVars,
-	/// Transfer strategy for environment variables.
-	#[config(default = "export", env = "BIWA_ENV_TRANSFER_METHOD")]
+	/// Forwarding strategy for environment variables.
+	#[config(default = "export", env = "BIWA_ENV_FORWARD_METHOD")]
 	#[schemars(default)]
-	pub transfer_method: EnvTransferMethod,
+	pub forward_method: EnvForwardMethod,
 }
 
 impl Default for EnvConfig {

@@ -73,7 +73,7 @@ Storing your password in a configuration file is **not recommended** for securit
 | `quiet`  | boolean | `false` | Suppress biwa internal logs, only showing remote command output |
 | `silent` | boolean | `false` | Suppress all output, including remote command stdout/stderr     |
 
-- Environment variable transfer is documented on [`/env-vars`](/env-vars).
+- Environment variable inheritance is documented on [`/env-vars`](/env-vars).
 
 ### `[sync]` — Synchronization Settings
 

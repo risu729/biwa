@@ -113,12 +113,12 @@ expression: content
     // Default value: []
     //vars: [],
 
-    // Transfer strategy for environment variables.
+    // Forwarding strategy for environment variables.
     //
-    // Can also be specified via environment variable `BIWA_ENV_TRANSFER_METHOD`.
+    // Can also be specified via environment variable `BIWA_ENV_FORWARD_METHOD`.
     //
     // Default value: "export"
-    //transfer_method: "export",
+    //forward_method: "export",
   },
 
   // Lifecycle hooks for synchronization.

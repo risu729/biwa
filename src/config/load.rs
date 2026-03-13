@@ -239,7 +239,7 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::env_vars::{EnvTransferMethod, EnvVarSpec};
+	use crate::env_vars::{EnvForwardMethod, EnvVarSpec};
 	use crate::testing::EnvCleanup;
 	use pretty_assertions::{assert_eq, assert_matches, assert_ne};
 	use rstest::rstest;
@@ -321,7 +321,7 @@ mod tests {
 		  },
 		  "env": {
 		    "vars": [],
-		    "transfer_method": "export"
+		    "forward_method": "export"
 		  },
 		  "hooks": {
 		    "pre_sync": null,
@@ -347,14 +347,14 @@ mod tests {
 		let config = Config::load_internal(None, None, None)?;
 		let specs = config.env.vars.specs()?;
 
-		assert!(specs.contains(&EnvVarSpec::transfer("NODE_ENV")));
-		assert!(specs.contains(&EnvVarSpec::transfer("API_KEY")));
+		assert!(specs.contains(&EnvVarSpec::inherit("NODE_ENV")));
+		assert!(specs.contains(&EnvVarSpec::inherit("API_KEY")));
 		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn biwa_env_vars_supports_values_and_transfer() -> Result<()> {
+	fn biwa_env_vars_supports_values_and_inherit() -> Result<()> {
 		// SAFETY: This is a serialized test that mutates the process environment.
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "NODE_ENV=prod,API_KEY");
@@ -365,7 +365,7 @@ mod tests {
 		let specs = config.env.vars.specs()?;
 
 		assert!(specs.contains(&EnvVarSpec::value("NODE_ENV", "prod")));
-		assert!(specs.contains(&EnvVarSpec::transfer("API_KEY")));
+		assert!(specs.contains(&EnvVarSpec::inherit("API_KEY")));
 		Ok(())
 	}
 
@@ -390,8 +390,8 @@ mod tests {
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		let specs = config.env.vars.specs()?;
 
-		assert!(specs.contains(&EnvVarSpec::transfer("NODE_ENV")));
-		assert!(specs.contains(&EnvVarSpec::transfer("API_KEY")));
+		assert!(specs.contains(&EnvVarSpec::inherit("NODE_ENV")));
+		assert!(specs.contains(&EnvVarSpec::inherit("API_KEY")));
 		Ok(())
 	}
 
@@ -404,7 +404,7 @@ mod tests {
 			&path,
 			r#"
 			[env]
-			transfer_method = "export"
+			forward_method = "export"
 
 			[env.vars]
 			NODE_ENV = true
@@ -415,9 +415,9 @@ mod tests {
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		let specs = config.env.vars.specs()?;
 
-		assert!(specs.contains(&EnvVarSpec::transfer("NODE_ENV")));
+		assert!(specs.contains(&EnvVarSpec::inherit("NODE_ENV")));
 		assert!(specs.contains(&EnvVarSpec::value("API_KEY", "secret")));
-		assert_eq!(config.env.transfer_method, EnvTransferMethod::Export);
+		assert_eq!(config.env.forward_method, EnvForwardMethod::Export);
 		Ok(())
 	}
 
@@ -430,7 +430,7 @@ mod tests {
 			&path,
 			r#"
 			[env]
-			transfer_method = "export"
+			forward_method = "export"
 			vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]
 		"#,
 		)?;

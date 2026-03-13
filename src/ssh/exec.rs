@@ -3,7 +3,7 @@ use super::sync::shell_quote_remote_value;
 use crate::Result;
 use crate::config::types::Config;
 use crate::env_vars::{
-	EnvTransferMethod, EnvVarSource, EnvVarSpec, is_environment_dependent_env_var, merge_env_vars,
+	EnvForwardMethod, EnvVarSource, EnvVarSpec, is_environment_dependent_env_var, merge_env_vars,
 };
 use crate::ui::create_spinner;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
@@ -140,15 +140,15 @@ fn resolve_env_vars(config: &Config, cli_env_vars: &[EnvVarSpec]) -> Result<Vec<
 	merge_env_vars(specs)
 		.into_iter()
 		.map(|spec| {
-			if spec.is_transfer() && is_environment_dependent_env_var(spec.name()) {
+			if spec.is_inherited() && is_environment_dependent_env_var(spec.name()) {
 				warn!(
 					env_var = spec.name(),
-					"Transferring an environment-dependent variable from the local machine"
+					"Inheriting an environment-dependent variable from the local machine"
 				);
 			}
 
 			let value = match spec.source() {
-				EnvVarSource::Transfer => env::var(spec.name()).wrap_err_with(|| {
+				EnvVarSource::Inherit => env::var(spec.name()).wrap_err_with(|| {
 					format!("Environment variable `{}` is not set locally", spec.name())
 				})?,
 				EnvVarSource::Value(value) => value.clone(),
@@ -173,14 +173,14 @@ async fn run_command(
 	client: &Client,
 	full_command: &str,
 	env_vars: &[ResolvedEnvVar],
-	transfer_method: &EnvTransferMethod,
+	forward_method: &EnvForwardMethod,
 	options: RunCommandOptions<'_>,
 ) -> Result<u32> {
 	u32::from_str_radix(options.umask, 8)
 		.wrap_err_with(|| format!("Invalid umask: {}", options.umask))?;
-	let command_with_env = match transfer_method {
-		EnvTransferMethod::Export => format!("{}{}", build_export_prefix(env_vars), full_command),
-		EnvTransferMethod::Setenv => full_command.to_owned(),
+	let command_with_env = match forward_method {
+		EnvForwardMethod::Export => format!("{}{}", build_export_prefix(env_vars), full_command),
+		EnvForwardMethod::Setenv => full_command.to_owned(),
 	};
 	let effective_command = options.working_dir.map_or_else(
 		|| format!("umask {} && {command_with_env}", options.umask),
@@ -210,11 +210,11 @@ async fn run_command(
 	let mut stdout_reader = StreamReader::new(stdout_stream);
 	let mut stderr_reader = StreamReader::new(stderr_stream);
 
-	let exec_future = execute_with_transfer_method(
+	let exec_future = execute_with_forward_method(
 		client,
 		&effective_command,
 		env_vars,
-		transfer_method,
+		forward_method,
 		stdout_tx,
 		stderr_tx,
 	);
@@ -280,7 +280,7 @@ pub async fn execute_command(
 		&client,
 		&full_command,
 		&env_vars,
-		&config.env.transfer_method,
+		&config.env.forward_method,
 		RunCommandOptions {
 			working_dir,
 			umask: &config.ssh.umask,
@@ -292,20 +292,20 @@ pub async fn execute_command(
 }
 
 /// Executes the remote command using either shell exports or SSH `setenv`.
-async fn execute_with_transfer_method(
+async fn execute_with_forward_method(
 	client: &Client,
 	command: &str,
 	env_vars: &[ResolvedEnvVar],
-	transfer_method: &EnvTransferMethod,
+	forward_method: &EnvForwardMethod,
 	stdout_tx: mpsc::Sender<Vec<u8>>,
 	stderr_tx: mpsc::Sender<Vec<u8>>,
 ) -> Result<u32> {
-	match transfer_method {
-		EnvTransferMethod::Export => client
+	match forward_method {
+		EnvForwardMethod::Export => client
 			.execute_io(command, stdout_tx, Some(stderr_tx), None, false, None)
 			.await
 			.wrap_err("Failed to execute remote command"),
-		EnvTransferMethod::Setenv => {
+		EnvForwardMethod::Setenv => {
 			let mut channel = client
 				.get_channel()
 				.await
@@ -324,9 +324,9 @@ async fn execute_with_transfer_method(
 					Some(ChannelMsg::Failure) => {
 						warn!(
 							env_var = env_var.name,
-							"SSH server rejected setenv request; UNSW CSE does not support setenv, so use env.transfer_method = \"export\" there"
+							"SSH server rejected setenv request; UNSW CSE does not support setenv, so use env.forward_method = \"export\" there"
 						);
-						bail!("SSH server rejected environment variable transfer via setenv")
+						bail!("SSH server rejected environment variable forwarding via setenv")
 					}
 					Some(message) => {
 						bail!("Unexpected SSH response after setenv: {message:?}")
@@ -383,7 +383,7 @@ async fn stream_channel_output(
 mod tests {
 	use super::*;
 	use crate::config::types::EnvConfig;
-	use crate::env_vars::{EnvTransferMethod, EnvVars};
+	use crate::env_vars::{EnvForwardMethod, EnvVars};
 	use crate::testing::EnvCleanup;
 	use pretty_assertions::assert_eq;
 	use serial_test::serial;
@@ -427,8 +427,8 @@ mod tests {
 	fn resolve_env_vars_merges_config_and_cli_values() -> Result<()> {
 		let config = Config {
 			env: EnvConfig {
-				vars: EnvVars::from_specs(vec![EnvVarSpec::transfer("NODE_ENV")]),
-				transfer_method: EnvTransferMethod::Export,
+				vars: EnvVars::from_specs(vec![EnvVarSpec::inherit("NODE_ENV")]),
+				forward_method: EnvForwardMethod::Export,
 			},
 			..Config::default()
 		};
