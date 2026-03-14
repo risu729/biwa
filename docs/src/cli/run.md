@@ -48,4 +48,4 @@ Only synchronize files matching these paths or globs
 
 ### `--env… <ENV_VARS>`
 
-Send environment variables to the remote process
+Send environment variables to the remote process. Supports `NAME`, `NAME=value`, wildcard patterns like `NODE_*`, and exclusions like `!*PATH`
