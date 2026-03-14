@@ -43,7 +43,7 @@ tokio-util = { version = "=0.7.18", features = ["io"] }
 toml = "=1.0.6"
 tracing = "=0.1.44"
 tracing-subscriber = "=0.3.23"
-usage-lib = { version = "=2.18.2", features = ["clap", "docs"] }
+usage-lib = { version = "=3.0.0", features = ["clap", "docs"] }
 
 [dev-dependencies]
 ctor = "=0.6.3"
