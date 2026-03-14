@@ -1,3 +1,4 @@
+use crate::env_vars::{EnvForwardMethod, EnvVars};
 use core::fmt;
 use core::str::FromStr;
 use derive_more::Deref;
@@ -310,10 +311,18 @@ impl Default for SyncConfig {
 /// Environment settings.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EnvConfig {
-	/// Environment variable keys to inherit/send.
+	/// Environment variables to send to the remote process.
+	///
+	/// Supports exact names and values such as
+	/// `vars = ["NODE_ENV", "API_KEY=secret"]`, wildcard rules such as
+	/// `vars = ["NODE_*", "!*PATH"]`, and `[env.vars]` table forms.
 	#[config(default = [])]
 	#[schemars(default)]
-	pub vars: Vec<String>,
+	pub vars: EnvVars,
+	/// Forwarding strategy for environment variables.
+	#[config(default = "export", env = "BIWA_ENV_FORWARD_METHOD")]
+	#[schemars(default)]
+	pub forward_method: EnvForwardMethod,
 }
 
 impl Default for EnvConfig {

@@ -102,10 +102,21 @@ sync:
 
 # Environment variables configuration.
 env:
-  # Environment variable keys to inherit/send.
+  # Environment variables to send to the remote process.
+  #
+  # Supports exact names and values such as
+  # `vars = ["NODE_ENV", "API_KEY=secret"]`, wildcard rules such as
+  # `vars = ["NODE_*", "!*PATH"]`, and `[env.vars]` table forms.
   #
   # Default value: []
   #vars: []
+
+  # Forwarding strategy for environment variables.
+  #
+  # Can also be specified via environment variable `BIWA_ENV_FORWARD_METHOD`.
+  #
+  # Default value: export
+  #forward_method: export
 
 # Lifecycle hooks for synchronization.
 hooks:

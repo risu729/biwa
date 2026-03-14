@@ -9,7 +9,7 @@ mod common;
 use color_eyre::eyre::WrapErr as _;
 use common::{Result, biwa_cmd};
 use rstest::rstest;
-use std::{fs, path::PathBuf};
+use std::{ffi::OsStr, fs, path::PathBuf};
 
 #[test]
 fn e2e_run_command() -> Result<()> {
@@ -179,6 +179,83 @@ fn e2e_run_remote_dir_tilde() -> Result<()> {
 	Ok(())
 }
 
+#[test]
+fn e2e_run_env_transfer_from_flag() -> Result<()> {
+	let output = biwa_cmd(&[
+		"run",
+		"--skip-sync",
+		"--env",
+		"NODE_ENV",
+		"sh",
+		"-c",
+		"echo $NODE_ENV",
+	])
+	.env("BIWA_LOG_QUIET", "true")
+	.env("NODE_ENV", "development")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout).trim(),
+		"development"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_env_literal_from_flag() -> Result<()> {
+	let output = biwa_cmd(&[
+		"run",
+		"--skip-sync",
+		"--env",
+		"NODE_ENV=production",
+		"sh",
+		"-c",
+		"echo $NODE_ENV",
+	])
+	.env("BIWA_LOG_QUIET", "true")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "production");
+	Ok(())
+}
+
+#[test]
+fn e2e_run_env_wildcard_and_negation_from_flag() -> Result<()> {
+	let output = biwa_cmd(&[
+		"run",
+		"--skip-sync",
+		"--env",
+		"NODE_*",
+		"--env",
+		"!*PATH",
+		"sh",
+		"-c",
+		"printf '%s|' \"$NODE_ENV\"; if [ -n \"$NODE_PATH\" ]; then printf present; else printf missing; fi",
+	])
+	.env("BIWA_LOG_QUIET", "true")
+	.env("NODE_ENV", "development")
+	.env("NODE_PATH", "/tmp/node")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout).trim(),
+		"development|missing"
+	);
+	Ok(())
+}
+
 /// Implicit `biwa <args>` and `biwa run <args>` must use the same remote working directory.
 #[test]
 fn e2e_implicit_run_same_working_dir_as_explicit_run() -> Result<()> {
@@ -262,10 +339,32 @@ fn e2e_run_config_from_schema_fixture(
 
 	let output = biwa_cmd(&["run", "--skip-sync", ":"])
 		.dir(dir.path())
+		.env("NODE_ENV", "test")
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
 		.run()?;
+
+	let fixture_name = fixture
+		.file_name()
+		.and_then(OsStr::to_str)
+		.unwrap_or_default();
+
+	if fixture_name == "edge-env-transfer-setenv.toml" {
+		assert!(
+			!output.status.success(),
+			"fixture {}: expected setenv fixture to fail on current SSH server",
+			fixture.display()
+		);
+		assert!(
+			String::from_utf8_lossy(&output.stderr)
+				.contains("rejected environment variable forwarding via setenv"),
+			"fixture {}: expected setenv rejection, got: {}",
+			fixture.display(),
+			String::from_utf8_lossy(&output.stderr)
+		);
+		return Ok(());
+	}
 
 	assert!(
 		output.status.success(),

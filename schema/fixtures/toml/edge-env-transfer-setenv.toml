@@ -1,0 +1,5 @@
+# Edge case: SSH setenv transfer method
+
+[env]
+forward_method = "setenv"
+vars = ["NODE_ENV"]

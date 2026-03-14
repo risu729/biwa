@@ -26,6 +26,8 @@ pub type Result<T> = color_eyre::Result<T>;
 mod cli;
 /// Configuration loading and definitions.
 mod config;
+/// Environment variable parsing and transfer.
+mod env_vars;
 /// SSH execution logic.
 mod ssh;
 #[cfg(test)]
