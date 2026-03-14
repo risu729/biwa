@@ -1,7 +1,7 @@
 use super::format::ConfigFormat;
 use super::types::Config;
 use crate::Result;
-use crate::env_vars::{EnvVars, merge_env_vars, parse_env_var_env};
+use crate::env_vars::{EnvVars, parse_env_var_env};
 use color_eyre::eyre::{WrapErr as _, bail};
 use confique::Config as _;
 use std::fs::canonicalize;
@@ -112,9 +112,9 @@ impl Config {
 		let mut config = builder.load()?;
 
 		if let Ok(value) = env::var("BIWA_ENV_VARS") {
-			let mut specs = config.env.vars.specs()?;
-			specs.extend(parse_env_var_env(&value)?);
-			config.env.vars = EnvVars::from_specs(merge_env_vars(specs));
+			let mut rules = config.env.vars.rules()?;
+			rules.extend(parse_env_var_env(&value)?);
+			config.env.vars = EnvVars::from_rules(rules);
 		}
 
 		Ok(config)
@@ -239,7 +239,7 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::env_vars::{EnvForwardMethod, EnvVarSpec};
+	use crate::env_vars::{EnvForwardMethod, EnvVarRule, EnvVarSelector, EnvVarSpec};
 	use crate::testing::EnvCleanup;
 	use pretty_assertions::{assert_eq, assert_matches, assert_ne};
 	use rstest::rstest;
@@ -345,10 +345,10 @@ mod tests {
 		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
 
 		let config = Config::load_internal(None, None, None)?;
-		let specs = config.env.vars.specs()?;
+		let rules = config.env.vars.rules()?;
 
-		assert!(specs.contains(&EnvVarSpec::inherit("NODE_ENV")));
-		assert!(specs.contains(&EnvVarSpec::inherit("API_KEY")));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("API_KEY"))));
 		Ok(())
 	}
 
@@ -362,10 +362,10 @@ mod tests {
 		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
 
 		let config = Config::load_internal(None, None, None)?;
-		let specs = config.env.vars.specs()?;
+		let rules = config.env.vars.rules()?;
 
-		assert!(specs.contains(&EnvVarSpec::value("NODE_ENV", "prod")));
-		assert!(specs.contains(&EnvVarSpec::inherit("API_KEY")));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "prod"))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("API_KEY"))));
 		Ok(())
 	}
 
@@ -388,10 +388,30 @@ mod tests {
 		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
-		let specs = config.env.vars.specs()?;
+		let rules = config.env.vars.rules()?;
 
-		assert!(specs.contains(&EnvVarSpec::inherit("NODE_ENV")));
-		assert!(specs.contains(&EnvVarSpec::inherit("API_KEY")));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("API_KEY"))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn biwa_env_vars_supports_patterns_and_negation() -> Result<()> {
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_ENV_VARS", "NODE_*,!*PATH");
+		}
+		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+
+		let config = Config::load_internal(None, None, None)?;
+		assert_eq!(
+			config.env.vars.rules()?,
+			vec![
+				EnvVarRule::InheritPattern("NODE_*".to_owned()),
+				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
+			]
+		);
 		Ok(())
 	}
 
@@ -413,10 +433,10 @@ mod tests {
 		)?;
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
-		let specs = config.env.vars.specs()?;
+		let rules = config.env.vars.rules()?;
 
-		assert!(specs.contains(&EnvVarSpec::inherit("NODE_ENV")));
-		assert!(specs.contains(&EnvVarSpec::value("API_KEY", "secret")));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret"))));
 		assert_eq!(config.env.forward_method, EnvForwardMethod::Export);
 		Ok(())
 	}
@@ -436,10 +456,39 @@ mod tests {
 		)?;
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
-		let specs = config.env.vars.specs()?;
+		let rules = config.env.vars.rules()?;
 
-		assert!(specs.contains(&EnvVarSpec::value("NODE_ENV", "production")));
-		assert!(specs.contains(&EnvVarSpec::value("API_KEY", "secret")));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value(
+			"NODE_ENV",
+			"production"
+		))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret"))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_supports_env_var_patterns_in_array_form() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(
+			&path,
+			r#"
+			[env]
+			forward_method = "export"
+			vars = ["NODE_*", "!*PATH", "NODE_ENV"]
+		"#,
+		)?;
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		assert_eq!(
+			config.env.vars.rules()?,
+			vec![
+				EnvVarRule::InheritPattern("NODE_*".to_owned()),
+				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
+				EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),
+			]
+		);
 		Ok(())
 	}
 

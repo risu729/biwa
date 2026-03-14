@@ -1,8 +1,10 @@
 use crate::Result;
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use color_eyre::eyre::bail;
+use globset::Glob;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::env;
 
 /// Strategy used to forward environment variables to the remote process.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
@@ -32,31 +34,93 @@ impl Default for EnvVars {
 }
 
 impl EnvVars {
-	/// Returns the normalized env var specifications.
-	pub fn specs(&self) -> Result<Vec<EnvVarSpec>> {
+	/// Returns the normalized env var rules.
+	pub fn rules(&self) -> Result<Vec<EnvVarRule>> {
 		match self {
-			Self::List(items) => items.iter().map(EnvVarItem::to_spec_list).collect(),
+			Self::List(items) => items.iter().map(EnvVarItem::to_rule).collect(),
 			Self::Table(entries) => entries
 				.iter()
-				.map(|(name, value)| EnvVarSpec::from_config_value(name, value))
+				.map(|(name, value)| {
+					EnvVarSpec::from_config_value(name, value).map(EnvVarRule::Spec)
+				})
 				.collect(),
 		}
 	}
 
-	/// Builds a config value from normalized specs.
+	/// Builds a config value from normalized rules.
 	#[must_use]
-	pub fn from_specs(specs: Vec<EnvVarSpec>) -> Self {
+	pub fn from_rules(rules: Vec<EnvVarRule>) -> Self {
 		Self::List(
-			specs
+			rules
 				.into_iter()
-				.map(|spec| match spec.source {
-					EnvVarSource::Inherit => EnvVarItem::String(spec.name),
-					EnvVarSource::Value(value) => {
-						EnvVarItem::String(format!("{}={value}", spec.name))
+				.map(|rule| match rule {
+					EnvVarRule::Spec(spec) => match spec.source {
+						EnvVarSource::Inherit => EnvVarItem::String(spec.name),
+						EnvVarSource::Value(value) => {
+							EnvVarItem::String(format!("{}={value}", spec.name))
+						}
+					},
+					EnvVarRule::InheritPattern(pattern) => EnvVarItem::String(pattern),
+					EnvVarRule::Exclude(selector) => {
+						EnvVarItem::String(format!("!{}", selector.as_str()))
 					}
 				})
 				.collect(),
 		)
+	}
+}
+
+/// Normalized environment variable rule.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvVarRule {
+	/// Exact environment variable specification.
+	Spec(EnvVarSpec),
+	/// Include inherited environment variables matching this wildcard pattern.
+	InheritPattern(String),
+	/// Exclude already-selected environment variables matching this selector.
+	Exclude(EnvVarSelector),
+}
+
+/// Selector used by exclusion rules.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvVarSelector {
+	/// Exact environment variable name.
+	Exact(String),
+	/// Wildcard pattern using `*`.
+	Pattern(String),
+}
+
+impl EnvVarSelector {
+	/// Parses an env var selector from an inline string.
+	fn parse(value: &str) -> Result<Self> {
+		if value.is_empty() {
+			bail!("Environment variable selectors cannot be empty");
+		}
+
+		if value.contains('*') {
+			validate_env_var_pattern(value)?;
+			Ok(Self::Pattern(value.to_owned()))
+		} else {
+			validate_env_var_name(value)?;
+			Ok(Self::Exact(value.to_owned()))
+		}
+	}
+
+	/// Returns whether the selector matches the environment variable name.
+	#[must_use]
+	pub fn matches(&self, name: &str) -> bool {
+		match self {
+			Self::Exact(exact) => exact == name,
+			Self::Pattern(pattern) => wildcard_matches(pattern, name),
+		}
+	}
+
+	/// Returns the selector as a string slice.
+	#[must_use]
+	pub fn as_str(&self) -> &str {
+		match self {
+			Self::Exact(value) | Self::Pattern(value) => value,
+		}
 	}
 }
 
@@ -71,10 +135,10 @@ pub enum EnvVarItem {
 }
 
 impl EnvVarItem {
-	/// Converts one array item into a normalized environment variable specification.
-	fn to_spec_list(&self) -> Result<EnvVarSpec> {
+	/// Converts one array item into a normalized environment variable rule.
+	fn to_rule(&self) -> Result<EnvVarRule> {
 		match self {
-			Self::String(value) => EnvVarSpec::from_inline_string(value),
+			Self::String(value) => EnvVarRule::from_inline_string(value),
 			Self::Table(entries) => {
 				let mut specs = entries
 					.iter()
@@ -88,8 +152,34 @@ impl EnvVarItem {
 					);
 				}
 
-				Ok(specs.remove(0))
+				Ok(EnvVarRule::Spec(specs.remove(0)))
 			}
+		}
+	}
+}
+
+impl EnvVarRule {
+	/// Parses a CLI-style string like `NAME`, `NAME=value`, `NODE_*`, or `!*PATH`.
+	fn from_inline_string(value: &str) -> Result<Self> {
+		let trimmed = value.trim();
+		if trimmed.is_empty() {
+			bail!("Environment variable entries cannot be empty");
+		}
+
+		if let Some((name, raw_value)) = trimmed.split_once('=') {
+			let name = name.trim();
+			validate_env_var_name(name)?;
+			return Ok(Self::Spec(EnvVarSpec::value(name, raw_value)));
+		}
+
+		if let Some(selector) = trimmed.strip_prefix('!') {
+			let selector = EnvVarSelector::parse(selector.trim())?;
+			return Ok(Self::Exclude(selector));
+		}
+
+		match EnvVarSelector::parse(trimmed)? {
+			EnvVarSelector::Exact(name) => Ok(Self::Spec(EnvVarSpec::inherit(name))),
+			EnvVarSelector::Pattern(pattern) => Ok(Self::InheritPattern(pattern)),
 		}
 	}
 }
@@ -129,23 +219,6 @@ impl EnvVarSpec {
 		Self {
 			name: name.into(),
 			source: EnvVarSource::Value(value.into()),
-		}
-	}
-
-	/// Parses a CLI-style string like `NAME` or `NAME=value`.
-	fn from_inline_string(value: &str) -> Result<Self> {
-		let trimmed = value.trim();
-		if trimmed.is_empty() {
-			bail!("Environment variable entries cannot be empty");
-		}
-
-		if let Some((name, raw_value)) = trimmed.split_once('=') {
-			let name = name.trim();
-			validate_env_var_name(name)?;
-			Ok(Self::value(name, raw_value))
-		} else {
-			validate_env_var_name(trimmed)?;
-			Ok(Self::inherit(trimmed))
 		}
 	}
 
@@ -189,45 +262,83 @@ pub enum EnvVarSource {
 	Value(String),
 }
 
-/// Parses comma-separated env var specs like `NAME` or `NAME=value`.
-pub fn parse_env_var_args(values: &[String], source: &str) -> Result<Vec<EnvVarSpec>> {
-	let mut specs = Vec::new();
+/// Parses comma-separated env var rules like `NAME`, `NAME=value`, `NODE_*`, or `!*PATH`.
+pub fn parse_env_var_args(values: &[String], source: &str) -> Result<Vec<EnvVarRule>> {
+	let mut rules = Vec::new();
 	for value in values {
 		for token in value.split(',') {
 			let token = token.trim();
 			if token.is_empty() {
 				bail!("{source} entries cannot be empty");
 			}
-			specs.push(EnvVarSpec::from_inline_string(token)?);
+			rules.push(EnvVarRule::from_inline_string(token)?);
 		}
 	}
-	Ok(specs)
+	Ok(rules)
 }
 
 /// Parses `--env` flag values.
-pub fn parse_cli_env_vars(values: &[String]) -> Result<Vec<EnvVarSpec>> {
+pub fn parse_cli_env_vars(values: &[String]) -> Result<Vec<EnvVarRule>> {
 	parse_env_var_args(values, "`--env`")
 }
 
 /// Parses `BIWA_ENV_VARS` values.
-pub fn parse_env_var_env(value: &str) -> Result<Vec<EnvVarSpec>> {
+pub fn parse_env_var_env(value: &str) -> Result<Vec<EnvVarRule>> {
 	parse_env_var_args(&[value.to_owned()], "BIWA_ENV_VARS")
 }
 
-/// Merges env var specs, with later entries overriding earlier ones.
+/// Resolves ordered env var rules into exact environment variable specs.
 #[must_use]
-pub fn merge_env_vars(specs: Vec<EnvVarSpec>) -> Vec<EnvVarSpec> {
-	let mut merged = Vec::new();
-	for spec in specs {
-		if let Some(index) = merged
-			.iter()
-			.position(|existing: &EnvVarSpec| existing.name == spec.name)
-		{
-			merged.remove(index);
+pub fn resolve_env_var_rules<I>(rules: I, available_names: &[String]) -> Vec<EnvVarSpec>
+where
+	I: IntoIterator<Item = EnvVarRule>,
+{
+	let mut resolved = Vec::new();
+	let mut names = available_names.to_vec();
+	names.sort();
+
+	for rule in rules {
+		match rule {
+			EnvVarRule::Spec(spec) => {
+				if let Some(index) = resolved
+					.iter()
+					.position(|existing: &EnvVarSpec| existing.name == spec.name)
+				{
+					resolved.remove(index);
+				}
+				resolved.push(spec);
+			}
+			EnvVarRule::InheritPattern(pattern) => {
+				for name in &names {
+					if wildcard_matches(&pattern, name) {
+						let spec = EnvVarSpec::inherit(name);
+						if let Some(index) = resolved
+							.iter()
+							.position(|existing: &EnvVarSpec| existing.name == spec.name)
+						{
+							resolved.remove(index);
+						}
+						resolved.push(spec);
+					}
+				}
+			}
+			EnvVarRule::Exclude(selector) => {
+				resolved.retain(|spec| !selector.matches(spec.name()));
+			}
 		}
-		merged.push(spec);
 	}
-	merged
+
+	resolved
+}
+
+/// Returns sorted environment variable names from the local process.
+#[must_use]
+pub fn local_env_var_names() -> Vec<String> {
+	let mut names = BTreeSet::new();
+	for (name, _) in env::vars() {
+		names.insert(name);
+	}
+	names.into_iter().collect()
 }
 
 /// Returns whether inheriting this variable is likely to be machine-specific.
@@ -276,6 +387,26 @@ fn validate_env_var_name(name: &str) -> Result<()> {
 	}
 }
 
+/// Validates a wildcard env var pattern.
+fn validate_env_var_pattern(pattern: &str) -> Result<()> {
+	if pattern
+		.chars()
+		.all(|ch| ch == '*' || ch == '_' || ch.is_ascii_alphanumeric())
+	{
+		Ok(())
+	} else {
+		bail!("Invalid environment variable pattern: {pattern}")
+	}
+}
+
+/// Matches a wildcard pattern containing `*` against a candidate string.
+fn wildcard_matches(pattern: &str, candidate: &str) -> bool {
+	Glob::new(pattern)
+		.expect("environment variable wildcard patterns are validated before matching")
+		.compile_matcher()
+		.is_match(candidate)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -302,11 +433,11 @@ vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
 		.vars;
 
 		assert_eq!(
-			vars.specs()?,
+			vars.rules()?,
 			vec![
-				EnvVarSpec::inherit("NODE_ENV"),
-				EnvVarSpec::value("API_KEY", "secret"),
-				EnvVarSpec::value("DEBUG", "1"),
+				EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),
+				EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret")),
+				EnvVarRule::Spec(EnvVarSpec::value("DEBUG", "1")),
 			]
 		);
 		Ok(())
@@ -324,9 +455,9 @@ vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
 		.env
 		.vars;
 
-		let specs = vars.specs()?;
-		assert!(specs.contains(&EnvVarSpec::inherit("NODE_ENV")));
-		assert!(specs.contains(&EnvVarSpec::value("API_KEY", "secret")));
+		let rules = vars.rules()?;
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret"))));
 		Ok(())
 	}
 
@@ -341,7 +472,7 @@ vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
 		.env
 		.vars;
 
-		let error = vars.specs().unwrap_err().to_string();
+		let error = vars.rules().unwrap_err().to_string();
 		assert!(error.contains("only `true` is supported"));
 		Ok(())
 	}
@@ -356,10 +487,30 @@ vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]"#,
 		.vars;
 
 		assert_eq!(
-			vars.specs()?,
+			vars.rules()?,
 			vec![
-				EnvVarSpec::value("NODE_ENV", "production"),
-				EnvVarSpec::value("API_KEY", "secret"),
+				EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "production")),
+				EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret")),
+			]
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn env_vars_list_supports_patterns_and_negation() -> Result<()> {
+		let vars = toml::from_str::<EnvVarsWrapper>(
+			r#"[env]
+vars = ["NODE_*", "!*PATH", "NODE_ENV"]"#,
+		)?
+		.env
+		.vars;
+
+		assert_eq!(
+			vars.rules()?,
+			vec![
+				EnvVarRule::InheritPattern("NODE_*".to_owned()),
+				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
+				EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),
 			]
 		);
 		Ok(())
@@ -371,9 +522,9 @@ vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]"#,
 		assert_eq!(
 			parse_cli_env_vars(&values)?,
 			vec![
-				EnvVarSpec::inherit("NODE_ENV"),
-				EnvVarSpec::inherit("API_KEY"),
-				EnvVarSpec::value("DEBUG", "1"),
+				EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),
+				EnvVarRule::Spec(EnvVarSpec::inherit("API_KEY")),
+				EnvVarRule::Spec(EnvVarSpec::value("DEBUG", "1")),
 			]
 		);
 		Ok(())
@@ -384,8 +535,8 @@ vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]"#,
 		assert_eq!(
 			parse_env_var_env("NODE_ENV, API_KEY")?,
 			vec![
-				EnvVarSpec::inherit("NODE_ENV"),
-				EnvVarSpec::inherit("API_KEY")
+				EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),
+				EnvVarRule::Spec(EnvVarSpec::inherit("API_KEY"))
 			]
 		);
 		Ok(())
@@ -396,20 +547,51 @@ vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]"#,
 		assert_eq!(
 			parse_env_var_env("NODE_ENV=prod,OTHER_ENV")?,
 			vec![
-				EnvVarSpec::value("NODE_ENV", "prod"),
-				EnvVarSpec::inherit("OTHER_ENV"),
+				EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "prod")),
+				EnvVarRule::Spec(EnvVarSpec::inherit("OTHER_ENV")),
 			]
 		);
 		Ok(())
 	}
 
 	#[test]
-	fn merge_env_vars_prefers_later_entries() {
+	fn parse_env_var_env_supports_patterns_and_negation() -> Result<()> {
 		assert_eq!(
-			merge_env_vars(vec![
-				EnvVarSpec::inherit("NODE_ENV"),
-				EnvVarSpec::value("NODE_ENV", "production"),
-			]),
+			parse_env_var_env("NODE_*,!*PATH")?,
+			vec![
+				EnvVarRule::InheritPattern("NODE_*".to_owned()),
+				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
+			]
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn wildcard_matches_supports_prefix_suffix_and_contains_patterns() {
+		assert!(wildcard_matches("NODE_*", "NODE_ENV"));
+		assert!(wildcard_matches("*PATH", "LD_LIBRARY_PATH"));
+		assert!(wildcard_matches("PY*PATH", "PYTHONPATH"));
+		assert!(!wildcard_matches("NODE_*", "PATH"));
+	}
+
+	#[test]
+	fn resolve_env_var_rules_supports_patterns_negation_and_override_order() {
+		let available = vec![
+			"APP_PATH".to_owned(),
+			"NODE_ENV".to_owned(),
+			"NODE_PATH".to_owned(),
+			"RUST_LOG".to_owned(),
+		];
+
+		assert_eq!(
+			resolve_env_var_rules(
+				vec![
+					EnvVarRule::InheritPattern("NODE_*".to_owned()),
+					EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
+					EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "production")),
+				],
+				&available,
+			),
 			vec![EnvVarSpec::value("NODE_ENV", "production")]
 		);
 	}

@@ -3,7 +3,8 @@ use super::sync::shell_quote_remote_value;
 use crate::Result;
 use crate::config::types::Config;
 use crate::env_vars::{
-	EnvForwardMethod, EnvVarSource, EnvVarSpec, is_environment_dependent_env_var, merge_env_vars,
+	EnvForwardMethod, EnvVarRule, EnvVarSource, is_environment_dependent_env_var,
+	local_env_var_names, resolve_env_var_rules,
 };
 use crate::ui::create_spinner;
 use async_ssh2_tokio::client::{Client, ServerCheckMethod};
@@ -133,11 +134,12 @@ fn build_export_prefix(env_vars: &[ResolvedEnvVar]) -> String {
 }
 
 /// Resolves config and CLI environment variable settings into concrete values.
-fn resolve_env_vars(config: &Config, cli_env_vars: &[EnvVarSpec]) -> Result<Vec<ResolvedEnvVar>> {
-	let mut specs = config.env.vars.specs()?;
-	specs.extend_from_slice(cli_env_vars);
+fn resolve_env_vars(config: &Config, cli_env_vars: &[EnvVarRule]) -> Result<Vec<ResolvedEnvVar>> {
+	let mut rules = config.env.vars.rules()?;
+	rules.extend_from_slice(cli_env_vars);
+	let specs = resolve_env_var_rules(rules, &local_env_var_names());
 
-	merge_env_vars(specs)
+	specs
 		.into_iter()
 		.map(|spec| {
 			if spec.is_inherited() && is_environment_dependent_env_var(spec.name()) {
@@ -260,7 +262,7 @@ pub async fn execute_command(
 	config: &Config,
 	command: &str,
 	args: &[String],
-	cli_env_vars: &[EnvVarSpec],
+	cli_env_vars: &[EnvVarRule],
 	working_dir: Option<&str>,
 	quiet: bool,
 	silent: bool,
@@ -383,7 +385,7 @@ async fn stream_channel_output(
 mod tests {
 	use super::*;
 	use crate::config::types::EnvConfig;
-	use crate::env_vars::{EnvForwardMethod, EnvVars};
+	use crate::env_vars::{EnvForwardMethod, EnvVarRule, EnvVarSelector, EnvVarSpec, EnvVars};
 	use crate::testing::EnvCleanup;
 	use pretty_assertions::assert_eq;
 	use serial_test::serial;
@@ -427,7 +429,7 @@ mod tests {
 	fn resolve_env_vars_merges_config_and_cli_values() -> Result<()> {
 		let config = Config {
 			env: EnvConfig {
-				vars: EnvVars::from_specs(vec![EnvVarSpec::inherit("NODE_ENV")]),
+				vars: EnvVars::from_rules(vec![EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))]),
 				forward_method: EnvForwardMethod::Export,
 			},
 			..Config::default()
@@ -438,12 +440,49 @@ mod tests {
 			env::set_var("NODE_ENV", "development");
 		}
 		let _cleanup = EnvCleanup("NODE_ENV");
-		let resolved = resolve_env_vars(&config, &[EnvVarSpec::value("NODE_ENV", "production")])?;
+		let resolved = resolve_env_vars(
+			&config,
+			&[EnvVarRule::Spec(EnvVarSpec::value(
+				"NODE_ENV",
+				"production",
+			))],
+		)?;
 		assert_eq!(
 			resolved,
 			vec![ResolvedEnvVar {
 				name: "NODE_ENV".to_owned(),
 				value: "production".to_owned(),
+			}]
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn resolve_env_vars_supports_patterns_and_negation() -> Result<()> {
+		let config = Config {
+			env: EnvConfig {
+				vars: EnvVars::from_rules(vec![
+					EnvVarRule::InheritPattern("NODE_*".to_owned()),
+					EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
+				]),
+				forward_method: EnvForwardMethod::Export,
+			},
+			..Config::default()
+		};
+
+		// SAFETY: This test only mutates the current process environment.
+		unsafe {
+			env::set_var("NODE_ENV", "development");
+		}
+		let _cleanup = EnvCleanup("NODE_ENV");
+
+		let resolved = resolve_env_vars(&config, &[])?;
+		assert_eq!(
+			resolved,
+			vec![ResolvedEnvVar {
+				name: "NODE_ENV".to_owned(),
+				value: "development".to_owned(),
 			}]
 		);
 		Ok(())

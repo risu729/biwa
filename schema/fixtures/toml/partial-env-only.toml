@@ -1,5 +1,5 @@
 # Partial config: only [env] section
 
 [env]
-transfer_method = "export"
+forward_method = "export"
 vars = ["NODE_ENV", "API_KEY=example"]

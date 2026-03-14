@@ -75,12 +75,12 @@ Storing your password in a configuration file is **not recommended** for securit
 
 ### `[env]` — Environment Variable Settings
 
-| Key              | Type           | Default    | Description                                         |
-| ---------------- | -------------- | ---------- | --------------------------------------------------- |
-| `vars`           | array \| table | `[]`       | Environment variables to inherit or set             |
-| `forward_method` | string         | `"export"` | Use `"export"` or `"setenv"` when sending variables |
+| Key              | Type           | Default    | Description                                              |
+| ---------------- | -------------- | ---------- | -------------------------------------------------------- |
+| `vars`           | array \| table | `[]`       | Environment variables to inherit, match, exclude, or set |
+| `forward_method` | string         | `"export"` | Use `"export"` or `"setenv"` when sending variables      |
 
-- Environment variable inheritance and forwarding are documented in detail on [`/env-vars`](/env-vars).
+- Environment variable inheritance, wildcard matching, exclusions, and forwarding are documented in detail on [`/env-vars`](/env-vars).
 
 ### `[sync]` — Synchronization Settings
 

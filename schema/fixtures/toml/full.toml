@@ -18,12 +18,13 @@ permissions = "recreate"
 
 [env]
 vars = [
-	"PATH",
+	"NODE_*",
+	"!*PATH",
 	"NODE_ENV=production",
 	{ API_KEY = "example" },
 	{ DEBUG = "1" },
 ]
-transfer_method = "export"
+forward_method = "export"
 
 [hooks]
 

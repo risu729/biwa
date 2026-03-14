@@ -2,4 +2,4 @@
 
 [env]
 vars = []
-transfer_method = "export"
+forward_method = "export"

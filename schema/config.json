@@ -71,7 +71,7 @@
           "default": "export"
         },
         "vars": {
-          "description": "Environment variables to send to the remote process.\n\nSupports `vars = [\"NODE_ENV\", \"API_KEY=secret\"]` and `[env.vars]`\ntable forms.",
+          "description": "Environment variables to send to the remote process.\n\nSupports exact names and values such as\n`vars = [\"NODE_ENV\", \"API_KEY=secret\"]`, wildcard rules such as\n`vars = [\"NODE_*\", \"!*PATH\"]`, and `[env.vars]` table forms.",
           "$ref": "#/$defs/EnvVars",
           "default": []
         }

@@ -313,8 +313,9 @@ impl Default for SyncConfig {
 pub struct EnvConfig {
 	/// Environment variables to send to the remote process.
 	///
-	/// Supports `vars = ["NODE_ENV", "API_KEY=secret"]` and `[env.vars]`
-	/// table forms.
+	/// Supports exact names and values such as
+	/// `vars = ["NODE_ENV", "API_KEY=secret"]`, wildcard rules such as
+	/// `vars = ["NODE_*", "!*PATH"]`, and `[env.vars]` table forms.
 	#[config(default = [])]
 	#[schemars(default)]
 	pub vars: EnvVars,

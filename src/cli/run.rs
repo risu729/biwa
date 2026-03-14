@@ -25,6 +25,7 @@ pub(super) struct Run {
 	sync_args: SyncArgs,
 
 	/// Send environment variables to the remote process.
+	/// Supports `NAME`, `NAME=value`, wildcard patterns like `NODE_*`, and exclusions like `!*PATH`.
 	#[arg(long = "env")]
 	env_vars: Vec<String>,
 

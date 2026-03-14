@@ -1,0 +1,5 @@
+# Edge case: env.vars wildcard and negation rules
+
+[env]
+forward_method = "export"
+vars = ["NODE_*", "!*PATH", "NODE_ENV"]

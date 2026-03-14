@@ -107,8 +107,9 @@ expression: content
   env: {
     // Environment variables to send to the remote process.
     //
-    // Supports `vars = ["NODE_ENV", "API_KEY=secret"]` and `[env.vars]`
-    // table forms.
+    // Supports exact names and values such as
+    // `vars = ["NODE_ENV", "API_KEY=secret"]`, wildcard rules such as
+    // `vars = ["NODE_*", "!*PATH"]`, and `[env.vars]` table forms.
     //
     // Default value: []
     //vars: [],
