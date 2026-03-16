@@ -180,7 +180,7 @@ fn e2e_run_remote_dir_tilde() -> Result<()> {
 }
 
 #[test]
-fn e2e_run_env_transfer_from_flag() -> Result<()> {
+fn e2e_run_env_forward_from_flag() -> Result<()> {
 	let output = biwa_cmd(&[
 		"run",
 		"--skip-sync",
@@ -350,7 +350,7 @@ fn e2e_run_config_from_schema_fixture(
 		.and_then(OsStr::to_str)
 		.unwrap_or_default();
 
-	if fixture_name == "edge-env-transfer-setenv.toml" {
+	if fixture_name == "edge-env-forward-setenv.toml" {
 		assert!(
 			!output.status.success(),
 			"fixture {}: expected setenv fixture to fail on current SSH server",

@@ -1,4 +1,4 @@
-# Edge case: SSH setenv transfer method
+# Edge case: SSH setenv forward method
 
 [env]
 forward_method = "setenv"
