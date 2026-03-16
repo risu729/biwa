@@ -6,6 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::sync::{LazyLock, RwLock};
+use tracing::warn;
 
 /// Strategy used to forward environment variables to the remote process.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
@@ -325,6 +326,14 @@ where
 			EnvVarRule::InheritPattern(pattern) => {
 				for name in &names {
 					if wildcard_matches(&pattern, name) {
+						if let Err(err) = validate_env_var_name(name) {
+							warn!(
+								name = %name,
+								pattern = %pattern,
+								"Skipping matched environment variable because its name is not POSIX-compliant: {err}"
+							);
+							continue;
+						}
 						resolved.insert(name.clone(), EnvVarSpec::inherit(name));
 					}
 				}
