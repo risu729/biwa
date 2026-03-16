@@ -321,19 +321,24 @@ async fn execute_with_forward_method(
 						format!("Failed to send environment variable `{}`", env_var.name)
 					})?;
 
-				match channel.wait().await {
-					Some(ChannelMsg::Success) => {}
-					Some(ChannelMsg::Failure) => {
-						warn!(
-							env_var = env_var.name,
-							"SSH server rejected setenv request; UNSW CSE does not support setenv, so use env.forward_method = \"export\" there"
-						);
-						bail!("SSH server rejected environment variable forwarding via setenv")
+				loop {
+					match channel.wait().await {
+						Some(ChannelMsg::Success) => {
+							break;
+						}
+						Some(ChannelMsg::Failure) => {
+							warn!(
+								env_var = env_var.name,
+								"SSH server rejected setenv request; UNSW CSE does not support setenv, so use env.forward_method = \"export\" there"
+							);
+							bail!("SSH server rejected environment variable forwarding via setenv")
+						}
+						Some(_message) => {
+							// Ignore unrelated channel messages and keep waiting for Success/Failure.
+							continue;
+						}
+						None => bail!("SSH channel closed while sending environment variables"),
 					}
-					Some(message) => {
-						bail!("Unexpected SSH response after setenv: {message:?}")
-					}
-					None => bail!("SSH channel closed while sending environment variables"),
 				}
 			}
 
