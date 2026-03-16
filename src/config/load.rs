@@ -468,6 +468,42 @@ mod tests {
 
 	#[serial]
 	#[test]
+	fn load_partial_supports_env_vars_array_of_tables_with_multiple_entries() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(
+			&path,
+			r#"
+			[env]
+			forward_method = "export"
+
+			[[env.vars]]
+			NODE_ENV = "production"
+			API_KEY = "secret"
+
+			[[env.vars]]
+			"MATCH_*" = true
+			"!EXCLUDE" = true
+		"#,
+		)?;
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let rules = config.env.vars.rules()?;
+
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value(
+			"NODE_ENV",
+			"production"
+		))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret"))));
+		assert!(rules.contains(&EnvVarRule::InheritPattern("MATCH_*".to_owned())));
+		assert!(rules.contains(&EnvVarRule::Exclude(EnvVarSelector::Exact(
+			"EXCLUDE".to_owned()
+		))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
 	fn load_partial_supports_env_var_patterns_in_array_form() -> Result<()> {
 		let dir = tempdir()?;
 		let path = dir.path().join("biwa.toml");

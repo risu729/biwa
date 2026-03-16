@@ -1,0 +1,10 @@
+# Edge case: env.vars list with mixed strings and inline tables
+
+[env]
+forward_method = "export"
+vars = [
+	"NODE_ENV",
+	{ API_KEY = "secret" },
+	"!*PATH",
+	{ "DEBUG_*" = true, "!DEBUG_OLD" = true }
+]

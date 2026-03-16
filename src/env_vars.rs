@@ -37,12 +37,16 @@ impl EnvVars {
 	/// Returns the normalized env var rules.
 	pub fn rules(&self) -> Result<Vec<EnvVarRule>> {
 		match self {
-			Self::List(items) => items.iter().map(EnvVarItem::to_rule).collect(),
+			Self::List(items) => {
+				let mut rules = Vec::new();
+				for rule_batch in items.iter().map(EnvVarItem::to_rules) {
+					rules.extend(rule_batch?);
+				}
+				Ok(rules)
+			}
 			Self::Table(entries) => entries
 				.iter()
-				.map(|(name, value)| {
-					EnvVarSpec::from_config_value(name, value).map(EnvVarRule::Spec)
-				})
+				.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
 				.collect(),
 		}
 	}
@@ -135,30 +139,57 @@ pub enum EnvVarItem {
 }
 
 impl EnvVarItem {
-	/// Converts one array item into a normalized environment variable rule.
-	fn to_rule(&self) -> Result<EnvVarRule> {
+	/// Converts one array item into a list of normalized environment variable rules.
+	fn to_rules(&self) -> Result<Vec<EnvVarRule>> {
 		match self {
-			Self::String(value) => EnvVarRule::from_inline_string(value),
-			Self::Table(entries) => {
-				let mut specs = entries
-					.iter()
-					.map(|(name, value)| EnvVarSpec::from_config_value(name, value))
-					.collect::<Result<Vec<_>>>()?;
-
-				if specs.len() != 1 {
-					bail!(
-						"Inline env.vars table entries must contain exactly one key (got {})",
-						specs.len()
-					);
-				}
-
-				Ok(EnvVarRule::Spec(specs.remove(0)))
-			}
+			Self::String(value) => Ok(vec![EnvVarRule::from_inline_string(value)?]),
+			Self::Table(entries) => entries
+				.iter()
+				.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
+				.collect::<Result<Vec<_>>>(),
 		}
 	}
 }
 
 impl EnvVarRule {
+	/// Parses a rule from a table `(name, value)` config entry.
+	fn from_config_entry(name: &str, value: &EnvVarConfigValue) -> Result<Self> {
+		let trimmed = name.trim();
+		if trimmed.is_empty() {
+			bail!("Environment variable entries cannot be empty");
+		}
+
+		if let Some(selector) = trimmed.strip_prefix('!') {
+			let selector = EnvVarSelector::parse(selector.trim())?;
+			match value {
+				EnvVarConfigValue::Inherit(true) => Ok(Self::Exclude(selector)),
+				EnvVarConfigValue::Inherit(false) | EnvVarConfigValue::Value(_) => bail!(
+					"Invalid env.vars entry for {name}: only `true` is supported for exclude rules"
+				),
+			}
+		} else {
+			match EnvVarSelector::parse(trimmed)? {
+				EnvVarSelector::Exact(exact_name) => match value {
+					EnvVarConfigValue::Inherit(true) => {
+						Ok(Self::Spec(EnvVarSpec::inherit(exact_name)))
+					}
+					EnvVarConfigValue::Inherit(false) => bail!(
+						"Invalid env.vars entry for {name}: only `true` is supported for inherit rules"
+					),
+					EnvVarConfigValue::Value(val) => {
+						Ok(Self::Spec(EnvVarSpec::value(exact_name, val)))
+					}
+				},
+				EnvVarSelector::Pattern(pattern) => match value {
+					EnvVarConfigValue::Inherit(true) => Ok(Self::InheritPattern(pattern)),
+					EnvVarConfigValue::Inherit(false) | EnvVarConfigValue::Value(_) => bail!(
+						"Invalid env.vars entry for {name}: only `true` is supported for pattern rules"
+					),
+				},
+			}
+		}
+	}
+
 	/// Parses a CLI-style string like `NAME`, `NAME=value`, `NODE_*`, or `!*PATH`.
 	fn from_inline_string(value: &str) -> Result<Self> {
 		let trimmed = value.trim();
@@ -219,18 +250,6 @@ impl EnvVarSpec {
 		Self {
 			name: name.into(),
 			source: EnvVarSource::Value(value.into()),
-		}
-	}
-
-	/// Builds a spec from table-based config input.
-	fn from_config_value(name: &str, value: &EnvVarConfigValue) -> Result<Self> {
-		validate_env_var_name(name)?;
-		match value {
-			EnvVarConfigValue::Inherit(true) => Ok(Self::inherit(name)),
-			EnvVarConfigValue::Inherit(false) => {
-				bail!("Invalid env.vars entry for {name}: only `true` is supported for inherit")
-			}
-			EnvVarConfigValue::Value(value) => Ok(Self::value(name, value)),
 		}
 	}
 
@@ -456,6 +475,30 @@ vars = ["NODE_ENV", "API_KEY=secret", { DEBUG = "1" }]"#,
 		.vars;
 
 		let rules = vars.rules()?;
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret"))));
+		Ok(())
+	}
+
+	#[test]
+	fn env_vars_table_supports_patterns_and_negation() -> Result<()> {
+		let vars = toml::from_str::<EnvVarsWrapper>(
+			r#"
+			[env.vars]
+			"NODE_*" = true
+			"!*PATH" = true
+			NODE_ENV = true
+			API_KEY = "secret"
+			"#,
+		)?
+		.env
+		.vars;
+
+		let rules = vars.rules()?;
+		assert!(rules.contains(&EnvVarRule::InheritPattern("NODE_*".to_owned())));
+		assert!(rules.contains(&EnvVarRule::Exclude(EnvVarSelector::Pattern(
+			"*PATH".to_owned()
+		))));
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret"))));
 		Ok(())

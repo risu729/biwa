@@ -1,0 +1,10 @@
+# Edge case: env.vars table with patterns and negations
+
+[env]
+forward_method = "export"
+
+[env.vars]
+"NODE_*" = true
+"!*PATH" = true
+NODE_ENV = true
+API_KEY = "secret"
