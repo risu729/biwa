@@ -1,10 +1,11 @@
 use crate::Result;
 use alloc::collections::{BTreeMap, BTreeSet};
 use color_eyre::eyre::bail;
-use globset::Glob;
+use globset::{Glob, GlobMatcher};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::sync::{LazyLock, RwLock};
 
 /// Strategy used to forward environment variables to the remote process.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
@@ -406,10 +407,34 @@ fn validate_env_var_pattern(pattern: &str) -> Result<()> {
 }
 
 /// Matches a wildcard pattern containing `*` against a candidate string.
+///
+/// Compiles each pattern into a `GlobMatcher` only once and reuses it for
+/// subsequent calls, to avoid repeatedly compiling glob patterns in hot loops.
+static GLOB_CACHE: LazyLock<RwLock<BTreeMap<String, GlobMatcher>>> =
+	LazyLock::new(|| RwLock::new(BTreeMap::new()));
+
 fn wildcard_matches(pattern: &str, candidate: &str) -> bool {
-	Glob::new(pattern)
+	// Fast path: try to use an existing compiled matcher under a read lock.
+	if let Some(matcher) = GLOB_CACHE
+		.read()
+		.expect("GLOB_CACHE read lock poisoned")
+		.get(pattern)
+	{
+		return matcher.is_match(candidate);
+	}
+
+	// Slow path: compile a new matcher for this pattern.
+	let matcher = Glob::new(pattern)
 		.expect("environment variable wildcard patterns are validated before matching")
-		.compile_matcher()
+		.compile_matcher();
+
+	// Insert the matcher into the cache under a write lock, but handle the case
+	// where another thread may have inserted it in the meantime.
+	GLOB_CACHE
+		.write()
+		.expect("GLOB_CACHE write lock poisoned")
+		.entry(pattern.to_owned())
+		.or_insert(matcher)
 		.is_match(candidate)
 }
 
