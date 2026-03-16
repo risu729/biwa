@@ -126,7 +126,7 @@ fn build_export_prefix(env_vars: &[ResolvedEnvVar]) -> String {
 			format!(
 				"export {}={}",
 				env_var.name,
-				shell_quote_remote_value(&env_var.value)
+				shell_words::quote(&env_var.value)
 			)
 		});
 		format!("{} && ", exports.collect::<Vec<_>>().join(" && "))
