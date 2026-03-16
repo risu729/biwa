@@ -415,13 +415,14 @@ fn validate_env_var_pattern(pattern: &str) -> Result<()> {
 	}
 }
 
+/// Global cache for compiled wildcard matchers.
+static GLOB_CACHE: LazyLock<RwLock<BTreeMap<String, GlobMatcher>>> =
+	LazyLock::new(|| RwLock::new(BTreeMap::new()));
+
 /// Matches a wildcard pattern containing `*` against a candidate string.
 ///
 /// Compiles each pattern into a `GlobMatcher` only once and reuses it for
 /// subsequent calls, to avoid repeatedly compiling glob patterns in hot loops.
-static GLOB_CACHE: LazyLock<RwLock<BTreeMap<String, GlobMatcher>>> =
-	LazyLock::new(|| RwLock::new(BTreeMap::new()));
-
 fn wildcard_matches(pattern: &str, candidate: &str) -> bool {
 	// Fast path: try to use an existing compiled matcher under a read lock.
 	if let Some(matcher) = GLOB_CACHE

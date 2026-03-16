@@ -335,7 +335,6 @@ async fn execute_with_forward_method(
 						}
 						Some(_message) => {
 							// Ignore unrelated channel messages and keep waiting for Success/Failure.
-							continue;
 						}
 						None => bail!("SSH channel closed while sending environment variables"),
 					}
