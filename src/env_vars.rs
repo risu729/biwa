@@ -312,42 +312,29 @@ pub fn resolve_env_var_rules<I>(rules: I, available_names: &[String]) -> Vec<Env
 where
 	I: IntoIterator<Item = EnvVarRule>,
 {
-	let mut resolved = Vec::new();
+	let mut resolved = BTreeMap::new();
 	let mut names = available_names.to_vec();
 	names.sort();
 
 	for rule in rules {
 		match rule {
 			EnvVarRule::Spec(spec) => {
-				if let Some(index) = resolved
-					.iter()
-					.position(|existing: &EnvVarSpec| existing.name == spec.name)
-				{
-					resolved.remove(index);
-				}
-				resolved.push(spec);
+				resolved.insert(spec.name.clone(), spec);
 			}
 			EnvVarRule::InheritPattern(pattern) => {
 				for name in &names {
 					if wildcard_matches(&pattern, name) {
-						let spec = EnvVarSpec::inherit(name);
-						if let Some(index) = resolved
-							.iter()
-							.position(|existing: &EnvVarSpec| existing.name == spec.name)
-						{
-							resolved.remove(index);
-						}
-						resolved.push(spec);
+						resolved.insert(name.clone(), EnvVarSpec::inherit(name));
 					}
 				}
 			}
 			EnvVarRule::Exclude(selector) => {
-				resolved.retain(|spec| !selector.matches(spec.name()));
+				resolved.retain(|name, _| !selector.matches(name));
 			}
 		}
 	}
 
-	resolved
+	resolved.into_values().collect()
 }
 
 /// Returns sorted environment variable names from the local process.
