@@ -102,6 +102,8 @@ biwa warns when you inherit machine-specific variables such as:
 - `JAVA_HOME`, `CLASSPATH`
 - `GOPATH`, `GOBIN`, `GOMODCACHE`
 - `GEM_HOME`, `GEM_PATH`, `BUNDLE_PATH`, `BUNDLE_BIN`
+- `CARGO_HOME`, `RUSTUP_HOME`
+- `PHP_INI_SCAN_DIR`
 
 Those values often differ between your local machine and the remote host.
 
