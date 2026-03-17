@@ -1,7 +1,7 @@
 use super::auth::resolve_auth;
 use super::sync::shell_quote_path;
 use crate::Result;
-use crate::config::types::Config;
+use crate::config::types::{Config, Umask};
 use crate::env_vars::{
 	EnvForwardMethod, EnvVarRule, EnvVarSource, is_environment_dependent_env_var,
 	local_env_var_names, resolve_env_var_rules,
@@ -37,7 +37,7 @@ struct RunCommandOptions<'a> {
 	/// Remote working directory to enter before running the command.
 	working_dir: Option<&'a str>,
 	/// Remote umask to apply before command execution.
-	umask: &'a str,
+	umask: &'a Umask,
 	/// Suppresses local progress output when true.
 	quiet: bool,
 	/// Suppresses forwarded remote stdout/stderr when true.
@@ -178,8 +178,6 @@ async fn run_command(
 	forward_method: &EnvForwardMethod,
 	options: RunCommandOptions<'_>,
 ) -> Result<u32> {
-	u32::from_str_radix(options.umask, 8)
-		.wrap_err_with(|| format!("Invalid umask: {}", options.umask))?;
 	let command_with_env = match forward_method {
 		EnvForwardMethod::Export => format!("{}{}", build_export_prefix(env_vars), full_command),
 		EnvForwardMethod::Setenv => full_command.to_owned(),
