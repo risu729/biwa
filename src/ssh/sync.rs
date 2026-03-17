@@ -468,19 +468,47 @@ fn resolve_sftp_path(remote_path: &str) -> &str {
 		})
 }
 
-/// Deletes remote directories one-by-one over the existing SFTP session.
-async fn delete_remote_directories(
-	sftp: &SftpSession,
-	remote_dir: &str,
-	relative_paths: &[String],
-) {
-	for path in relative_paths {
-		let full_path = format!("{remote_dir}/{path}");
-		let sftp_path = resolve_sftp_path(&full_path);
-		match sftp.remove_dir(sftp_path).await {
-			Ok(()) => {}
+/// Returns whether `candidate` is nested beneath `ancestor`.
+fn is_nested_directory(candidate: &str, ancestor: &str) -> bool {
+	candidate != ancestor && Path::new(candidate).starts_with(ancestor)
+}
+
+/// Reduces a directory set to its deepest leaf paths.
+fn collect_leaf_directories(paths: &[String]) -> Vec<String> {
+	let mut sorted = paths.to_vec();
+	sorted.sort_unstable_by(|left, right| {
+		let left_depth = left.bytes().filter(|byte| *byte == b'/').count();
+		let right_depth = right.bytes().filter(|byte| *byte == b'/').count();
+		right_depth.cmp(&left_depth).then_with(|| left.cmp(right))
+	});
+
+	let mut leaves = Vec::new();
+	for path in sorted {
+		if leaves
+			.iter()
+			.any(|existing: &String| is_nested_directory(existing, &path))
+		{
+			continue;
+		}
+		leaves.push(path);
+	}
+
+	leaves.sort_unstable();
+	leaves
+}
+
+/// Deletes remote directories in batched `rmdir -p` commands.
+async fn delete_remote_directories(client: &Client, remote_dir: &str, relative_paths: &[String]) {
+	for rmdir_cmd in build_rmdir_commands(remote_dir, relative_paths) {
+		match client.execute(&rmdir_cmd).await {
+			Ok(result) if result.exit_status == 0 => {}
+			Ok(result) => warn!(
+				stderr = result.stderr.trim(),
+				command = %rmdir_cmd,
+				"Failed to delete remote directories"
+			),
 			Err(error) => {
-				warn!(error = %error, path = sftp_path, "Failed to delete remote directory");
+				warn!(error = %error, command = %rmdir_cmd, "Failed to delete remote directories");
 			}
 		}
 	}
@@ -504,7 +532,7 @@ fn collect_directories_to_create(actions: &SyncActions) -> Vec<String> {
 
 	let mut directories = directories.into_iter().collect::<Vec<_>>();
 	directories.sort_unstable();
-	directories
+	collect_leaf_directories(&directories)
 }
 
 /// Splits directory creation into bounded `mkdir -p` batches.
@@ -519,6 +547,42 @@ fn build_mkdir_commands(umask: &str, remote_dir: &str, relative_paths: &[String]
 
 	for quoted_path in relative_paths
 		.iter()
+		.map(|path| format!("{remote_dir}/{path}"))
+		.map(|path| shell_quote_path(&path))
+	{
+		let projected_len = current
+			.len()
+			.saturating_add(1)
+			.saturating_add(quoted_path.len());
+		if current.len() > prefix.len() && projected_len > MAX_REMOTE_MKDIR_COMMAND_LEN {
+			commands.push(take(&mut current));
+			current.clone_from(&prefix);
+		}
+
+		current.push(' ');
+		current.push_str(&quoted_path);
+	}
+
+	if current.len() > prefix.len() {
+		commands.push(current);
+	}
+
+	commands
+}
+
+/// Splits directory deletion into bounded `rmdir -p` batches.
+fn build_rmdir_commands(remote_dir: &str, relative_paths: &[String]) -> Vec<String> {
+	let leaf_paths = collect_leaf_directories(relative_paths);
+	if leaf_paths.is_empty() {
+		return Vec::new();
+	}
+
+	let prefix = "rmdir -p --ignore-fail-on-non-empty --".to_owned();
+	let mut commands = Vec::new();
+	let mut current = prefix.clone();
+
+	for quoted_path in leaf_paths
+		.into_iter()
 		.map(|path| format!("{remote_dir}/{path}"))
 		.map(|path| shell_quote_path(&path))
 	{
@@ -691,7 +755,7 @@ async fn apply_sync_actions(
 	}
 
 	// Remove deleted directories deepest-first so parents become empty first.
-	delete_remote_directories(&sftp, remote_dir, &actions.directory_deletions).await;
+	delete_remote_directories(client, remote_dir, &actions.directory_deletions).await;
 
 	// Pre-create directories respecting umask.
 	let dirs_to_create = collect_directories_to_create(&actions);
@@ -1061,6 +1125,22 @@ mod tests {
 	}
 
 	#[test]
+	fn collect_leaf_directories_prefers_deepest_paths() {
+		let leaves = collect_leaf_directories(&[
+			"a".to_owned(),
+			"a/b".to_owned(),
+			"a/b/c".to_owned(),
+			"a/d".to_owned(),
+			"e".to_owned(),
+		]);
+
+		assert_eq!(
+			leaves,
+			vec!["a/b/c".to_owned(), "a/d".to_owned(), "e".to_owned()]
+		);
+	}
+
+	#[test]
 	fn build_mkdir_commands_chunks_large_directory_sets() {
 		let relative_paths = (0..300)
 			.map(|i| format!("very-long-directory-name-{i:03}/nested"))
@@ -1078,6 +1158,26 @@ mod tests {
 				.iter()
 				.all(|command| command.len() <= MAX_REMOTE_MKDIR_COMMAND_LEN)
 		);
+	}
+
+	#[test]
+	fn build_rmdir_commands_uses_leaf_directories() {
+		let commands = build_rmdir_commands(
+			"~/.cache/biwa/projects/demo",
+			&[
+				"a".to_owned(),
+				"a/b".to_owned(),
+				"a/b/c".to_owned(),
+				"a/d".to_owned(),
+			],
+		);
+
+		assert_eq!(commands.len(), 1);
+		let command = commands.first().unwrap();
+		assert!(command.contains("a/b/c"));
+		assert!(command.contains("a/d"));
+		assert!(!command.contains("projects/demo/a "));
+		assert!(!command.contains("projects/demo/a/b "));
 	}
 
 	#[test]
