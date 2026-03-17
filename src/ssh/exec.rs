@@ -192,17 +192,32 @@ async fn run_command(
 			)
 		},
 	);
-	let env_var_names: Vec<&str> = env_vars
-		.iter()
-		.map(|env_var| env_var.name.as_str())
-		.collect();
-	debug!(
-		command = %full_command,
-		forward_method = ?forward_method,
-		working_dir = options.working_dir,
-		env_var_names = ?env_var_names,
-		"Executing remote command"
-	);
+	if tracing::enabled!(tracing::Level::DEBUG) {
+		let env_var_names: Vec<&str> = env_vars
+			.iter()
+			.map(|env_var| env_var.name.as_str())
+			.collect();
+
+		match forward_method {
+			EnvForwardMethod::Export => debug!(
+				command = %full_command,
+				forward_method = ?forward_method,
+				working_dir = options.working_dir,
+				umask = %options.umask,
+				env_var_names = ?env_var_names,
+				"Executing remote command"
+			),
+			EnvForwardMethod::Setenv => debug!(
+				command = %full_command,
+				effective_command = %effective_command,
+				forward_method = ?forward_method,
+				working_dir = options.working_dir,
+				umask = %options.umask,
+				env_var_names = ?env_var_names,
+				"Executing remote command"
+			),
+		}
+	}
 
 	if !options.quiet {
 		eprintln!(

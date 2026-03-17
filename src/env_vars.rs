@@ -322,14 +322,16 @@ pub fn parse_env_var_env(value: &str) -> Result<Vec<EnvVarRule>> {
 }
 
 /// Resolves env var rules into exact environment variable specs.
+///
+/// Callers should pass `available_names` in deterministic order. For local
+/// process expansion, use [`local_env_var_names()`], which already returns a
+/// sorted list.
 #[must_use]
 pub fn resolve_env_var_rules<I>(rules: I, available_names: &[String]) -> Vec<EnvVarSpec>
 where
 	I: IntoIterator<Item = EnvVarRule>,
 {
 	let mut resolved = BTreeMap::new();
-	let mut names = available_names.to_vec();
-	names.sort();
 
 	for rule in ordered(rules.into_iter().collect()) {
 		match rule {
@@ -337,7 +339,7 @@ where
 				resolved.insert(spec.name.clone(), spec);
 			}
 			EnvVarRule::InheritPattern(pattern) => {
-				for name in &names {
+				for name in available_names {
 					if wildcard_matches(&pattern, name) {
 						if let Err(err) = validate_env_var_name(name) {
 							warn!(
