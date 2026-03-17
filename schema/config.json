@@ -125,14 +125,14 @@
       "description": "Config representation for `env.vars`.",
       "anyOf": [
         {
-          "description": "Array form such as `vars = [\"NODE_ENV\", \"API_KEY=secret\"]`.",
+          "description": "Array form such as `vars = [\"NODE_ENV\", \"API_KEY=secret\"]`.\n\nEvaluated in the order written.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/EnvVarItem"
           }
         },
         {
-          "description": "Table form such as `[env.vars] NODE_ENV = true`.",
+          "description": "Table form such as `[env.vars] NODE_ENV = true`.\n\nEvaluated in a deterministic order regardless of the table keys:\n1. Inherit patterns (e.g., `\"NODE_*\" = true`)\n2. Exact specifications (e.g., `\"API_KEY\" = \"secret\"`, `\"NODE_ENV\" = true`)\n3. Exclusions (e.g., `\"!*PATH\" = true`)",
           "type": "object",
           "additionalProperties": {
             "$ref": "#/$defs/EnvVarConfigValue"
