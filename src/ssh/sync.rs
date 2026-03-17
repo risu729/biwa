@@ -327,6 +327,19 @@ fn calculate_sync_actions(
 	}
 }
 
+/// Aborts synchronization when too many local files are considered for sync.
+fn ensure_sync_file_limit(file_count: usize, max_files_to_sync: usize) -> Result<()> {
+	if file_count > max_files_to_sync {
+		bail!(
+			"Aborting synchronization: {} files to sync exceeds the limit of {}.\nIf this is expected, increase `sync.sftp.max_files_to_sync` in your configuration.",
+			file_count,
+			max_files_to_sync
+		);
+	}
+
+	Ok(())
+}
+
 /// SFTP naturally resolves paths not starting with `/` relative to the user's home directory.
 /// It does NOT expand `~/` or `$HOME/` like a shell would. Therefore, we strip them so SFTP
 /// looks in the home directory instead of looking for literal `~` or `$HOME` folders.
@@ -559,6 +572,7 @@ pub async fn sync_project(
 			.wrap_err("Failed to join blocking task")??
 	};
 	info!(local_files = local_files.len(), "Collected local files");
+	ensure_sync_file_limit(local_files.len(), config.sync.sftp.max_files_to_sync)?;
 
 	let client = connect(config, quiet).await?;
 
@@ -596,17 +610,6 @@ pub async fn sync_project(
 		unchanged = stats.unchanged,
 		"Calculated synchronization actions"
 	);
-
-	if actions.to_upload.len() > config.sync.sftp.max_files_to_sync {
-		if let Some(s) = spinner {
-			s.finish_and_clear();
-		}
-		bail!(
-			"Aborting synchronization: {} files to upload exceeds the limit of {}.\nIf this is expected, increase `sync.sftp.max_files_to_sync` in your configuration.",
-			actions.to_upload.len(),
-			config.sync.sftp.max_files_to_sync
-		);
-	}
 
 	apply_sync_actions(
 		&client,
@@ -721,6 +724,20 @@ mod tests {
 		assert_eq!(hashes.get("valid/path.txt").unwrap(), "hash1");
 		assert_eq!(hashes.get("valid2.txt").unwrap(), "hash3");
 		assert!(!hashes.contains_key("../invalid/path.txt"));
+	}
+
+	#[test]
+	fn ensure_sync_file_limit_allows_at_limit() {
+		ensure_sync_file_limit(2, 2).unwrap();
+	}
+
+	#[test]
+	fn ensure_sync_file_limit_rejects_above_limit() {
+		let err = ensure_sync_file_limit(2, 1).unwrap_err();
+		assert_eq!(
+			err.to_string(),
+			"Aborting synchronization: 2 files to sync exceeds the limit of 1.\nIf this is expected, increase `sync.sftp.max_files_to_sync` in your configuration."
+		);
 	}
 
 	#[test]
