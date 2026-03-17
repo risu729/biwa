@@ -649,6 +649,15 @@ vars = ["NODE_*", "!*PATH", "NODE_ENV"]"#,
 	}
 
 	#[test]
+	fn parse_env_var_env_supports_empty_values() -> Result<()> {
+		assert_eq!(
+			parse_env_var_env("NODE_ENV=")?,
+			vec![EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "")),]
+		);
+		Ok(())
+	}
+
+	#[test]
 	fn parse_env_var_env_supports_patterns_and_negation() -> Result<()> {
 		assert_eq!(
 			parse_env_var_env("NODE_*")?,

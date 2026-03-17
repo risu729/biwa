@@ -369,6 +369,22 @@ mod tests {
 
 	#[serial]
 	#[test]
+	fn biwa_env_vars_supports_empty_values() -> Result<()> {
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_ENV_VARS", "NODE_ENV=");
+		}
+		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+
+		let config = Config::load_internal(None, None, None)?;
+		let rules = config.env.vars.rules()?;
+
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", ""))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
 	fn biwa_env_vars_extends_existing_config_env_vars() -> Result<()> {
 		let dir = tempdir()?;
 		fs::write(

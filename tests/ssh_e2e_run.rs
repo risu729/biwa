@@ -296,6 +296,51 @@ fn e2e_run_env_literal_from_flag() -> Result<()> {
 }
 
 #[test]
+fn e2e_run_env_literal_empty_from_flag() -> Result<()> {
+	let output = biwa_cmd(&[
+		"run",
+		"--skip-sync",
+		"--env",
+		"NODE_ENV=",
+		"sh",
+		"-c",
+		"if [ \"${NODE_ENV+x}\" = x ]; then printf 'set:%s' \"$NODE_ENV\"; else printf missing; fi",
+	])
+	.env("BIWA_LOG_QUIET", "true")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "set:");
+	Ok(())
+}
+
+#[test]
+fn e2e_run_env_forward_empty_from_flag() -> Result<()> {
+	let output = biwa_cmd(&[
+		"run",
+		"--skip-sync",
+		"--env",
+		"NODE_ENV",
+		"sh",
+		"-c",
+		"if [ \"${NODE_ENV+x}\" = x ]; then printf 'set:%s' \"$NODE_ENV\"; else printf missing; fi",
+	])
+	.env("BIWA_LOG_QUIET", "true")
+	.env("NODE_ENV", "")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "set:");
+	Ok(())
+}
+
+#[test]
 fn e2e_run_env_wildcard_and_negation_from_flag() -> Result<()> {
 	let output = biwa_cmd(&[
 		"run",
