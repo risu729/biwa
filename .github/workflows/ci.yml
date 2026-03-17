@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Check release-affecting files
         id: filter
-        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         with:
           filters: |
             ci: &ci
@@ -87,9 +87,9 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        uses: jdx/mise-action@c1ecc8f748cd28cdeabf76dab3cccde4ce692fe4 # v4.0.0
         with:
-          version: 2026.3.8
+          version: 2026.3.9
 
       - name: Re-install Rust
         # cache doesn't work well with rust
@@ -122,9 +122,9 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        uses: jdx/mise-action@c1ecc8f748cd28cdeabf76dab3cccde4ce692fe4 # v4.0.0
         with:
-          version: 2026.3.8
+          version: 2026.3.9
 
       - name: Re-install Rust
         # cache doesn't work well with rust
@@ -159,9 +159,9 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        uses: jdx/mise-action@c1ecc8f748cd28cdeabf76dab3cccde4ce692fe4 # v4.0.0
         with:
-          version: 2026.3.7
+          version: 2026.3.9
 
       - name: Validate schema
         run: mise run schema

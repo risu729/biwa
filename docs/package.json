@@ -7,14 +7,14 @@
 		"deploy-preview": "wrangler versions upload"
 	},
 	"devDependencies": {
-		"@cloudflare/vite-plugin": "1.26.1",
+		"@cloudflare/vite-plugin": "1.28.0",
 		"@risu729/tsconfigs": "2.0.0",
 		"@types/bun": "1.3.10",
-		"typescript": "6.0.0-dev.20260310",
+		"typescript": "6.0.0-dev.20260314",
 		"vitepress": "2.0.0-alpha.16",
 		"vitepress-plugin-mermaid": "2.0.17",
 		"vue-tsc": "3.2.5",
-		"wrangler": "4.72.0"
+		"wrangler": "4.73.0"
 	},
 	"overrides": {
 		"vite": "7.1.12"

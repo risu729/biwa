@@ -13,10 +13,10 @@ include = ["/README.md", "/src/**/*.rs"]
 [dependencies]
 async-ssh2-tokio = "=0.12.2"
 bytes = "=1.11.1"
-clap = { version = "=4.5.61", features = ["derive"] }
+clap = { version = "=4.6.0", features = ["derive"] }
 color-eyre = "=0.6.5"
 confique = { version = "=0.4.0", features = ["json5", "toml", "yaml"] }
-console = "=0.16.2"
+console = "=0.16.3"
 derive_more = { version = "=2.1.1", features = ["deref"] }
 dialoguer = "=0.12.0"
 duct = "=1.1.1"
@@ -42,8 +42,8 @@ tokio-stream = "=0.1.18"
 tokio-util = { version = "=0.7.18", features = ["io"] }
 toml = "=1.0.6"
 tracing = "=0.1.44"
-tracing-subscriber = "=0.3.22"
-usage-lib = { version = "=2.18.2", features = ["clap", "docs"] }
+tracing-subscriber = "=0.3.23"
+usage-lib = { version = "=3.0.0", features = ["clap", "docs"] }
 
 [dev-dependencies]
 ctor = "=0.6.3"
