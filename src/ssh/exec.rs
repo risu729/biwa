@@ -512,6 +512,9 @@ mod tests {
 		// SAFETY: This test only mutates the current process environment.
 		unsafe {
 			env::set_var("BIWA_TEST_NODE_ENV", "development");
+		}
+		// SAFETY: This test only mutates the current process environment.
+		unsafe {
 			env::set_var("BIWA_TEST_NODE_PATH", "/tmp/biwa-test-node-path");
 		}
 		let _cleanup_env = EnvCleanup("BIWA_TEST_NODE_ENV");
