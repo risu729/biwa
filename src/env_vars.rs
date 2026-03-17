@@ -20,19 +20,23 @@ pub enum EnvForwardMethod {
 }
 
 /// Config representation for `env.vars`.
+///
+/// Regardless of the config form used, rules are always evaluated in a
+/// deterministic order:
+/// 1. Inherit patterns (e.g., `"NODE_*" = true`)
+/// 2. Exact specifications (e.g., `"API_KEY" = "secret"`, `"NODE_ENV" = true`)
+/// 3. Exclusions (e.g., `"!*PATH" = true`)
+///
+/// This means explicit values always override pattern-inherited values, and
+/// exclusions always apply last.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum EnvVars {
 	/// Array form such as `vars = ["NODE_ENV", "API_KEY=secret"]`.
-	///
-	/// Evaluated in the order written.
 	List(Vec<EnvVarItem>),
 	/// Table form such as `[env.vars] NODE_ENV = true`.
 	///
-	/// Evaluated in a deterministic order regardless of the table keys:
-	/// 1. Inherit patterns (e.g., `"NODE_*" = true`)
-	/// 2. Exact specifications (e.g., `"API_KEY" = "secret"`, `"NODE_ENV" = true`)
-	/// 3. Exclusions (e.g., `"!*PATH" = true`)
+	/// Flattened into rules before evaluation, just like the array form.
 	Table(BTreeMap<String, EnvVarConfigValue>),
 }
 
@@ -44,24 +48,24 @@ impl Default for EnvVars {
 
 impl EnvVars {
 	/// Returns the normalized env var rules.
+	///
+	/// Rules are always returned in evaluation order:
+	/// patterns first, then exact specs, then exclusions.
 	pub fn rules(&self) -> Result<Vec<EnvVarRule>> {
-		match self {
+		let rules = match self {
 			Self::List(items) => {
 				let mut rules = Vec::new();
 				for rule_batch in items.iter().map(EnvVarItem::to_rules) {
 					rules.extend(rule_batch?);
 				}
-				Ok(rules)
+				rules
 			}
-			Self::Table(entries) => {
-				let mut rules: Vec<_> = entries
-					.iter()
-					.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
-					.collect::<Result<_>>()?;
-				rules.sort();
-				Ok(rules)
-			}
-		}
+			Self::Table(entries) => entries
+				.iter()
+				.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
+				.collect::<Result<_>>()?,
+		};
+		Ok(ordered(rules))
 	}
 
 	/// Builds a config value from normalized rules.
@@ -156,14 +160,10 @@ impl EnvVarItem {
 	fn to_rules(&self) -> Result<Vec<EnvVarRule>> {
 		match self {
 			Self::String(value) => Ok(vec![EnvVarRule::from_inline_string(value)?]),
-			Self::Table(entries) => {
-				let mut rules: Vec<_> = entries
-					.iter()
-					.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
-					.collect::<Result<Vec<_>>>()?;
-				rules.sort();
-				Ok(rules)
-			}
+			Self::Table(entries) => entries
+				.iter()
+				.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
+				.collect::<Result<Vec<_>>>(),
 		}
 	}
 }
@@ -461,6 +461,24 @@ fn wildcard_matches(pattern: &str, candidate: &str) -> bool {
 		.is_match(candidate)
 }
 
+/// Reorders rules into evaluation order: patterns first, then specs, then
+/// exclusions. The relative order within each category is preserved.
+fn ordered(rules: Vec<EnvVarRule>) -> Vec<EnvVarRule> {
+	let mut patterns = Vec::new();
+	let mut specs = Vec::new();
+	let mut excludes = Vec::new();
+	for rule in rules {
+		match &rule {
+			EnvVarRule::InheritPattern(_) => patterns.push(rule),
+			EnvVarRule::Spec(_) => specs.push(rule),
+			EnvVarRule::Exclude(_) => excludes.push(rule),
+		}
+	}
+	patterns.extend(specs);
+	patterns.extend(excludes);
+	patterns
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -587,8 +605,8 @@ vars = ["NODE_*", "!*PATH", "NODE_ENV"]"#,
 			vars.rules()?,
 			vec![
 				EnvVarRule::InheritPattern("NODE_*".to_owned()),
-				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
 				EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),
+				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
 			]
 		);
 		Ok(())

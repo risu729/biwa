@@ -516,8 +516,8 @@ mod tests {
 			config.env.vars.rules()?,
 			vec![
 				EnvVarRule::InheritPattern("NODE_*".to_owned()),
-				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
 				EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),
+				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
 			]
 		);
 		Ok(())

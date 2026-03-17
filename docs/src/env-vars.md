@@ -42,7 +42,7 @@ vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]
 
 ## Wildcards And Negation
 
-In array form, `env.vars` also supports simple wildcard rules:
+All `env.vars` forms (array, table, array of tables) support wildcard rules:
 
 ```toml
 [env]
@@ -52,9 +52,18 @@ vars = ["NODE_*", "!*PATH"]
 - `*` matches zero or more characters in an environment variable name.
 - `NODE_*` inherits all local variables whose names start with `NODE_`.
 - `!*PATH` removes already-selected variables whose names end in `PATH`.
-- Rules are applied in order, so later entries can override or remove earlier ones.
 - Prefer targeted patterns like `NODE_*`, `AWS_*`, or `CARGO_*`.
 - Avoid mixing catch-all `*` with explicit variable names in the same `env.vars` section; if you need broad matching, use specific prefixes plus exclusions instead.
+
+### Evaluation Order
+
+Regardless of the config form or declaration order, rules are always evaluated deterministically:
+
+1. **Inherit patterns** — wildcard matches like `NODE_* = true` expand first.
+2. **Exact specifications** — explicit names like `NODE_ENV = true` or `API_KEY = "secret"` override inherited values.
+3. **Exclusions** — removal rules like `!*PATH = true` apply last.
+
+This means an explicit value always takes priority over a pattern-inherited one. For example, with `NODE_* = true` and `NODE_ENV = "prod"`, even if the local machine has `NODE_ENV = "dev"`, the result will be `NODE_ENV = "prod"`.
 
 ## `BIWA_ENV_VARS`
 
