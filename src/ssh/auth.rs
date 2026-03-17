@@ -89,7 +89,11 @@ fn load_key(path: &Path) -> Result<AuthMethod> {
 	}
 }
 
-/// Check if an SSH agent is available.
+/// Determine whether SSH agent authentication should be used based on the provided socket path.
+///
+/// Callers typically pass the value of the `SSH_AUTH_SOCK` environment variable
+/// (e.g. `std::env::var("SSH_AUTH_SOCK").ok().as_deref()`), and this function
+/// simply checks whether that value is present and non-empty.
 fn try_agent(auth_sock: Option<&str>) -> bool {
 	match auth_sock {
 		Some(sock) if !sock.is_empty() => {
