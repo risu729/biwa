@@ -636,6 +636,28 @@ fn e2e_sync_exclude_globset() -> Result<()> {
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	assert!(output.status.success(), "stderr: {stderr}");
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}"); // Only b.txt
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_tests_dir = format!("{remote_proj_dir}/tests");
+	let check_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test ! -e \"$1\"",
+			"--",
+			&remote_tests_dir,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		check_output.status.success(),
+		"excluded dir was created: {remote_tests_dir}"
+	);
+
 	Ok(())
 }
 

@@ -93,6 +93,19 @@ fn build_globset(patterns: &[String]) -> Result<Option<GlobSet>> {
 		.map(Some)
 }
 
+/// Returns whether a path matches a globset.
+///
+/// For directories, also try the path with a trailing slash so patterns like
+/// `foo/**` match the `foo` directory entry itself, not just its descendants.
+fn path_matches_globset(globset: &GlobSet, path: &Path, is_dir: bool) -> bool {
+	let path = path.to_string_lossy();
+	if globset.is_match(path.as_ref()) {
+		return true;
+	}
+
+	is_dir && globset.is_match(format!("{path}/"))
+}
+
 /// Checks if the remote root path is absolute and prints a warning.
 pub(super) fn check_remote_root(remote_root: &Path) {
 	if remote_root.is_absolute() {
@@ -164,17 +177,17 @@ fn should_sync_path(
 		return Ok(None);
 	}
 
-	let absolute_str = path.to_string_lossy().into_owned();
+	let is_dir = path.is_dir();
 	if exclude_globs
 		.as_ref()
-		.is_some_and(|set| set.is_match(&absolute_str))
+		.is_some_and(|set| path_matches_globset(set, path, is_dir))
 	{
 		return Ok(None);
 	}
 
 	if include_globs
 		.as_ref()
-		.is_some_and(|set| !set.is_match(&absolute_str))
+		.is_some_and(|set| !path_matches_globset(set, path, is_dir))
 	{
 		return Ok(None);
 	}
@@ -292,9 +305,8 @@ pub fn compute_project_remote_dir(config: &Config, project_root: &Path) -> Resul
 	))
 }
 
-/// Collects parent directories implied by the provided local files.
-fn collect_parent_directories(files: &[LocalFile]) -> HashSet<String> {
-	let mut directories = HashSet::new();
+/// Extends a directory set with parent directories implied by local files.
+fn collect_parent_directories_into(files: &[LocalFile], directories: &mut HashSet<String>) {
 	for local_file in files {
 		for ancestor in local_file.path.ancestors() {
 			if ancestor.as_os_str().is_empty() || ancestor == local_file.path.as_path() {
@@ -303,8 +315,6 @@ fn collect_parent_directories(files: &[LocalFile]) -> HashSet<String> {
 			directories.insert(ancestor.to_string_lossy().into_owned());
 		}
 	}
-
-	directories
 }
 
 /// Fetches the current remote directory and file state.
@@ -370,7 +380,7 @@ fn calculate_sync_actions(
 	options: &Options,
 ) -> SyncActions {
 	let mut desired_dirs = local_state.directories.clone();
-	desired_dirs.extend(collect_parent_directories(&local_state.files));
+	collect_parent_directories_into(&local_state.files, &mut desired_dirs);
 
 	let mut to_upload = Vec::new();
 	let mut local_paths_str = HashSet::new();
@@ -875,10 +885,23 @@ pub async fn sync_project(
 	Ok(stats)
 }
 
-/// Normalizes a remote relative path and rejects traversal components.
+/// Normalizes a remote relative path and rejects absolute or traversal paths.
 fn parse_remote_path(raw_path: &str, entry_kind: &str) -> Option<String> {
 	let path = raw_path.strip_prefix("./").unwrap_or(raw_path);
 	if path.is_empty() || path == "." {
+		return None;
+	}
+
+	if path.starts_with('/')
+		|| path == "~"
+		|| path.starts_with("~/")
+		|| path == "$HOME"
+		|| path.starts_with("$HOME/")
+	{
+		warn!(
+			"Skipping remote {entry_kind} with invalid absolute path: {}",
+			path
+		);
 		return None;
 	}
 
@@ -1013,6 +1036,32 @@ mod tests {
 	}
 
 	#[test]
+	fn collect_local_state_respects_glob_exclude_for_empty_directories() {
+		let dir = tempdir().unwrap();
+		fs::create_dir_all(dir.path().join("tests")).unwrap();
+		fs::create_dir_all(dir.path().join("kept")).unwrap();
+
+		let state = collect_local_state(
+			dir.path(),
+			&[],
+			&Options {
+				exclude: vec![
+					dir.path()
+						.join("tests")
+						.join("**")
+						.to_string_lossy()
+						.into_owned(),
+				],
+				..Options::default()
+			},
+		)
+		.unwrap();
+
+		assert!(!state.directories.contains("tests"));
+		assert!(state.directories.contains("kept"));
+	}
+
+	#[test]
 	fn parse_remote_hashes_traversal() {
 		let output = "__BIWA_FILE_HASHES__\nhash1  ./valid/path.txt\nhash2  ./../invalid/path.txt\nhash3  valid2.txt";
 		let hashes = parse_remote_state(output).file_hashes;
@@ -1020,6 +1069,15 @@ mod tests {
 		assert_eq!(hashes.get("valid/path.txt").unwrap(), "hash1");
 		assert_eq!(hashes.get("valid2.txt").unwrap(), "hash3");
 		assert!(!hashes.contains_key("../invalid/path.txt"));
+	}
+
+	#[test]
+	fn parse_remote_state_rejects_absolute_paths() {
+		let output = "/etc\n~/dotdir\n$HOME/secret\n__BIWA_FILE_HASHES__\nhash1  /etc/passwd\nhash2  ./valid.txt";
+		let state = parse_remote_state(output);
+		assert!(state.directories.is_empty());
+		assert_eq!(state.file_hashes.len(), 1);
+		assert_eq!(state.file_hashes.get("valid.txt").unwrap(), "hash2");
 	}
 
 	#[test]
