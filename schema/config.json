@@ -312,7 +312,7 @@
       "type": "object",
       "properties": {
         "max_files_to_sync": {
-          "description": "Abort synchronization if the number of files to upload exceeds this limit.",
+          "description": "Abort synchronization if the number of files to sync exceeds this limit.",
           "type": "integer",
           "default": 100,
           "minimum": 0

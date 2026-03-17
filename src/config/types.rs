@@ -258,7 +258,7 @@ pub enum SftpPermissions {
 /// SFTP synchronization engine settings.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncSftpConfig {
-	/// Abort synchronization if the number of files to upload exceeds this limit.
+	/// Abort synchronization if the number of files to sync exceeds this limit.
 	#[config(default = 100, env = "BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC")]
 	#[schemars(default = "crate::config::types::schema_defaults::max_files_to_sync")]
 	pub max_files_to_sync: usize,

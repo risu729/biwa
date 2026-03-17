@@ -7,7 +7,7 @@ use confique::Config as _;
 use std::fs::canonicalize;
 use std::path::{Path, PathBuf};
 use std::{env, fs};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 impl Config {
 	/// Loads the configuration based on global, user, and project-local paths.
@@ -116,6 +116,7 @@ impl Config {
 			rules.extend(parse_env_var_env(&value)?);
 			config.env.vars = EnvVars::from_rules(rules);
 		}
+		config.validate();
 
 		Ok(config)
 	}
@@ -168,6 +169,19 @@ impl Config {
 
 		// NOTE: remote_root is intentionally NOT resolved here because it is a remote SSH path.
 		// Tilde expansion and relative path resolution should happen on the remote server, not locally.
+	}
+
+	/// Runs post-load validation checks on the configuration.
+	///
+	/// This performs structural/semantic checks that go beyond what deserialization
+	/// can enforce (e.g. warning about absolute remote paths).
+	fn validate(&self) {
+		if self.sync.remote_root.is_absolute() {
+			warn!(
+				"Absolute remote_root path detected: {}. It is recommended to use a relative path starting with '~'.",
+				self.sync.remote_root.display()
+			);
+		}
 	}
 
 	/// Returns a string template of the default configuration for the specific format.
