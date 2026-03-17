@@ -56,7 +56,7 @@ pub(super) fn resolve_auth(config: &Config) -> Result<AuthMethod> {
 	}
 
 	// 4. SSH Agent as last resort (for zero-config users)
-	if try_agent() {
+	if try_agent(env::var("SSH_AUTH_SOCK").ok().as_deref()) {
 		info!("Using SSH agent authentication");
 		return Ok(AuthMethod::with_agent());
 	}
@@ -90,9 +90,9 @@ fn load_key(path: &Path) -> Result<AuthMethod> {
 }
 
 /// Check if an SSH agent is available.
-fn try_agent() -> bool {
-	match env::var("SSH_AUTH_SOCK") {
-		Ok(sock) if !sock.is_empty() => {
+fn try_agent(auth_sock: Option<&str>) -> bool {
+	match auth_sock {
+		Some(sock) if !sock.is_empty() => {
 			debug!(sock = %sock, "SSH agent socket found");
 			true
 		}
@@ -165,24 +165,15 @@ mod tests {
 		let _path = resolve_default_key_path();
 	}
 
-	#[serial]
 	#[test]
 	fn try_agent_checks_env() {
-		// SAFETY: `#[serial]` ensures no concurrent env mutation across tests.
-		unsafe {
-			env::set_var("SSH_AUTH_SOCK", "/tmp/fake-agent.sock");
-		}
 		assert!(
-			try_agent(),
+			try_agent(Some("/tmp/fake-agent.sock")),
 			"expected agent to be detected when SSH_AUTH_SOCK is set"
 		);
 
-		// SAFETY: `#[serial]` ensures no concurrent env mutation across tests.
-		unsafe {
-			env::remove_var("SSH_AUTH_SOCK");
-		}
 		assert!(
-			!try_agent(),
+			!try_agent(None),
 			"expected no agent when SSH_AUTH_SOCK is unset"
 		);
 	}
