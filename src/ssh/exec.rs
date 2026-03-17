@@ -346,6 +346,26 @@ async fn execute_with_forward_method(
 				.await
 				.wrap_err("Failed to execute remote command")?;
 
+			// Wait for confirmation that the exec request itself was accepted/rejected.
+			loop {
+				match channel.wait().await {
+					Some(ChannelMsg::Success) => {
+						break;
+					}
+					Some(ChannelMsg::Failure) => {
+						bail!("SSH server rejected remote command exec request");
+					}
+					Some(_message) => {
+						// Ignore unrelated channel messages and keep waiting for Success/Failure.
+					}
+					None => {
+						bail!(
+							"SSH channel closed before remote command exec confirmation was received"
+						);
+					}
+				}
+			}
+
 			stream_channel_output(channel, stdout_tx, stderr_tx).await
 		}
 	}

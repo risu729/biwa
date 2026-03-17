@@ -24,8 +24,15 @@ pub enum EnvForwardMethod {
 #[serde(untagged)]
 pub enum EnvVars {
 	/// Array form such as `vars = ["NODE_ENV", "API_KEY=secret"]`.
+	///
+	/// Evaluated in the order written.
 	List(Vec<EnvVarItem>),
 	/// Table form such as `[env.vars] NODE_ENV = true`.
+	///
+	/// Evaluated in a deterministic order regardless of the table keys:
+	/// 1. Inherit patterns (e.g., `"NODE_*" = true`)
+	/// 2. Exact specifications (e.g., `"API_KEY" = "secret"`, `"NODE_ENV" = true`)
+	/// 3. Exclusions (e.g., `"!*PATH" = true`)
 	Table(BTreeMap<String, EnvVarConfigValue>),
 }
 
@@ -46,10 +53,14 @@ impl EnvVars {
 				}
 				Ok(rules)
 			}
-			Self::Table(entries) => entries
-				.iter()
-				.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
-				.collect(),
+			Self::Table(entries) => {
+				let mut rules: Vec<_> = entries
+					.iter()
+					.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
+					.collect::<Result<_>>()?;
+				rules.sort();
+				Ok(rules)
+			}
 		}
 	}
 
@@ -77,18 +88,18 @@ impl EnvVars {
 }
 
 /// Normalized environment variable rule.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EnvVarRule {
-	/// Exact environment variable specification.
-	Spec(EnvVarSpec),
 	/// Include inherited environment variables matching this wildcard pattern.
 	InheritPattern(String),
+	/// Exact environment variable specification.
+	Spec(EnvVarSpec),
 	/// Exclude already-selected environment variables matching this selector.
 	Exclude(EnvVarSelector),
 }
 
 /// Selector used by exclusion rules.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EnvVarSelector {
 	/// Exact environment variable name.
 	Exact(String),
@@ -145,10 +156,14 @@ impl EnvVarItem {
 	fn to_rules(&self) -> Result<Vec<EnvVarRule>> {
 		match self {
 			Self::String(value) => Ok(vec![EnvVarRule::from_inline_string(value)?]),
-			Self::Table(entries) => entries
-				.iter()
-				.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
-				.collect::<Result<Vec<_>>>(),
+			Self::Table(entries) => {
+				let mut rules: Vec<_> = entries
+					.iter()
+					.map(|(name, value)| EnvVarRule::from_config_entry(name, value))
+					.collect::<Result<Vec<_>>>()?;
+				rules.sort();
+				Ok(rules)
+			}
 		}
 	}
 }
@@ -228,7 +243,7 @@ pub enum EnvVarConfigValue {
 }
 
 /// Normalized environment variable specification.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EnvVarSpec {
 	/// Environment variable name.
 	name: String,
@@ -275,7 +290,7 @@ impl EnvVarSpec {
 }
 
 /// Source of an environment variable value.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum EnvVarSource {
 	/// Copy the value from the local process environment.
 	Inherit,
