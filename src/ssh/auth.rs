@@ -56,7 +56,7 @@ pub(super) fn resolve_auth(config: &Config) -> Result<AuthMethod> {
 	}
 
 	// 4. SSH Agent as last resort (for zero-config users)
-	if try_agent() {
+	if try_agent(env::var("SSH_AUTH_SOCK").ok().as_deref()) {
 		info!("Using SSH agent authentication");
 		return Ok(AuthMethod::with_agent());
 	}
@@ -89,10 +89,14 @@ fn load_key(path: &Path) -> Result<AuthMethod> {
 	}
 }
 
-/// Check if an SSH agent is available.
-fn try_agent() -> bool {
-	match env::var("SSH_AUTH_SOCK") {
-		Ok(sock) if !sock.is_empty() => {
+/// Determine whether SSH agent authentication should be used based on the provided socket path.
+///
+/// Callers typically pass the value of the `SSH_AUTH_SOCK` environment variable
+/// (e.g. `std::env::var("SSH_AUTH_SOCK").ok().as_deref()`), and this function
+/// simply checks whether that value is present and non-empty.
+fn try_agent(auth_sock: Option<&str>) -> bool {
+	match auth_sock {
+		Some(sock) if !sock.is_empty() => {
 			debug!(sock = %sock, "SSH agent socket found");
 			true
 		}
@@ -165,25 +169,16 @@ mod tests {
 		let _path = resolve_default_key_path();
 	}
 
-	#[serial]
 	#[test]
-	fn try_agent_checks_env() {
-		// SAFETY: `#[serial]` ensures no concurrent env mutation across tests.
-		unsafe {
-			env::set_var("SSH_AUTH_SOCK", "/tmp/fake-agent.sock");
-		}
+	fn try_agent_detects_auth_sock() {
 		assert!(
-			try_agent(),
-			"expected agent to be detected when SSH_AUTH_SOCK is set"
+			try_agent(Some("/tmp/fake-agent.sock")),
+			"expected agent to be detected when a socket path is provided"
 		);
 
-		// SAFETY: `#[serial]` ensures no concurrent env mutation across tests.
-		unsafe {
-			env::remove_var("SSH_AUTH_SOCK");
-		}
 		assert!(
-			!try_agent(),
-			"expected no agent when SSH_AUTH_SOCK is unset"
+			!try_agent(None),
+			"expected no agent when no socket path is provided"
 		);
 	}
 
