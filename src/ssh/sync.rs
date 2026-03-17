@@ -327,11 +327,11 @@ fn calculate_sync_actions(
 	}
 }
 
-/// Aborts synchronization when the configured file limit is exceeded.
+/// Aborts synchronization when too many local files are considered for sync.
 fn ensure_sync_file_limit(file_count: usize, max_files_to_sync: usize) -> Result<()> {
 	if file_count > max_files_to_sync {
 		bail!(
-			"Aborting synchronization: {} files to upload exceeds the limit of {}.\nIf this is expected, increase `sync.sftp.max_files_to_sync` in your configuration.",
+			"Aborting synchronization: {} files to sync exceeds the limit of {}.\nIf this is expected, increase `sync.sftp.max_files_to_sync` in your configuration.",
 			file_count,
 			max_files_to_sync
 		);
@@ -736,7 +736,7 @@ mod tests {
 		let err = ensure_sync_file_limit(2, 1).unwrap_err();
 		assert_eq!(
 			err.to_string(),
-			"Aborting synchronization: 2 files to upload exceeds the limit of 1.\nIf this is expected, increase `sync.sftp.max_files_to_sync` in your configuration."
+			"Aborting synchronization: 2 files to sync exceeds the limit of 1.\nIf this is expected, increase `sync.sftp.max_files_to_sync` in your configuration."
 		);
 	}
 

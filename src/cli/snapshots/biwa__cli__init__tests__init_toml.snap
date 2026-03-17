@@ -87,7 +87,7 @@ expression: content
 
 # SFTP engine specific configuration.
 [sync.sftp]
-# Abort synchronization if the number of files to upload exceeds this limit.
+# Abort synchronization if the number of files to sync exceeds this limit.
 #
 # Can also be specified via environment variable `BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC`.
 #
