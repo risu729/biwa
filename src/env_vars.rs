@@ -321,7 +321,7 @@ pub fn parse_env_var_env(value: &str) -> Result<Vec<EnvVarRule>> {
 	parse_env_var_args(&[value.to_owned()], "BIWA_ENV_VARS")
 }
 
-/// Resolves ordered env var rules into exact environment variable specs.
+/// Resolves env var rules into exact environment variable specs.
 #[must_use]
 pub fn resolve_env_var_rules<I>(rules: I, available_names: &[String]) -> Vec<EnvVarSpec>
 where
@@ -331,7 +331,7 @@ where
 	let mut names = available_names.to_vec();
 	names.sort();
 
-	for rule in rules {
+	for rule in ordered(rules.into_iter().collect()) {
 		match rule {
 			EnvVarRule::Spec(spec) => {
 				resolved.insert(spec.name.clone(), spec);

@@ -495,6 +495,34 @@ mod tests {
 
 	#[serial]
 	#[test]
+	fn resolve_env_vars_keeps_explicit_cli_value_over_later_cli_pattern() -> Result<()> {
+		let config = Config::default();
+
+		// SAFETY: This test only mutates the current process environment.
+		unsafe {
+			env::set_var("NODE_ENV", "development");
+		}
+		let _cleanup = EnvCleanup("NODE_ENV");
+
+		let resolved = resolve_env_vars(
+			&config,
+			&[
+				EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "production")),
+				EnvVarRule::InheritPattern("NODE_*".to_owned()),
+			],
+		)?;
+		assert_eq!(
+			resolved,
+			vec![ResolvedEnvVar {
+				name: "NODE_ENV".to_owned(),
+				value: "production".to_owned(),
+			}]
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
 	fn resolve_env_vars_supports_patterns_and_negation() -> Result<()> {
 		let config = Config {
 			env: EnvConfig {
