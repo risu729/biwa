@@ -497,21 +497,27 @@ fn collect_leaf_directories(paths: &[String]) -> Vec<String> {
 	leaves
 }
 
-/// Deletes remote directories in batched `rmdir` commands.
-async fn delete_remote_directories(client: &Client, remote_dir: &str, relative_paths: &[String]) {
-	for rmdir_cmd in build_rmdir_commands(remote_dir, relative_paths) {
-		match client.execute(&rmdir_cmd).await {
-			Ok(result) if result.exit_status == 0 => {}
-			Ok(result) => warn!(
-				stderr = result.stderr.trim(),
-				command = %rmdir_cmd,
-				"Failed to delete remote directories"
-			),
+/// Deletes remote directories one-by-one over the existing SFTP session.
+async fn delete_remote_directories(
+	sftp: &SftpSession,
+	remote_dir: &str,
+	relative_paths: &[String],
+) -> usize {
+	let mut deleted = 0_usize;
+	for path in relative_paths {
+		let full_path = format!("{remote_dir}/{path}");
+		let sftp_path = resolve_sftp_path(&full_path);
+		match sftp.remove_dir(sftp_path).await {
+			Ok(()) => {
+				deleted = deleted.saturating_add(1);
+			}
 			Err(error) => {
-				warn!(error = %error, command = %rmdir_cmd, "Failed to delete remote directories");
+				warn!(error = %error, path = sftp_path, "Failed to delete remote directory");
 			}
 		}
 	}
+
+	deleted
 }
 
 /// Collects the set of directories that must exist before uploading files.
@@ -542,41 +548,6 @@ fn build_mkdir_commands(umask: &str, remote_dir: &str, relative_paths: &[String]
 	}
 
 	let prefix = format!("umask {umask} && mkdir -p --");
-	let mut commands = Vec::new();
-	let mut current = prefix.clone();
-
-	for quoted_path in relative_paths
-		.iter()
-		.map(|path| format!("{remote_dir}/{path}"))
-		.map(|path| shell_quote_path(&path))
-	{
-		let projected_len = current
-			.len()
-			.saturating_add(1)
-			.saturating_add(quoted_path.len());
-		if current.len() > prefix.len() && projected_len > MAX_REMOTE_MKDIR_COMMAND_LEN {
-			commands.push(take(&mut current));
-			current.clone_from(&prefix);
-		}
-
-		current.push(' ');
-		current.push_str(&quoted_path);
-	}
-
-	if current.len() > prefix.len() {
-		commands.push(current);
-	}
-
-	commands
-}
-
-/// Splits directory deletion into bounded `rmdir` batches.
-fn build_rmdir_commands(remote_dir: &str, relative_paths: &[String]) -> Vec<String> {
-	if relative_paths.is_empty() {
-		return Vec::new();
-	}
-
-	let prefix = "rmdir --ignore-fail-on-non-empty --".to_owned();
 	let mut commands = Vec::new();
 	let mut current = prefix.clone();
 
@@ -749,15 +720,15 @@ async fn apply_sync_actions(
 		let sftp_path = resolve_sftp_path(&full_path);
 		if let Err(e) = sftp.remove_file(sftp_path).await {
 			warn!(error = %e, path = sftp_path, "Failed to delete remote file");
+		} else {
+			stats.deleted = stats.deleted.saturating_add(1);
 		}
-		stats.deleted = stats.deleted.saturating_add(1);
 	}
 
 	// Remove deleted directories deepest-first so parents become empty first.
-	delete_remote_directories(client, remote_dir, &actions.directory_deletions).await;
-	stats.deleted = stats
-		.deleted
-		.saturating_add(actions.directory_deletions.len());
+	stats.deleted = stats.deleted.saturating_add(
+		delete_remote_directories(&sftp, remote_dir, &actions.directory_deletions).await,
+	);
 
 	// Pre-create directories respecting umask.
 	let dirs_to_create = collect_directories_to_create(&actions);
@@ -1160,28 +1131,6 @@ mod tests {
 				.iter()
 				.all(|command| command.len() <= MAX_REMOTE_MKDIR_COMMAND_LEN)
 		);
-	}
-
-	#[test]
-	fn build_rmdir_commands_keeps_explicit_directory_deletions() {
-		let commands = build_rmdir_commands(
-			"~/.cache/biwa/projects/demo",
-			&[
-				"a".to_owned(),
-				"a/b".to_owned(),
-				"a/b/c".to_owned(),
-				"a/d".to_owned(),
-			],
-		);
-
-		assert_eq!(commands.len(), 1);
-		let command = commands.first().unwrap();
-		assert!(command.starts_with("rmdir --ignore-fail-on-non-empty -- "));
-		assert!(!command.contains("rmdir -p"));
-		assert!(command.contains("a "));
-		assert!(command.contains("a/b "));
-		assert!(command.contains("a/b/c"));
-		assert!(command.contains("a/d"));
 	}
 
 	#[test]
