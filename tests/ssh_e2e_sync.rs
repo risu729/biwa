@@ -320,6 +320,27 @@ fn e2e_sync_abort() -> Result<()> {
 }
 
 #[test]
+fn e2e_sync_abort_before_connecting() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("file1.txt"), "1")?;
+	fs::write(dir.path().join("file2.txt"), "2")?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", "1")
+		.env("BIWA_SSH_PORT", "1")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success());
+	assert!(stderr.contains("Aborting synchronization: 2 files to upload exceeds the limit of 1."));
+	assert!(!stderr.contains("Failed to connect to"));
+	Ok(())
+}
+
+#[test]
 fn e2e_sync_ignore_gitignore() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join(".gitignore"), "ignored.txt\n")?;
