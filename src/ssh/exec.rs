@@ -1,5 +1,5 @@
 use super::auth::resolve_auth;
-use super::sync::shell_quote_remote_value;
+use super::sync::shell_quote_path;
 use crate::Result;
 use crate::config::types::Config;
 use crate::env_vars::{
@@ -112,7 +112,7 @@ fn build_command(command: &str, args: &[String]) -> String {
 		command.to_owned()
 	} else {
 		let mut parts = vec![command.to_owned()];
-		parts.extend(args.iter().map(|a| shell_quote_remote_value(a)));
+		parts.extend(args.iter().map(|a| shell_quote_path(a)));
 		parts.join(" ")
 	}
 }
@@ -187,7 +187,7 @@ async fn run_command(
 	let effective_command = options.working_dir.map_or_else(
 		|| format!("umask {} && {command_with_env}", options.umask),
 		|dir| {
-			let quoted_dir = shell_quote_remote_value(dir);
+			let quoted_dir = shell_quote_path(dir);
 			format!(
 				"umask {} && mkdir -p -- {quoted_dir} && cd {quoted_dir} && {command_with_env}",
 				options.umask,
