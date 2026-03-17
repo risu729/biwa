@@ -106,16 +106,6 @@ fn path_matches_globset(globset: &GlobSet, path: &Path, is_dir: bool) -> bool {
 	is_dir && globset.is_match(format!("{path}/"))
 }
 
-/// Checks if the remote root path is absolute and prints a warning.
-pub(super) fn check_remote_root(remote_root: &Path) {
-	if remote_root.is_absolute() {
-		warn!(
-			"Absolute remote_root path detected: {}. It is recommended to use a relative path starting with '~'.",
-			remote_root.display()
-		);
-	}
-}
-
 /// Shell-quotes a remote path while preserving home directory expansion.
 ///
 /// If the path starts with `~/`, the `~` is replaced with `$HOME` and placed
@@ -808,8 +798,6 @@ pub async fn sync_project(
 		has_remote_override = remote_dir_override.is_some(),
 		"Starting project synchronization"
 	);
-
-	check_remote_root(&config.sync.remote_root);
 
 	let unique_project_name = compute_unique_project_name(project_root)?;
 
