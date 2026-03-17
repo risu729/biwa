@@ -173,12 +173,12 @@ mod tests {
 	fn try_agent_detects_auth_sock() {
 		assert!(
 			try_agent(Some("/tmp/fake-agent.sock")),
-			"expected agent to be detected when SSH_AUTH_SOCK is set"
+			"expected agent to be detected when a socket path is provided"
 		);
 
 		assert!(
 			!try_agent(None),
-			"expected no agent when SSH_AUTH_SOCK is unset"
+			"expected no agent when no socket path is provided"
 		);
 	}
 
