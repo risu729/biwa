@@ -15,7 +15,7 @@ use core::time::Duration;
 use russh::{Channel, ChannelMsg, client::Msg};
 use std::env;
 use std::io::Error as IoError;
-use tokio::io::{copy, stderr, stdout};
+use tokio::io::{copy, sink, stderr, stdout};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
@@ -222,13 +222,17 @@ async fn run_command(
 	);
 
 	let stdout_task = async {
-		if !options.silent {
+		if options.silent {
+			copy(&mut stdout_reader, &mut sink()).await.unwrap_or(0);
+		} else {
 			copy(&mut stdout_reader, &mut stdout()).await.unwrap_or(0);
 		}
 	};
 
 	let stderr_task = async {
-		if !options.silent {
+		if options.silent {
+			copy(&mut stderr_reader, &mut sink()).await.unwrap_or(0);
+		} else {
 			copy(&mut stderr_reader, &mut stderr()).await.unwrap_or(0);
 		}
 	};
