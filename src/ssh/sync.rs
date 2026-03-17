@@ -230,16 +230,6 @@ fn collect_local_state(
 	Ok(state)
 }
 
-/// Collects local files from the project root, respecting ignore rules.
-#[cfg(test)]
-pub(super) fn collect_local_files(
-	root: &Path,
-	config_exclude: &[String],
-	options: &Options,
-) -> Result<Vec<LocalFile>> {
-	Ok(collect_local_state(root, config_exclude, options)?.files)
-}
-
 /// Computes the absolute remote path for a given local file.
 pub(super) fn compute_remote_path(
 	remote_root: &Path,
@@ -950,7 +940,9 @@ mod tests {
 		let file_path = dir.path().join("test.txt");
 		fs::write(&file_path, "hello").unwrap();
 
-		let files = collect_local_files(dir.path(), &[], &Options::default()).unwrap();
+		let files = collect_local_state(dir.path(), &[], &Options::default())
+			.unwrap()
+			.files;
 		assert_eq!(files.len(), 1);
 		assert_eq!(files.first().unwrap().path.to_string_lossy(), "test.txt");
 
@@ -965,7 +957,9 @@ mod tests {
 		fs::write(dir.path().join("ignored.txt"), "ignored").unwrap();
 		fs::write(dir.path().join("kept.txt"), "kept").unwrap();
 
-		let files = collect_local_files(dir.path(), &[], &Options::default()).unwrap();
+		let files = collect_local_state(dir.path(), &[], &Options::default())
+			.unwrap()
+			.files;
 		let names: Vec<_> = files
 			.iter()
 			.map(|f| f.path.to_string_lossy().to_string())
@@ -981,7 +975,9 @@ mod tests {
 		fs::write(dir.path().join(".hidden"), "hidden content").unwrap();
 		fs::write(dir.path().join("visible.txt"), "visible content").unwrap();
 
-		let files = collect_local_files(dir.path(), &[], &Options::default()).unwrap();
+		let files = collect_local_state(dir.path(), &[], &Options::default())
+			.unwrap()
+			.files;
 		let names: Vec<_> = files
 			.iter()
 			.map(|f| f.path.to_string_lossy().to_string())
