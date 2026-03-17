@@ -145,6 +145,245 @@ fn e2e_sync_cleaning() -> Result<()> {
 	Ok(())
 }
 
+#[test]
+fn e2e_sync_empty_dir_created() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::create_dir_all(dir.path().join("empty"))?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_empty = format!("{remote_proj_dir}/empty");
+	let check_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test -d \"$1\"",
+			"--",
+			&remote_empty,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		check_output.status.success(),
+		"remote dir missing: {remote_empty}"
+	);
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_empty_dir_removed() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let empty_dir = dir.path().join("empty");
+	fs::create_dir_all(&empty_dir)?;
+
+	let first_sync = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		first_sync.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&first_sync.stderr)
+	);
+
+	fs::remove_dir(&empty_dir)?;
+
+	let second_sync = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		second_sync.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&second_sync.stderr)
+	);
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_empty = format!("{remote_proj_dir}/empty");
+	let check_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test ! -e \"$1\"",
+			"--",
+			&remote_empty,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		check_output.status.success(),
+		"remote dir still exists: {remote_empty}"
+	);
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_preserves_dir_when_last_file_deleted() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let nested_dir = dir.path().join("dir");
+	fs::create_dir_all(&nested_dir)?;
+	let file_path = nested_dir.join("file.txt");
+	fs::write(&file_path, "hello")?;
+
+	let first_sync = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		first_sync.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&first_sync.stderr)
+	);
+
+	fs::remove_file(&file_path)?;
+
+	let second_sync = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&second_sync.stderr);
+	assert!(second_sync.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 deleted"), "stderr: {stderr}");
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_dir = format!("{remote_proj_dir}/dir");
+	let remote_file = format!("{remote_dir}/file.txt");
+
+	let dir_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test -d \"$1\"",
+			"--",
+			&remote_dir,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		dir_output.status.success(),
+		"remote dir missing: {remote_dir}"
+	);
+
+	let file_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test ! -e \"$1\"",
+			"--",
+			&remote_file,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		file_output.status.success(),
+		"remote file still exists: {remote_file}"
+	);
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_preserves_parent_dir_when_nested_dir_removed() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let nested_dir = dir.path().join("a").join("b");
+	fs::create_dir_all(&nested_dir)?;
+
+	let first_sync = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		first_sync.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&first_sync.stderr)
+	);
+
+	fs::remove_dir(&nested_dir)?;
+
+	let second_sync = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&second_sync.stderr);
+	assert!(second_sync.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 deleted"), "stderr: {stderr}");
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_parent = format!("{remote_proj_dir}/a");
+	let remote_nested = format!("{remote_proj_dir}/a/b");
+
+	let parent_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test -d \"$1\"",
+			"--",
+			&remote_parent,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		parent_output.status.success(),
+		"remote parent dir missing: {remote_parent}"
+	);
+
+	let nested_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test ! -e \"$1\"",
+			"--",
+			&remote_nested,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		nested_output.status.success(),
+		"remote nested dir still exists: {remote_nested}"
+	);
+
+	Ok(())
+}
+
 #[rstest]
 #[case::default(None, "drwx------", "-rw-------", "-rwx------", "-rw-------")]
 #[case::umask_0077(Some("0077"), "drwx------", "-rw-------", "-rwx------", "-rw-------")]
@@ -397,6 +636,65 @@ fn e2e_sync_exclude_globset() -> Result<()> {
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	assert!(output.status.success(), "stderr: {stderr}");
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}"); // Only b.txt
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_tests_dir = format!("{remote_proj_dir}/tests");
+	let check_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test ! -e \"$1\"",
+			"--",
+			&remote_tests_dir,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		check_output.status.success(),
+		"excluded dir was created: {remote_tests_dir}"
+	);
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_exclude_empty_dir() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::create_dir_all(dir.path().join("ignored"))?;
+
+	let output = biwa_cmd_tilde(&["sync", "--exclude", "ignored"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_dir = format!("{remote_proj_dir}/ignored");
+	let check_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test ! -e \"$1\"",
+			"--",
+			&remote_dir,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		check_output.status.success(),
+		"excluded dir was created: {remote_dir}"
+	);
+
 	Ok(())
 }
 
@@ -571,6 +869,47 @@ fn e2e_sync_intermediate_dir_permissions() -> Result<()> {
 			.stderr_capture()
 			.unchecked()
 			.run()?;
+
+		let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
+		assert!(
+			ls_output.status.success(),
+			"ls failed for {remote_path}: {ls_stdout}\nstderr: {}",
+			String::from_utf8_lossy(&ls_output.stderr)
+		);
+		assert!(
+			ls_stdout.contains("drwx------"),
+			"Directory {remote_path} does not have 0700 permissions. ls output: {ls_stdout}"
+		);
+	}
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_empty_dir_permissions() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let deep_dir = dir.path().join("a").join("b").join("c");
+	fs::create_dir_all(&deep_dir)?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	for path in ["", "/a", "/a/b", "/a/b/c"] {
+		let remote_path = format!("{remote_proj_dir}{path}");
+		let ls_output = biwa_cmd_tilde(
+			&["run", "--skip-sync", "ls", "-ld", &remote_path],
+			dir.path(),
+		)
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
 
 		let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
 		assert!(
