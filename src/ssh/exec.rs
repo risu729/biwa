@@ -194,7 +194,17 @@ async fn run_command(
 			)
 		},
 	);
-	debug!(command = %effective_command, "Executing remote command");
+	let env_var_names: Vec<&str> = env_vars
+		.iter()
+		.map(|env_var| env_var.name.as_str())
+		.collect();
+	debug!(
+		command = %full_command,
+		forward_method = ?forward_method,
+		working_dir = options.working_dir,
+		env_var_names = ?env_var_names,
+		"Executing remote command"
+	);
 
 	if !options.quiet {
 		eprintln!(
@@ -491,7 +501,7 @@ mod tests {
 		let config = Config {
 			env: EnvConfig {
 				vars: EnvVars::from_rules(vec![
-					EnvVarRule::InheritPattern("NODE_*".to_owned()),
+					EnvVarRule::InheritPattern("BIWA_TEST_NODE_*".to_owned()),
 					EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
 				]),
 				forward_method: EnvForwardMethod::Export,
@@ -501,15 +511,17 @@ mod tests {
 
 		// SAFETY: This test only mutates the current process environment.
 		unsafe {
-			env::set_var("NODE_ENV", "development");
+			env::set_var("BIWA_TEST_NODE_ENV", "development");
+			env::set_var("BIWA_TEST_NODE_PATH", "/tmp/biwa-test-node-path");
 		}
-		let _cleanup = EnvCleanup("NODE_ENV");
+		let _cleanup_env = EnvCleanup("BIWA_TEST_NODE_ENV");
+		let _cleanup_path = EnvCleanup("BIWA_TEST_NODE_PATH");
 
 		let resolved = resolve_env_vars(&config, &[])?;
 		assert_eq!(
 			resolved,
 			vec![ResolvedEnvVar {
-				name: "NODE_ENV".to_owned(),
+				name: "BIWA_TEST_NODE_ENV".to_owned(),
 				value: "development".to_owned(),
 			}]
 		);
