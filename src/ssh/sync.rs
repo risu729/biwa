@@ -921,12 +921,6 @@ fn parse_remote_state(output: &str) -> RemoteState {
 	remote_state
 }
 
-/// Parses the output of the remote sync-state script into a file hash map.
-#[cfg(test)]
-fn parse_remote_hashes(output: &str) -> HashMap<String, String> {
-	parse_remote_state(output).file_hashes
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -1021,7 +1015,7 @@ mod tests {
 	#[test]
 	fn parse_remote_hashes_traversal() {
 		let output = "__BIWA_FILE_HASHES__\nhash1  ./valid/path.txt\nhash2  ./../invalid/path.txt\nhash3  valid2.txt";
-		let hashes = parse_remote_hashes(output);
+		let hashes = parse_remote_state(output).file_hashes;
 		assert_eq!(hashes.len(), 2);
 		assert_eq!(hashes.get("valid/path.txt").unwrap(), "hash1");
 		assert_eq!(hashes.get("valid2.txt").unwrap(), "hash3");
