@@ -5,6 +5,7 @@ use crate::ui::create_spinner;
 use async_ssh2_tokio::client::Client;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
 use console::style;
+use core::mem::take;
 use gethostname::gethostname;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
@@ -25,6 +26,8 @@ use tracing::{debug, info, warn};
 
 /// Separator emitted by the remote sync-state script before file hash lines.
 const REMOTE_FILE_MARKER: &str = "__BIWA_FILE_HASHES__";
+/// Conservative upper bound for a batched remote `mkdir -p` command.
+const MAX_REMOTE_MKDIR_COMMAND_LEN: usize = 4096;
 
 /// Statistics for a synchronization operation.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -465,20 +468,19 @@ fn resolve_sftp_path(remote_path: &str) -> &str {
 		})
 }
 
-/// Deletes remote directories one-by-one so failures can be logged without aborting sync.
-async fn delete_remote_directories(client: &Client, remote_dir: &str, relative_paths: &[String]) {
+/// Deletes remote directories one-by-one over the existing SFTP session.
+async fn delete_remote_directories(
+	sftp: &SftpSession,
+	remote_dir: &str,
+	relative_paths: &[String],
+) {
 	for path in relative_paths {
 		let full_path = format!("{remote_dir}/{path}");
-		let remove_dir_cmd = format!("rmdir -- {}", shell_quote_path(&full_path));
-		match client.execute(&remove_dir_cmd).await {
-			Ok(result) if result.exit_status == 0 => {}
-			Ok(result) => warn!(
-				path = %full_path,
-				stderr = result.stderr.trim(),
-				"Failed to delete remote directory"
-			),
+		let sftp_path = resolve_sftp_path(&full_path);
+		match sftp.remove_dir(sftp_path).await {
+			Ok(()) => {}
 			Err(error) => {
-				warn!(error = %error, path = %full_path, "Failed to delete remote directory");
+				warn!(error = %error, path = sftp_path, "Failed to delete remote directory");
 			}
 		}
 	}
@@ -505,6 +507,41 @@ fn collect_directories_to_create(actions: &SyncActions) -> Vec<String> {
 	directories
 }
 
+/// Splits directory creation into bounded `mkdir -p` batches.
+fn build_mkdir_commands(umask: &str, remote_dir: &str, relative_paths: &[String]) -> Vec<String> {
+	if relative_paths.is_empty() {
+		return Vec::new();
+	}
+
+	let prefix = format!("umask {umask} && mkdir -p --");
+	let mut commands = Vec::new();
+	let mut current = prefix.clone();
+
+	for quoted_path in relative_paths
+		.iter()
+		.map(|path| format!("{remote_dir}/{path}"))
+		.map(|path| shell_quote_path(&path))
+	{
+		let projected_len = current
+			.len()
+			.saturating_add(1)
+			.saturating_add(quoted_path.len());
+		if current.len() > prefix.len() && projected_len > MAX_REMOTE_MKDIR_COMMAND_LEN {
+			commands.push(take(&mut current));
+			current.clone_from(&prefix);
+		}
+
+		current.push(' ');
+		current.push_str(&quoted_path);
+	}
+
+	if current.len() > prefix.len() {
+		commands.push(current);
+	}
+
+	commands
+}
+
 /// Creates remote directories with the configured umask.
 async fn create_remote_directories(
 	client: &Client,
@@ -512,26 +549,18 @@ async fn create_remote_directories(
 	remote_dir: &str,
 	relative_paths: &[String],
 ) -> Result<()> {
-	if relative_paths.is_empty() {
-		return Ok(());
-	}
-
-	let mkdirs = relative_paths
-		.iter()
-		.map(|path| format!("{remote_dir}/{path}"))
-		.map(|path| shell_quote_path(&path))
-		.collect::<Vec<_>>()
-		.join(" ");
-	let mkdir_cmd = format!("umask {} && mkdir -p -- {mkdirs}", config.ssh.umask);
-	let result = client
-		.execute(&mkdir_cmd)
-		.await
-		.wrap_err("Failed to create remote directories")?;
-	if result.exit_status != 0 {
-		bail!(
-			"Failed to create remote directories: {}",
-			result.stderr.trim()
-		);
+	for mkdir_cmd in build_mkdir_commands(&config.ssh.umask.to_string(), remote_dir, relative_paths)
+	{
+		let result = client
+			.execute(&mkdir_cmd)
+			.await
+			.wrap_err("Failed to create remote directories")?;
+		if result.exit_status != 0 {
+			bail!(
+				"Failed to create remote directories: {}",
+				result.stderr.trim()
+			);
+		}
 	}
 
 	Ok(())
@@ -662,7 +691,7 @@ async fn apply_sync_actions(
 	}
 
 	// Remove deleted directories deepest-first so parents become empty first.
-	delete_remote_directories(client, remote_dir, &actions.directory_deletions).await;
+	delete_remote_directories(&sftp, remote_dir, &actions.directory_deletions).await;
 
 	// Pre-create directories respecting umask.
 	let dirs_to_create = collect_directories_to_create(&actions);
@@ -1028,6 +1057,26 @@ mod tests {
 		assert_eq!(
 			actions.directory_deletions,
 			vec!["a/b/c".to_owned(), "a/b".to_owned(), "a".to_owned()]
+		);
+	}
+
+	#[test]
+	fn build_mkdir_commands_chunks_large_directory_sets() {
+		let relative_paths = (0..300)
+			.map(|i| format!("very-long-directory-name-{i:03}/nested"))
+			.collect::<Vec<_>>();
+		let commands = build_mkdir_commands("0077", "~/.cache/biwa/projects/demo", &relative_paths);
+
+		assert!(commands.len() > 1);
+		assert!(
+			commands
+				.iter()
+				.all(|command| command.starts_with("umask 0077 && mkdir -p -- "))
+		);
+		assert!(
+			commands
+				.iter()
+				.all(|command| command.len() <= MAX_REMOTE_MKDIR_COMMAND_LEN)
 		);
 	}
 

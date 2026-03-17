@@ -12,7 +12,7 @@ By default, `biwa run` automatically runs `biwa sync` before executing your comm
 - **Ignore files & Standard Filters**: By default, standard filters are used (`.gitignore`, parent git ignores, git excludes). Hidden files (such as `.env`) are **not** ignored by default. You can use the custom `.biwaignore` file to ignore them.
 - **Secure Permissions**: Enforces `0700` for directories. File permissions are preserved from the local filesystem but restricted to user-only access (e.g. `0644` becomes `0600`, `0755` becomes `0700`).
 
-If a directory still exists locally after its last file is removed, `biwa sync` keeps that directory on the remote side as an empty directory instead of deleting it.
+If a directory still exists locally after its last file is removed, `biwa sync` will keep it on the remote side as an empty directory instead of deleting it.
 
 ## Target Filtering & Path Resolution
 
