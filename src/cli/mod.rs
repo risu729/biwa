@@ -120,8 +120,11 @@ pub async fn run() -> Result<()> {
 		run::run_remote(
 			&config,
 			&SyncArgs::default(),
-			command,
-			args,
+			run::RemoteCommand {
+				command,
+				command_args: args,
+				cli_env_vars: &[],
+			},
 			config.sync.auto,
 			quiet,
 			silent,

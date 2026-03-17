@@ -1,0 +1,8 @@
+# Edge case: env.vars table values
+
+[env]
+forward_method = "export"
+
+[env.vars]
+NODE_ENV = true
+API_KEY = "secret"

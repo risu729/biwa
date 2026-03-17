@@ -1,6 +1,7 @@
 use super::format::ConfigFormat;
 use super::types::Config;
 use crate::Result;
+use crate::env_vars::{EnvVars, parse_env_var_env};
 use color_eyre::eyre::{WrapErr as _, bail};
 use confique::Config as _;
 use std::fs::canonicalize;
@@ -108,7 +109,13 @@ impl Config {
 			builder = builder.preloaded(partial);
 		}
 
-		let config = builder.load()?;
+		let mut config = builder.load()?;
+
+		if let Ok(value) = env::var("BIWA_ENV_VARS") {
+			let mut rules = config.env.vars.rules()?;
+			rules.extend(parse_env_var_env(&value)?);
+			config.env.vars = EnvVars::from_rules(rules);
+		}
 		config.validate();
 
 		Ok(config)
@@ -246,6 +253,7 @@ fn find_single_config(base_paths_no_ext: &[PathBuf]) -> Result<Option<(PathBuf, 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::env_vars::{EnvForwardMethod, EnvVarRule, EnvVarSelector, EnvVarSpec};
 	use crate::testing::EnvCleanup;
 	use pretty_assertions::{assert_eq, assert_matches, assert_ne};
 	use rstest::rstest;
@@ -326,7 +334,8 @@ mod tests {
 		    }
 		  },
 		  "env": {
-		    "vars": []
+		    "vars": [],
+		    "forward_method": "export"
 		  },
 		  "hooks": {
 		    "pre_sync": null,
@@ -338,6 +347,210 @@ mod tests {
 		  }
 		}
 		"#);
+	}
+
+	#[serial]
+	#[test]
+	fn env_vars_can_be_loaded_from_biwa_env_vars() -> Result<()> {
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_ENV_VARS", "NODE_ENV");
+		}
+		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+
+		let config = Config::load_internal(None, None, None)?;
+		let rules = config.env.vars.rules()?;
+
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn biwa_env_vars_supports_values() -> Result<()> {
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_ENV_VARS", "NODE_ENV=prod");
+		}
+		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+
+		let config = Config::load_internal(None, None, None)?;
+		let rules = config.env.vars.rules()?;
+
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "prod"))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn biwa_env_vars_supports_empty_values() -> Result<()> {
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_ENV_VARS", "NODE_ENV=");
+		}
+		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+
+		let config = Config::load_internal(None, None, None)?;
+		let rules = config.env.vars.rules()?;
+
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", ""))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn biwa_env_vars_extends_existing_config_env_vars() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"
+			[env.vars]
+			NODE_ENV = true
+		",
+		)?;
+
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_ENV_VARS", "API_KEY");
+		}
+		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let rules = config.env.vars.rules()?;
+
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("API_KEY"))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn biwa_env_vars_supports_patterns() -> Result<()> {
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_ENV_VARS", "NODE_*");
+		}
+		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+
+		let config = Config::load_internal(None, None, None)?;
+		assert_eq!(
+			config.env.vars.rules()?,
+			vec![EnvVarRule::InheritPattern("NODE_*".to_owned()),]
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_supports_env_vars_table() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(
+			&path,
+			r#"
+			[env]
+			forward_method = "export"
+
+			[env.vars]
+			NODE_ENV = true
+			API_KEY = "secret"
+		"#,
+		)?;
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let rules = config.env.vars.rules()?;
+
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret"))));
+		assert_eq!(config.env.forward_method, EnvForwardMethod::Export);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_supports_env_vars_array_of_tables() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(
+			&path,
+			r#"
+			[env]
+			forward_method = "export"
+			vars = [{ NODE_ENV = "production" }, { API_KEY = "secret" }]
+		"#,
+		)?;
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let rules = config.env.vars.rules()?;
+
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value(
+			"NODE_ENV",
+			"production"
+		))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret"))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_supports_env_vars_array_of_tables_with_multiple_entries() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(
+			&path,
+			r#"
+			[env]
+			forward_method = "export"
+
+			[[env.vars]]
+			NODE_ENV = "production"
+			API_KEY = "secret"
+
+			[[env.vars]]
+			"MATCH_*" = true
+			"!EXCLUDE" = true
+		"#,
+		)?;
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let rules = config.env.vars.rules()?;
+
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value(
+			"NODE_ENV",
+			"production"
+		))));
+		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("API_KEY", "secret"))));
+		assert!(rules.contains(&EnvVarRule::InheritPattern("MATCH_*".to_owned())));
+		assert!(rules.contains(&EnvVarRule::Exclude(EnvVarSelector::Exact(
+			"EXCLUDE".to_owned()
+		))));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_supports_env_var_patterns_in_array_form() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(
+			&path,
+			r#"
+			[env]
+			forward_method = "export"
+			vars = ["NODE_*", "!*PATH", "NODE_ENV"]
+		"#,
+		)?;
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		assert_eq!(
+			config.env.vars.rules()?,
+			vec![
+				EnvVarRule::InheritPattern("NODE_*".to_owned()),
+				EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),
+				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
+			]
+		);
+		Ok(())
 	}
 
 	#[rstest]

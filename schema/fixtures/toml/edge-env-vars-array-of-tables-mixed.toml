@@ -1,0 +1,18 @@
+# Edge case: env.vars array of tables with multiple entries, patterns, and negations
+
+[env]
+forward_method = "export"
+
+[[env.vars]]
+NODE_ENV = "production"
+API_KEY = "secret"
+
+[[env.vars]]
+"MATCH_*" = true
+"!EXCLUDE" = true
+"!LEGACY_*" = true
+
+[[env.vars]]
+DEBUG = "1"
+"TEST_*" = true
+"!TEST_OLD_*" = true
