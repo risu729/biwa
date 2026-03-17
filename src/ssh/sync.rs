@@ -14,7 +14,7 @@ use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
 use sha2::{Digest as _, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
@@ -169,6 +169,8 @@ fn hash_file(path: &Path) -> Result<String> {
 fn should_sync_path(
 	root: &Path,
 	path: &Path,
+	is_dir: bool,
+	is_symlink: bool,
 	exclude_globs: Option<&GlobSet>,
 	include_globs: Option<&GlobSet>,
 ) -> Result<Option<PathBuf>> {
@@ -177,7 +179,10 @@ fn should_sync_path(
 		return Ok(None);
 	}
 
-	let is_dir = path.is_dir();
+	if is_symlink {
+		return Ok(None);
+	}
+
 	if exclude_globs
 		.as_ref()
 		.is_some_and(|set| path_matches_globset(set, path, is_dir))
@@ -219,13 +224,24 @@ fn collect_local_state(
 	for entry in builder.build() {
 		let entry = entry?;
 		let path = entry.path();
-		let Some(relative) =
-			should_sync_path(root, path, exclude_globs.as_ref(), include_globs.as_ref())?
+		let file_type = fs::symlink_metadata(path)
+			.wrap_err_with(|| format!("Failed to read metadata for {}", path.display()))?
+			.file_type();
+		let is_dir = file_type.is_dir();
+		let is_symlink = file_type.is_symlink();
+		let Some(relative) = should_sync_path(
+			root,
+			path,
+			is_dir,
+			is_symlink,
+			exclude_globs.as_ref(),
+			include_globs.as_ref(),
+		)?
 		else {
 			continue;
 		};
 
-		if path.is_file() {
+		if !is_dir && !is_symlink && path.is_file() {
 			state.files.push(LocalFile {
 				path: relative,
 				hash: hash_file(path)?,
@@ -233,7 +249,7 @@ fn collect_local_state(
 			continue;
 		}
 
-		if path.is_dir() {
+		if is_dir {
 			state
 				.directories
 				.insert(relative.to_string_lossy().into_owned());
@@ -1059,6 +1075,34 @@ mod tests {
 
 		assert!(!state.directories.contains("tests"));
 		assert!(state.directories.contains("kept"));
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn collect_local_state_skips_symlink_entries() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		fs::create_dir_all(dir.path().join("real-dir")).unwrap();
+		fs::write(dir.path().join("real-file.txt"), "hello").unwrap();
+		symlink(dir.path().join("real-dir"), dir.path().join("dir-link")).unwrap();
+		symlink(
+			dir.path().join("real-file.txt"),
+			dir.path().join("file-link.txt"),
+		)
+		.unwrap();
+
+		let state = collect_local_state(dir.path(), &[], &Options::default()).unwrap();
+		let file_paths = state
+			.files
+			.iter()
+			.map(|file| file.path.to_string_lossy().into_owned())
+			.collect::<Vec<_>>();
+
+		assert!(state.directories.contains("real-dir"));
+		assert!(!state.directories.contains("dir-link"));
+		assert!(file_paths.contains(&"real-file.txt".to_owned()));
+		assert!(!file_paths.contains(&"file-link.txt".to_owned()));
 	}
 
 	#[test]
