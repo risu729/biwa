@@ -298,17 +298,15 @@ pub enum EnvVarSource {
 	Value(String),
 }
 
-/// Parses comma-separated env var rules like `NAME`, `NAME=value`, `NODE_*`, or `!*PATH`.
+/// Parses env var rules like `NAME`, `NAME=value`, `NODE_*`, or `!*PATH`.
 pub fn parse_env_var_args(values: &[String], source: &str) -> Result<Vec<EnvVarRule>> {
 	let mut rules = Vec::new();
 	for value in values {
-		for token in value.split(',') {
-			let token = token.trim();
-			if token.is_empty() {
-				bail!("{source} entries cannot be empty");
-			}
-			rules.push(EnvVarRule::from_inline_string(token)?);
+		let token = value.trim();
+		if token.is_empty() {
+			bail!("{source} entries cannot be empty");
 		}
+		rules.push(EnvVarRule::from_inline_string(token)?);
 	}
 	Ok(rules)
 }
@@ -597,8 +595,12 @@ vars = ["NODE_*", "!*PATH", "NODE_ENV"]"#,
 	}
 
 	#[test]
-	fn parse_cli_env_values_supports_csv_and_repetition() -> Result<()> {
-		let values = vec!["NODE_ENV,API_KEY".to_owned(), "DEBUG=1".to_owned()];
+	fn parse_cli_env_values_supports_repetition() -> Result<()> {
+		let values = vec![
+			"NODE_ENV".to_owned(),
+			"API_KEY".to_owned(),
+			"DEBUG=1".to_owned(),
+		];
 		assert_eq!(
 			parse_cli_env_vars(&values)?,
 			vec![
@@ -613,11 +615,8 @@ vars = ["NODE_*", "!*PATH", "NODE_ENV"]"#,
 	#[test]
 	fn parse_env_var_env_supports_simple_names() -> Result<()> {
 		assert_eq!(
-			parse_env_var_env("NODE_ENV, API_KEY")?,
-			vec![
-				EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),
-				EnvVarRule::Spec(EnvVarSpec::inherit("API_KEY"))
-			]
+			parse_env_var_env("NODE_ENV")?,
+			vec![EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV")),]
 		);
 		Ok(())
 	}
@@ -625,11 +624,8 @@ vars = ["NODE_*", "!*PATH", "NODE_ENV"]"#,
 	#[test]
 	fn parse_env_var_env_supports_values_and_inherit() -> Result<()> {
 		assert_eq!(
-			parse_env_var_env("NODE_ENV=prod,OTHER_ENV")?,
-			vec![
-				EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "prod")),
-				EnvVarRule::Spec(EnvVarSpec::inherit("OTHER_ENV")),
-			]
+			parse_env_var_env("NODE_ENV=prod")?,
+			vec![EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "prod")),]
 		);
 		Ok(())
 	}
@@ -637,11 +633,8 @@ vars = ["NODE_*", "!*PATH", "NODE_ENV"]"#,
 	#[test]
 	fn parse_env_var_env_supports_patterns_and_negation() -> Result<()> {
 		assert_eq!(
-			parse_env_var_env("NODE_*,!*PATH")?,
-			vec![
-				EnvVarRule::InheritPattern("NODE_*".to_owned()),
-				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
-			]
+			parse_env_var_env("NODE_*")?,
+			vec![EnvVarRule::InheritPattern("NODE_*".to_owned()),]
 		);
 		Ok(())
 	}

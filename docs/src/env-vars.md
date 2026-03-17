@@ -61,21 +61,21 @@ vars = ["NODE_*", "!*PATH"]
 You can add environment variables from the local shell without touching config:
 
 ```bash
-BIWA_ENV_VARS=NODE_ENV,API_KEY biwa run --skip-sync env
-BIWA_ENV_VARS=NODE_ENV=prod,OTHER_ENV biwa run --skip-sync env
-BIWA_ENV_VARS=NODE_*,!*PATH biwa run --skip-sync env
+BIWA_ENV_VARS=NODE_ENV biwa run --skip-sync env
+BIWA_ENV_VARS=NODE_ENV=prod biwa run --skip-sync env
+BIWA_ENV_VARS=NODE_* biwa run --skip-sync env
 ```
 
-- `BIWA_ENV_VARS=NODE_ENV,API_KEY` inherits local values.
-- `BIWA_ENV_VARS=NODE_ENV=prod,OTHER_ENV` mixes literal values and inheritance.
-- `BIWA_ENV_VARS=NODE_*,!*PATH` uses wildcard inheritance and exclusions.
+- `BIWA_ENV_VARS=NODE_ENV` inherits a local value.
+- `BIWA_ENV_VARS=NODE_ENV=prod` sets a literal value.
+- `BIWA_ENV_VARS=NODE_*` uses wildcard inheritance.
 
 ## `biwa run --env`
 
-`biwa run` supports repeated flags, comma-separated names, and `KEY=value` pairs:
+`biwa run` supports repeated flags, such as names, wildcards, and `KEY=value` pairs:
 
 ```bash
-biwa run --env NODE_ENV,API_KEY env
+biwa run --env NODE_ENV --env API_KEY env
 biwa run --env NODE_ENV=prod --env API_KEY env
 biwa run --env NODE_* --env '!*PATH' env
 ```

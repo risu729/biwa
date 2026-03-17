@@ -160,18 +160,12 @@ mod tests {
 	#[test]
 	fn run_supports_env_flag_forms() {
 		let args = Cli::parse_from([
-			"biwa",
-			"run",
-			"--env",
-			"NODE_ENV,API_KEY",
-			"--env",
-			"DEBUG=1",
-			"printenv",
+			"biwa", "run", "--env", "NODE_ENV", "--env", "DEBUG=1", "printenv",
 		]);
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(
 				run.env_vars,
-				vec!["NODE_ENV,API_KEY".to_owned(), "DEBUG=1".to_owned()]
+				vec!["NODE_ENV".to_owned(), "DEBUG=1".to_owned()]
 			);
 		} else {
 			assert_matches!(args.command, Some(Commands::Run(_)));

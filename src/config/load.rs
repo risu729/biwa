@@ -340,7 +340,7 @@ mod tests {
 	fn env_vars_can_be_loaded_from_biwa_env_vars() -> Result<()> {
 		// SAFETY: This is a serialized test that mutates the process environment.
 		unsafe {
-			env::set_var("BIWA_ENV_VARS", "NODE_ENV,API_KEY");
+			env::set_var("BIWA_ENV_VARS", "NODE_ENV");
 		}
 		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
 
@@ -348,16 +348,15 @@ mod tests {
 		let rules = config.env.vars.rules()?;
 
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
-		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("API_KEY"))));
 		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn biwa_env_vars_supports_values_and_inherit() -> Result<()> {
+	fn biwa_env_vars_supports_values() -> Result<()> {
 		// SAFETY: This is a serialized test that mutates the process environment.
 		unsafe {
-			env::set_var("BIWA_ENV_VARS", "NODE_ENV=prod,API_KEY");
+			env::set_var("BIWA_ENV_VARS", "NODE_ENV=prod");
 		}
 		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
 
@@ -365,7 +364,6 @@ mod tests {
 		let rules = config.env.vars.rules()?;
 
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "prod"))));
-		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("API_KEY"))));
 		Ok(())
 	}
 
@@ -397,20 +395,17 @@ mod tests {
 
 	#[serial]
 	#[test]
-	fn biwa_env_vars_supports_patterns_and_negation() -> Result<()> {
+	fn biwa_env_vars_supports_patterns() -> Result<()> {
 		// SAFETY: This is a serialized test that mutates the process environment.
 		unsafe {
-			env::set_var("BIWA_ENV_VARS", "NODE_*,!*PATH");
+			env::set_var("BIWA_ENV_VARS", "NODE_*");
 		}
 		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
 
 		let config = Config::load_internal(None, None, None)?;
 		assert_eq!(
 			config.env.vars.rules()?,
-			vec![
-				EnvVarRule::InheritPattern("NODE_*".to_owned()),
-				EnvVarRule::Exclude(EnvVarSelector::Pattern("*PATH".to_owned())),
-			]
+			vec![EnvVarRule::InheritPattern("NODE_*".to_owned()),]
 		);
 		Ok(())
 	}
