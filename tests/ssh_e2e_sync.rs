@@ -166,7 +166,9 @@ fn e2e_sync_empty_dir_created() -> Result<()> {
 			"--skip-sync",
 			"sh",
 			"-c",
-			&format!("test -d {remote_empty}"),
+			"test -d \"$1\"",
+			"--",
+			&remote_empty,
 		],
 		dir.path(),
 	)
@@ -218,7 +220,9 @@ fn e2e_sync_empty_dir_removed() -> Result<()> {
 			"--skip-sync",
 			"sh",
 			"-c",
-			&format!("test ! -e {remote_empty}"),
+			"test ! -e \"$1\"",
+			"--",
+			&remote_empty,
 		],
 		dir.path(),
 	)
@@ -258,16 +262,9 @@ fn e2e_sync_preserves_dir_when_last_file_deleted() -> Result<()> {
 		.stderr_capture()
 		.unchecked()
 		.run()?;
-	assert!(
-		second_sync.status.success(),
-		"stderr: {}",
-		String::from_utf8_lossy(&second_sync.stderr)
-	);
-	assert!(
-		String::from_utf8_lossy(&second_sync.stderr).contains("1 deleted"),
-		"stderr: {}",
-		String::from_utf8_lossy(&second_sync.stderr)
-	);
+	let stderr = String::from_utf8_lossy(&second_sync.stderr);
+	assert!(second_sync.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 deleted"), "stderr: {stderr}");
 
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 	let remote_dir = format!("{remote_proj_dir}/dir");
@@ -279,7 +276,9 @@ fn e2e_sync_preserves_dir_when_last_file_deleted() -> Result<()> {
 			"--skip-sync",
 			"sh",
 			"-c",
-			&format!("test -d {remote_dir}"),
+			"test -d \"$1\"",
+			"--",
+			&remote_dir,
 		],
 		dir.path(),
 	)
@@ -296,7 +295,9 @@ fn e2e_sync_preserves_dir_when_last_file_deleted() -> Result<()> {
 			"--skip-sync",
 			"sh",
 			"-c",
-			&format!("test ! -e {remote_file}"),
+			"test ! -e \"$1\"",
+			"--",
+			&remote_file,
 		],
 		dir.path(),
 	)
@@ -305,6 +306,79 @@ fn e2e_sync_preserves_dir_when_last_file_deleted() -> Result<()> {
 	assert!(
 		file_output.status.success(),
 		"remote file still exists: {remote_file}"
+	);
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_preserves_parent_dir_when_nested_dir_removed() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let nested_dir = dir.path().join("a").join("b");
+	fs::create_dir_all(&nested_dir)?;
+
+	let first_sync = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		first_sync.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&first_sync.stderr)
+	);
+
+	fs::remove_dir(&nested_dir)?;
+
+	let second_sync = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&second_sync.stderr);
+	assert!(second_sync.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 deleted"), "stderr: {stderr}");
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_parent = format!("{remote_proj_dir}/a");
+	let remote_nested = format!("{remote_proj_dir}/a/b");
+
+	let parent_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test -d \"$1\"",
+			"--",
+			&remote_parent,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		parent_output.status.success(),
+		"remote parent dir missing: {remote_parent}"
+	);
+
+	let nested_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test ! -e \"$1\"",
+			"--",
+			&remote_nested,
+		],
+		dir.path(),
+	)
+	.unchecked()
+	.run()?;
+	assert!(
+		nested_output.status.success(),
+		"remote nested dir still exists: {remote_nested}"
 	);
 
 	Ok(())
@@ -586,7 +660,9 @@ fn e2e_sync_exclude_empty_dir() -> Result<()> {
 			"--skip-sync",
 			"sh",
 			"-c",
-			&format!("test ! -e {remote_dir}"),
+			"test ! -e \"$1\"",
+			"--",
+			&remote_dir,
 		],
 		dir.path(),
 	)

@@ -497,7 +497,7 @@ fn collect_leaf_directories(paths: &[String]) -> Vec<String> {
 	leaves
 }
 
-/// Deletes remote directories in batched `rmdir -p` commands.
+/// Deletes remote directories in batched `rmdir` commands.
 async fn delete_remote_directories(client: &Client, remote_dir: &str, relative_paths: &[String]) {
 	for rmdir_cmd in build_rmdir_commands(remote_dir, relative_paths) {
 		match client.execute(&rmdir_cmd).await {
@@ -570,19 +570,18 @@ fn build_mkdir_commands(umask: &str, remote_dir: &str, relative_paths: &[String]
 	commands
 }
 
-/// Splits directory deletion into bounded `rmdir -p` batches.
+/// Splits directory deletion into bounded `rmdir` batches.
 fn build_rmdir_commands(remote_dir: &str, relative_paths: &[String]) -> Vec<String> {
-	let leaf_paths = collect_leaf_directories(relative_paths);
-	if leaf_paths.is_empty() {
+	if relative_paths.is_empty() {
 		return Vec::new();
 	}
 
-	let prefix = "rmdir -p --ignore-fail-on-non-empty --".to_owned();
+	let prefix = "rmdir --ignore-fail-on-non-empty --".to_owned();
 	let mut commands = Vec::new();
 	let mut current = prefix.clone();
 
-	for quoted_path in leaf_paths
-		.into_iter()
+	for quoted_path in relative_paths
+		.iter()
 		.map(|path| format!("{remote_dir}/{path}"))
 		.map(|path| shell_quote_path(&path))
 	{
@@ -756,6 +755,9 @@ async fn apply_sync_actions(
 
 	// Remove deleted directories deepest-first so parents become empty first.
 	delete_remote_directories(client, remote_dir, &actions.directory_deletions).await;
+	stats.deleted = stats
+		.deleted
+		.saturating_add(actions.directory_deletions.len());
 
 	// Pre-create directories respecting umask.
 	let dirs_to_create = collect_directories_to_create(&actions);
@@ -1161,7 +1163,7 @@ mod tests {
 	}
 
 	#[test]
-	fn build_rmdir_commands_uses_leaf_directories() {
+	fn build_rmdir_commands_keeps_explicit_directory_deletions() {
 		let commands = build_rmdir_commands(
 			"~/.cache/biwa/projects/demo",
 			&[
@@ -1174,10 +1176,12 @@ mod tests {
 
 		assert_eq!(commands.len(), 1);
 		let command = commands.first().unwrap();
+		assert!(command.starts_with("rmdir --ignore-fail-on-non-empty -- "));
+		assert!(!command.contains("rmdir -p"));
+		assert!(command.contains("a "));
+		assert!(command.contains("a/b "));
 		assert!(command.contains("a/b/c"));
 		assert!(command.contains("a/d"));
-		assert!(!command.contains("projects/demo/a "));
-		assert!(!command.contains("projects/demo/a/b "));
 	}
 
 	#[test]
