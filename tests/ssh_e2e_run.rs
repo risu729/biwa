@@ -10,7 +10,18 @@ mod common;
 use color_eyre::eyre::{WrapErr as _, eyre};
 use common::{Result, biwa_cmd};
 use rstest::rstest;
-use std::{fs, path::PathBuf, sync::mpsc, thread};
+use std::{fs, path::PathBuf, process::Command, process::Stdio, thread, time::Instant};
+
+fn biwa_process(args: &[&str]) -> Command {
+	let mut command = Command::new(env!("CARGO_BIN_EXE_biwa"));
+	command
+		.args(args)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_PASSWORD", "password123");
+	command
+}
 
 #[test]
 fn e2e_run_command() -> Result<()> {
@@ -122,33 +133,50 @@ fn e2e_run_silent() -> Result<()> {
 
 #[test]
 fn e2e_run_silent_large_output() -> Result<()> {
-	let (result_tx, result_rx) = mpsc::channel();
+	const OUTPUT_LINES: usize = 4096;
+	let command = format!(
+		"for i in $(seq 1 {OUTPUT_LINES}); do printf 'out%04d\\n' \"$i\"; done & \
+		 for i in $(seq 1 {OUTPUT_LINES}); do printf 'err%04d\\n' \"$i\" >&2; done & \
+		 wait"
+	);
 
-	thread::spawn(move || {
-		let result = biwa_cmd(&[
-			"--silent",
-			"run",
-			"--skip-sync",
-			"--",
-			"bash",
-			"-c",
-			"head -c 83886080 /dev/zero | tr '\\0' 'o'; head -c 83886080 /dev/zero | tr '\\0' 'e' >&2",
-		])
+	let mut child = biwa_process(&[
+		"--silent",
+		"run",
+		"--skip-sync",
+		"--",
+		"bash",
+		"-c",
+		&command,
+	]);
+	child
 		.env("BIWA_LOG_QUIET", "true")
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()
-		.map(|output| (output.status.success(), output.stdout, output.stderr))
-		.map_err(|error| format!("{error:?}"));
+		.stdout(Stdio::piped())
+		.stderr(Stdio::piped());
+	let mut child = child.spawn()?;
 
-		drop(result_tx.send(result));
-	});
+	let deadline = Instant::now() + Duration::from_secs(20);
+	while child.try_wait()?.is_none() {
+		if Instant::now() >= deadline {
+			#[expect(
+				clippy::unused_result_ok,
+				reason = "The process may already have exited between try_wait and kill."
+			)]
+			child.kill().ok();
+			let output = child.wait_with_output()?;
+			let stdout = String::from_utf8_lossy(&output.stdout);
+			let stderr = String::from_utf8_lossy(&output.stderr);
+			return Err(eyre!(
+				"silent large-output run timed out, likely deadlocked\nstdout: {stdout}\nstderr: {stderr}"
+			));
+		}
+		thread::sleep(Duration::from_millis(50));
+	}
 
-	let (success, stdout, stderr) = result_rx
-		.recv_timeout(Duration::from_secs(20))
-		.map_err(|error| eyre!("silent large-output run timed out, likely deadlocked: {error}"))?
-		.map_err(|error| eyre!(error))?;
+	let output = child.wait_with_output()?;
+	let success = output.status.success();
+	let stdout = output.stdout;
+	let stderr = output.stderr;
 
 	let stdout = String::from_utf8_lossy(&stdout);
 	let stderr = String::from_utf8_lossy(&stderr);

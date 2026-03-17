@@ -9,7 +9,7 @@ use color_eyre::eyre::{Context as _, bail};
 use console::style;
 use core::time::Duration;
 use std::io::Error as IoError;
-use tokio::io::{copy, sink, stderr, stdout};
+use tokio::io::{AsyncRead, AsyncWrite, copy, sink, stderr, stdout};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
@@ -90,6 +90,14 @@ fn build_command(command: &str, args: &[String]) -> String {
 	}
 }
 
+/// Drain a remote output stream into the chosen local writer.
+async fn drain_output<R>(reader: &mut R, writer: &mut (dyn AsyncWrite + Unpin + Send))
+where
+	R: AsyncRead + Unpin,
+{
+	copy(reader, writer).await.unwrap_or(0);
+}
+
 /// Run a pre-built command string on an already-connected SSH client.
 ///
 /// Returns the remote exit code, printing stdout/stderr as they arrive
@@ -143,27 +151,21 @@ async fn run_command(
 	);
 
 	let stdout_task = async {
-		if silent {
-			let mut output_sink = sink();
-			copy(&mut stdout_reader, &mut output_sink)
-				.await
-				.unwrap_or(0);
+		let mut writer: Box<dyn AsyncWrite + Unpin + Send> = if silent {
+			Box::new(sink())
 		} else {
-			let mut output = stdout();
-			copy(&mut stdout_reader, &mut output).await.unwrap_or(0);
-		}
+			Box::new(stdout())
+		};
+		drain_output(&mut stdout_reader, writer.as_mut()).await;
 	};
 
 	let stderr_task = async {
-		if silent {
-			let mut output_sink = sink();
-			copy(&mut stderr_reader, &mut output_sink)
-				.await
-				.unwrap_or(0);
+		let mut writer: Box<dyn AsyncWrite + Unpin + Send> = if silent {
+			Box::new(sink())
 		} else {
-			let mut output = stderr();
-			copy(&mut stderr_reader, &mut output).await.unwrap_or(0);
-		}
+			Box::new(stderr())
+		};
+		drain_output(&mut stderr_reader, writer.as_mut()).await;
 	};
 
 	let (exit_status, (), ()) = tokio::join!(exec_future, stdout_task, stderr_task);
