@@ -9,7 +9,7 @@ use color_eyre::eyre::{Context as _, bail};
 use console::style;
 use core::time::Duration;
 use std::io::Error as IoError;
-use tokio::io::{copy, stderr, stdout};
+use tokio::io::{copy, sink, stderr, stdout};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
@@ -143,14 +143,26 @@ async fn run_command(
 	);
 
 	let stdout_task = async {
-		if !silent {
-			copy(&mut stdout_reader, &mut stdout()).await.unwrap_or(0);
+		if silent {
+			let mut output_sink = sink();
+			copy(&mut stdout_reader, &mut output_sink)
+				.await
+				.unwrap_or(0);
+		} else {
+			let mut output = stdout();
+			copy(&mut stdout_reader, &mut output).await.unwrap_or(0);
 		}
 	};
 
 	let stderr_task = async {
-		if !silent {
-			copy(&mut stderr_reader, &mut stderr()).await.unwrap_or(0);
+		if silent {
+			let mut output_sink = sink();
+			copy(&mut stderr_reader, &mut output_sink)
+				.await
+				.unwrap_or(0);
+		} else {
+			let mut output = stderr();
+			copy(&mut stderr_reader, &mut output).await.unwrap_or(0);
 		}
 	};
 

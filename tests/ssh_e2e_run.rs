@@ -5,11 +5,12 @@
 #![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
 use std::io::{BufRead as _, BufReader, Read as _};
 
+use core::time::Duration;
 mod common;
-use color_eyre::eyre::WrapErr as _;
+use color_eyre::eyre::{WrapErr as _, eyre};
 use common::{Result, biwa_cmd};
 use rstest::rstest;
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::mpsc, thread};
 
 #[test]
 fn e2e_run_command() -> Result<()> {
@@ -114,6 +115,45 @@ fn e2e_run_silent() -> Result<()> {
 	let stderr = String::from_utf8_lossy(&output.stderr);
 
 	assert!(output.status.success());
+	assert!(stdout.trim().is_empty(), "stdout was not empty: {stdout}");
+	assert!(stderr.trim().is_empty(), "stderr was not empty: {stderr}");
+	Ok(())
+}
+
+#[test]
+fn e2e_run_silent_large_output() -> Result<()> {
+	let (result_tx, result_rx) = mpsc::channel();
+
+	thread::spawn(move || {
+		let result = biwa_cmd(&[
+			"--silent",
+			"run",
+			"--skip-sync",
+			"--",
+			"bash",
+			"-c",
+			"head -c 83886080 /dev/zero | tr '\\0' 'o'; head -c 83886080 /dev/zero | tr '\\0' 'e' >&2",
+		])
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()
+		.map(|output| (output.status.success(), output.stdout, output.stderr))
+		.map_err(|error| format!("{error:?}"));
+
+		drop(result_tx.send(result));
+	});
+
+	let (success, stdout, stderr) = result_rx
+		.recv_timeout(Duration::from_secs(20))
+		.map_err(|error| eyre!("silent large-output run timed out, likely deadlocked: {error}"))?
+		.map_err(|error| eyre!(error))?;
+
+	let stdout = String::from_utf8_lossy(&stdout);
+	let stderr = String::from_utf8_lossy(&stderr);
+
+	assert!(success, "stderr: {stderr}");
 	assert!(stdout.trim().is_empty(), "stdout was not empty: {stdout}");
 	assert!(stderr.trim().is_empty(), "stderr was not empty: {stderr}");
 	Ok(())
