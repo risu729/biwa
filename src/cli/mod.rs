@@ -1,11 +1,15 @@
 use crate::Result;
 use crate::cli::sync::SyncArgs;
 use crate::config::types::Config;
+use alloc::sync::Arc;
 use clap::{ArgAction, Parser, Subcommand};
 use color_eyre::eyre::{bail, eyre};
-use tracing::Level;
+use std::io;
+use std::sync::Mutex;
+use tracing::{Level, subscriber};
 use tracing_subscriber::{
-	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
+	filter::Targets, fmt, fmt::MakeWriter, layer::SubscriberExt as _, registry,
+	util::SubscriberInitExt as _,
 };
 
 /// Shell completion generation command.
@@ -92,21 +96,11 @@ impl Commands {
 pub async fn run() -> Result<()> {
 	let cli = Cli::parse();
 
-	let config = Config::load()?;
-	let silent = cli.silent || config.log.silent;
-	let quiet = silent || cli.quiet || config.log.quiet;
+	let (config, quiet, silent) = load_config_with_buffered_logs(&cli, &mut io::stderr().lock())?;
 
 	if !quiet {
-		let log_level = match cli.verbose {
-			0 => Level::WARN,
-			1 => Level::INFO,
-			2 => Level::DEBUG,
-			_ => Level::TRACE,
-		};
-
-		let log_targets = Targets::new().with_target("biwa", log_level);
 		registry()
-			.with(log_targets)
+			.with(log_targets(cli.verbose))
 			.with(fmt::layer().pretty().without_time())
 			.init();
 	}
@@ -136,54 +130,124 @@ pub async fn run() -> Result<()> {
 	Ok(())
 }
 
+/// Loads configuration while buffering any logs emitted before the global subscriber is ready.
+fn load_config_with_buffered_logs(
+	cli: &Cli,
+	stderr: &mut impl io::Write,
+) -> Result<(Config, bool, bool)> {
+	let writer = BufferedWriter::default();
+	let subscriber = registry().with(log_targets(cli.verbose)).with(
+		fmt::layer()
+			.pretty()
+			.without_time()
+			.with_ansi(false)
+			.with_writer(writer.clone()),
+	);
+
+	let config_result = subscriber::with_default(subscriber, Config::load);
+	let should_flush = config_result
+		.as_ref()
+		.map_or(!(cli.silent || cli.quiet), |config| !is_quiet(cli, config));
+
+	if should_flush {
+		writer.write_to(stderr)?;
+	}
+
+	let config = config_result?;
+	let silent = cli.silent || config.log.silent;
+	let quiet = silent || cli.quiet || config.log.quiet;
+	Ok((config, quiet, silent))
+}
+
+/// Returns the effective internal logging suppression mode.
+const fn is_quiet(cli: &Cli, config: &Config) -> bool {
+	let silent = cli.silent || config.log.silent;
+	silent || cli.quiet || config.log.quiet
+}
+
+/// Returns the log level selected by CLI verbosity flags.
+const fn log_level(verbose: u8) -> Level {
+	match verbose {
+		0 => Level::WARN,
+		1 => Level::INFO,
+		2 => Level::DEBUG,
+		_ => Level::TRACE,
+	}
+}
+
+/// Returns the target filter used for internal biwa logs.
+fn log_targets(verbose: u8) -> Targets {
+	Targets::new().with_target("biwa", log_level(verbose))
+}
+
+/// Shared in-memory writer for buffering load-phase logs.
+#[derive(Clone, Default)]
+struct BufferedWriter {
+	/// Shared byte buffer receiving formatted tracing output.
+	buf: Arc<Mutex<Vec<u8>>>,
+}
+
+/// Write guard that appends tracing output into the shared in-memory buffer.
+struct BufferedGuard {
+	/// Shared byte buffer receiving formatted tracing output.
+	buf: Arc<Mutex<Vec<u8>>>,
+}
+
+impl BufferedWriter {
+	#[cfg(test)]
+	fn output(&self) -> String {
+		let buf = self.buf.lock().expect("buffer lock should succeed");
+		String::from_utf8_lossy(&buf).into_owned()
+	}
+
+	/// Flushes the buffered tracing output into the provided writer.
+	fn write_to(&self, writer: &mut impl io::Write) -> io::Result<()> {
+		let bytes = self
+			.buf
+			.lock()
+			.map_err(|_e| io::Error::other("failed to acquire buffer lock"))?
+			.clone();
+
+		if !bytes.is_empty() {
+			writer.write_all(&bytes)?;
+			writer.flush()?;
+		}
+
+		Ok(())
+	}
+}
+
+impl<'a> MakeWriter<'a> for BufferedWriter {
+	type Writer = BufferedGuard;
+
+	fn make_writer(&'a self) -> Self::Writer {
+		BufferedGuard {
+			buf: Arc::clone(&self.buf),
+		}
+	}
+}
+
+impl io::Write for BufferedGuard {
+	fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+		self.buf
+			.lock()
+			.map_err(|_e| io::Error::other("failed to acquire buffer lock"))?
+			.extend_from_slice(buf);
+		Ok(buf.len())
+	}
+
+	fn flush(&mut self) -> io::Result<()> {
+		Ok(())
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use alloc::sync::Arc;
 	use pretty_assertions::assert_eq;
-	use std::{io, sync::Mutex};
-	use tracing::subscriber;
-	use tracing_subscriber::fmt::MakeWriter;
-
-	#[derive(Clone, Default)]
-	struct SharedWriter {
-		buf: Arc<Mutex<Vec<u8>>>,
-	}
-
-	struct SharedGuard {
-		buf: Arc<Mutex<Vec<u8>>>,
-	}
-
-	impl SharedWriter {
-		fn output(&self) -> String {
-			let buf = self.buf.lock().expect("buffer lock should succeed");
-			String::from_utf8_lossy(&buf).into_owned()
-		}
-	}
-
-	impl<'a> MakeWriter<'a> for SharedWriter {
-		type Writer = SharedGuard;
-
-		fn make_writer(&'a self) -> Self::Writer {
-			SharedGuard {
-				buf: Arc::clone(&self.buf),
-			}
-		}
-	}
-
-	impl io::Write for SharedGuard {
-		fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-			self.buf
-				.lock()
-				.map_err(|_e| io::Error::other("failed to acquire buffer lock"))?
-				.extend_from_slice(buf);
-			Ok(buf.len())
-		}
-
-		fn flush(&mut self) -> io::Result<()> {
-			Ok(())
-		}
-	}
+	use serial_test::serial;
+	use std::{env, fs};
+	use tempfile::tempdir;
 
 	#[test]
 	fn cli_run_subcommand() {
@@ -241,15 +305,13 @@ mod tests {
 
 	#[test]
 	fn verbose_filter_only_logs_biwa_targets() {
-		let writer = SharedWriter::default();
-		let subscriber = registry()
-			.with(Targets::new().with_target("biwa", Level::TRACE))
-			.with(
-				fmt::layer()
-					.with_ansi(false)
-					.without_time()
-					.with_writer(writer.clone()),
-			);
+		let writer = BufferedWriter::default();
+		let subscriber = registry().with(log_targets(3)).with(
+			fmt::layer()
+				.with_ansi(false)
+				.without_time()
+				.with_writer(writer.clone()),
+		);
 
 		subscriber::with_default(subscriber, || {
 			tracing::info!(target: "biwa::cli::tests", "biwa-target-log");
@@ -262,5 +324,69 @@ mod tests {
 			!output.contains("dependency-target-log"),
 			"logs were: {output}"
 		);
+	}
+
+	#[serial]
+	#[test]
+	fn buffered_config_logs_are_flushed_when_logging_is_enabled() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"[sync]\nremote_root = \"/absolute/path\"\n",
+		)?;
+
+		let original_dir = env::current_dir()?;
+		env::set_current_dir(dir.path())?;
+
+		let cli = Cli {
+			command: None,
+			run_command_args: Vec::new(),
+			verbose: 0,
+			quiet: false,
+			silent: false,
+		};
+		let mut stderr = Vec::new();
+		let result = load_config_with_buffered_logs(&cli, &mut stderr);
+
+		env::set_current_dir(original_dir)?;
+
+		let (_config, quiet, silent) = result?;
+		assert!(!quiet);
+		assert!(!silent);
+
+		let output = String::from_utf8(stderr)?;
+		assert!(output.contains("Absolute remote_root path detected"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn buffered_config_logs_respect_loaded_quiet_mode() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"[log]\nquiet = true\n[sync]\nremote_root = \"/absolute/path\"\n",
+		)?;
+
+		let original_dir = env::current_dir()?;
+		env::set_current_dir(dir.path())?;
+
+		let cli = Cli {
+			command: None,
+			run_command_args: Vec::new(),
+			verbose: 0,
+			quiet: false,
+			silent: false,
+		};
+		let mut stderr = Vec::new();
+		let result = load_config_with_buffered_logs(&cli, &mut stderr);
+
+		env::set_current_dir(original_dir)?;
+
+		let (_config, quiet, silent) = result?;
+		assert!(quiet);
+		assert!(!silent);
+		assert!(stderr.is_empty(), "logs were: {stderr:?}");
+		Ok(())
 	}
 }
