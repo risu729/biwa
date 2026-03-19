@@ -136,7 +136,7 @@ fn load_config_with_buffered_logs(
 	stderr: &mut impl io::Write,
 ) -> Result<(Config, bool, bool)> {
 	let writer = BufferedWriter::default();
-	let subscriber = registry().with(
+	let subscriber = registry().with(log_targets(cli.verbose)).with(
 		fmt::layer()
 			.pretty()
 			.without_time()
