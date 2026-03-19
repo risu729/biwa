@@ -4,6 +4,7 @@ use crate::config::types::Config;
 use alloc::sync::Arc;
 use clap::{ArgAction, Parser, Subcommand};
 use color_eyre::eyre::{bail, eyre};
+use core::mem;
 use std::io;
 use std::sync::Mutex;
 use tracing::{Level, subscriber};
@@ -202,11 +203,13 @@ impl BufferedWriter {
 
 	/// Flushes the buffered tracing output into the provided writer.
 	fn write_to(&self, writer: &mut impl io::Write) -> io::Result<()> {
-		let bytes = self
-			.buf
-			.lock()
-			.map_err(|_e| io::Error::other("failed to acquire buffer lock"))?
-			.clone();
+		let bytes = {
+			let mut buf = self
+				.buf
+				.lock()
+				.map_err(|_e| io::Error::other("failed to acquire buffer lock"))?;
+			mem::take(&mut *buf)
+		};
 
 		if !bytes.is_empty() {
 			writer.write_all(&bytes)?;
@@ -246,8 +249,27 @@ mod tests {
 	use super::*;
 	use pretty_assertions::assert_eq;
 	use serial_test::serial;
+	use std::path::{Path, PathBuf};
 	use std::{env, fs};
 	use tempfile::tempdir;
+
+	struct CurrentDirGuard {
+		original_dir: PathBuf,
+	}
+
+	impl CurrentDirGuard {
+		fn new(path: &Path) -> Result<Self> {
+			let original_dir = env::current_dir()?;
+			env::set_current_dir(path)?;
+			Ok(Self { original_dir })
+		}
+	}
+
+	impl Drop for CurrentDirGuard {
+		fn drop(&mut self) {
+			let _result = env::set_current_dir(&self.original_dir);
+		}
+	}
 
 	#[test]
 	fn cli_run_subcommand() {
@@ -335,8 +357,7 @@ mod tests {
 			"[sync]\nremote_root = \"/absolute/path\"\n",
 		)?;
 
-		let original_dir = env::current_dir()?;
-		env::set_current_dir(dir.path())?;
+		let _dir_guard = CurrentDirGuard::new(dir.path())?;
 
 		let cli = Cli {
 			command: None,
@@ -347,8 +368,6 @@ mod tests {
 		};
 		let mut stderr = Vec::new();
 		let result = load_config_with_buffered_logs(&cli, &mut stderr);
-
-		env::set_current_dir(original_dir)?;
 
 		let (_config, quiet, silent) = result?;
 		assert!(!quiet);
@@ -368,8 +387,7 @@ mod tests {
 			"[log]\nquiet = true\n[sync]\nremote_root = \"/absolute/path\"\n",
 		)?;
 
-		let original_dir = env::current_dir()?;
-		env::set_current_dir(dir.path())?;
+		let _dir_guard = CurrentDirGuard::new(dir.path())?;
 
 		let cli = Cli {
 			command: None,
@@ -380,8 +398,6 @@ mod tests {
 		};
 		let mut stderr = Vec::new();
 		let result = load_config_with_buffered_logs(&cli, &mut stderr);
-
-		env::set_current_dir(original_dir)?;
 
 		let (_config, quiet, silent) = result?;
 		assert!(quiet);
