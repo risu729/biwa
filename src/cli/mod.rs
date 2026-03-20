@@ -153,9 +153,11 @@ fn load_config_with_buffered_logs(
 	);
 
 	let config_result = subscriber::with_default(load_subscriber, Config::load);
-	let should_flush = config_result
-		.as_ref()
-		.is_ok_and(|config| !is_quiet(cli, config));
+	let should_flush = config_result.as_ref().is_ok_and(|config| {
+		let silent = cli.silent || config.log.silent;
+		let quiet = silent || cli.quiet || config.log.quiet;
+		!quiet
+	});
 
 	if should_flush {
 		writer.write_to(stderr)?;
@@ -165,12 +167,6 @@ fn load_config_with_buffered_logs(
 	let silent = cli.silent || config.log.silent;
 	let quiet = silent || cli.quiet || config.log.quiet;
 	Ok((config, quiet, silent))
-}
-
-/// Returns the effective internal logging suppression mode.
-const fn is_quiet(cli: &Cli, config: &Config) -> bool {
-	let silent = cli.silent || config.log.silent;
-	silent || cli.quiet || config.log.quiet
 }
 
 /// Returns the log level selected by CLI verbosity flags.
