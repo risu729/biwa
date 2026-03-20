@@ -2,7 +2,7 @@ use crate::Result;
 use crate::cli::sync::SyncArgs;
 use crate::config::types::Config;
 use clap::{ArgAction, Parser, Subcommand};
-use color_eyre::eyre::{bail, eyre};
+use color_eyre::eyre::eyre;
 use std::env;
 use tracing::Level;
 use tracing_subscriber::{
@@ -88,7 +88,7 @@ pub async fn run() -> Result<()> {
 		Some(Commands::Schema(cmd)) => cmd.run()?,
 		Some(Commands::Completion(cmd)) => cmd.run()?,
 		Some(Commands::Usage(cmd)) => cmd.run()?,
-		None if !cli.run_command_args.is_empty() => {
+		None => {
 			let config = Config::load()?;
 			let (command, args) = cli.run_command_args.split_first().ok_or_else(|| {
 				eyre!("No command provided. Use `biwa --help` for usage information.")
@@ -106,9 +106,6 @@ pub async fn run() -> Result<()> {
 				output_mode.silent,
 			)
 			.await?;
-		}
-		None => {
-			bail!("No command provided. Use `biwa --help` for usage information.");
 		}
 	}
 
