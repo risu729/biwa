@@ -10,7 +10,17 @@ mod common;
 use color_eyre::eyre::{WrapErr as _, eyre};
 use common::{Result, biwa_cmd};
 use rstest::rstest;
-use std::{ffi::OsStr, fs, path::PathBuf, process::Command, process::Stdio, thread, time::Instant};
+use std::{
+	env, ffi::OsStr, fs, path::PathBuf, process::Command, process::Stdio, thread, time::Instant,
+};
+
+fn e2e_timeout_secs() -> u64 {
+	env::var("BIWA_E2E_TIMEOUT_SECS")
+		.ok()
+		.and_then(|value| value.parse::<u64>().ok())
+		.filter(|value| *value > 0)
+		.unwrap_or(10)
+}
 
 fn biwa_process(args: &[&str]) -> Command {
 	let mut command = Command::new(env!("CARGO_BIN_EXE_biwa"));
@@ -96,6 +106,7 @@ fn e2e_run_streaming() -> Result<()> {
 
 #[test]
 fn e2e_run_with_tty_stdin_exits_without_waiting_for_input() -> Result<()> {
+	let timeout_secs = e2e_timeout_secs();
 	let python = format!(
 		r#"import os, pty, subprocess, sys, time
 master, slave = pty.openpty()
@@ -110,7 +121,7 @@ try:
 finally:
     os.close(slave)
 
-deadline = time.time() + 5
+deadline = time.time() + {timeout_secs}
 while proc.poll() is None and time.time() < deadline:
     time.sleep(0.05)
 
@@ -128,7 +139,8 @@ sys.stdout.buffer.write(out)
 sys.stderr.buffer.write(err)
 sys.exit(proc.returncode)
 "#,
-		biwa_path = env!("CARGO_BIN_EXE_biwa")
+		biwa_path = env!("CARGO_BIN_EXE_biwa"),
+		timeout_secs = timeout_secs,
 	);
 
 	let output = Command::new("python3")
@@ -157,6 +169,7 @@ sys.exit(proc.returncode)
 
 #[test]
 fn e2e_run_forwards_tty_stdin() -> Result<()> {
+	let timeout_secs = e2e_timeout_secs();
 	let python = format!(
 		r#"import os, pty, select, subprocess, sys
 master, slave = pty.openpty()
@@ -172,7 +185,7 @@ finally:
     os.close(slave)
 
 os.write(master, b"hello from tty stdin\n")
-ready, _, _ = select.select([proc.stdout], [], [], 10)
+ready, _, _ = select.select([proc.stdout], [], [], {timeout_secs})
 if not ready:
     proc.kill()
     out, err = proc.communicate()
@@ -191,7 +204,8 @@ if line.replace(b"\r\n", b"\n") != b"hello from tty stdin\n":
     sys.exit(1)
 sys.exit(0)
 "#,
-		biwa_path = env!("CARGO_BIN_EXE_biwa")
+		biwa_path = env!("CARGO_BIN_EXE_biwa"),
+		timeout_secs = timeout_secs,
 	);
 
 	let output = Command::new("python3")

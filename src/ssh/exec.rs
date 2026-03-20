@@ -15,6 +15,7 @@ use core::time::Duration;
 use russh::{Channel, ChannelMsg, Pty, client::Msg};
 use std::env;
 use std::io::{Error as IoError, IsTerminal as _, Read as _, stdin as std_stdin};
+use std::thread;
 use tokio::io::{copy, sink, stderr, stdout};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -32,8 +33,8 @@ struct ResolvedEnvVar {
 	value: String,
 }
 
-/// Optional stdin forwarding state for a remote command.
-type StdinForwarding = Option<mpsc::Receiver<Option<Vec<u8>>>>;
+/// Receiver carrying stdin chunks or an EOF marker for a remote command.
+type StdinReceiver = mpsc::Receiver<Option<Vec<u8>>>;
 
 /// Static execution settings reused across remote command helpers.
 struct RunCommandOptions<'a> {
@@ -168,24 +169,20 @@ fn resolve_env_vars(config: &Config, cli_env_vars: &[EnvVarRule]) -> Result<Vec<
 }
 
 /// Spawns a task that forwards local stdin into a channel for the remote SSH command.
-fn spawn_stdin_forwarder() -> mpsc::Receiver<Option<Vec<u8>>> {
+fn spawn_stdin_forwarder() -> StdinReceiver {
 	let (stdin_tx, stdin_rx) = mpsc::channel(32);
 
-	std::thread::spawn(move || {
+	thread::spawn(move || {
 		let mut local_stdin = std_stdin();
 		let mut buffer = vec![0_u8; 8 * 1024];
 
 		loop {
 			match local_stdin.read(&mut buffer) {
 				Ok(bytes_read) if bytes_read > 0 => {
-					let Some(chunk) = buffer.get(..bytes_read).map(<[u8]>::to_vec) else {
-						debug!(
-							bytes_read,
-							buffer_len = buffer.len(),
-							"tokio stdin returned an out-of-bounds read length"
-						);
-						break;
-					};
+					let chunk = buffer
+						.get(..bytes_read)
+						.expect("stdin read length must not exceed the buffer length")
+						.to_vec();
 
 					if stdin_tx.blocking_send(Some(chunk)).is_err() {
 						break;
@@ -207,8 +204,8 @@ fn spawn_stdin_forwarder() -> mpsc::Receiver<Option<Vec<u8>>> {
 }
 
 /// Initializes stdin forwarding for the remote command.
-fn prepare_stdin_forwarding() -> StdinForwarding {
-	Some(spawn_stdin_forwarder())
+fn prepare_stdin_forwarding() -> StdinReceiver {
+	spawn_stdin_forwarder()
 }
 
 /// Returns whether local stdin is an interactive terminal.
@@ -248,6 +245,18 @@ async fn request_terminal_pty(channel: &mut Channel<Msg>) -> Result<()> {
 		.await
 		.wrap_err("Failed to request SSH PTY")?;
 	await_channel_confirmation(channel, "SSH PTY request").await
+}
+
+/// I/O streams and stdin mode shared by both SSH environment forwarding paths.
+struct ExecuteCommandStreams {
+	/// Buffered remote stdout sink.
+	stdout_tx: mpsc::Sender<Vec<u8>>,
+	/// Buffered remote stderr sink.
+	stderr_tx: mpsc::Sender<Vec<u8>>,
+	/// Local stdin receiver, or `None` once EOF has been forwarded.
+	stdin_rx: Option<StdinReceiver>,
+	/// Whether local stdin is attached to a terminal.
+	stdin_is_terminal: bool,
 }
 
 /// Run a pre-built command string on an already-connected SSH client.
@@ -318,7 +327,7 @@ async fn run_command(
 	let stdout_stream = ReceiverStream::new(stdout_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
 	let stderr_stream = ReceiverStream::new(stderr_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
 	let stdin_is_terminal = stdin_is_terminal();
-	let stdin_rx = prepare_stdin_forwarding();
+	let stdin_rx = Some(prepare_stdin_forwarding());
 
 	let mut stdout_reader = StreamReader::new(stdout_stream);
 	let mut stderr_reader = StreamReader::new(stderr_stream);
@@ -328,10 +337,12 @@ async fn run_command(
 		&effective_command,
 		env_vars,
 		forward_method,
-		stdout_tx,
-		stderr_tx,
-		stdin_rx,
-		stdin_is_terminal,
+		ExecuteCommandStreams {
+			stdout_tx,
+			stderr_tx,
+			stdin_rx,
+			stdin_is_terminal,
+		},
 	);
 
 	let stdout_task = async {
@@ -416,11 +427,15 @@ async fn execute_with_forward_method(
 	command: &str,
 	env_vars: &[ResolvedEnvVar],
 	forward_method: &EnvForwardMethod,
-	stdout_tx: mpsc::Sender<Vec<u8>>,
-	stderr_tx: mpsc::Sender<Vec<u8>>,
-	stdin_rx: Option<mpsc::Receiver<Option<Vec<u8>>>>,
-	stdin_is_terminal: bool,
+	streams: ExecuteCommandStreams,
 ) -> Result<u32> {
+	let ExecuteCommandStreams {
+		stdout_tx,
+		stderr_tx,
+		stdin_rx,
+		stdin_is_terminal,
+	} = streams;
+
 	match forward_method {
 		EnvForwardMethod::Export => {
 			let mut channel = client
