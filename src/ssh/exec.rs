@@ -515,21 +515,21 @@ mod tests {
 
 		// SAFETY: This test only mutates the current process environment.
 		unsafe {
-			env::set_var("NODE_ENV", "development");
+			env::set_var("BIWA_TEST_NODE_ENV", "development");
 		}
-		let _cleanup = EnvCleanup("NODE_ENV");
+		let _cleanup = EnvCleanup("BIWA_TEST_NODE_ENV");
 
 		let resolved = resolve_env_vars(
 			&config,
 			&[
-				EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "production")),
-				EnvVarRule::InheritPattern("NODE_*".to_owned()),
+				EnvVarRule::Spec(EnvVarSpec::value("BIWA_TEST_NODE_ENV", "production")),
+				EnvVarRule::InheritPattern("BIWA_TEST_NODE_*".to_owned()),
 			],
 		)?;
 		assert_eq!(
 			resolved,
 			vec![ResolvedEnvVar {
-				name: "NODE_ENV".to_owned(),
+				name: "BIWA_TEST_NODE_ENV".to_owned(),
 				value: "production".to_owned(),
 			}]
 		);
