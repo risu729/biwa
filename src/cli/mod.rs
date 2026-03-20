@@ -136,8 +136,15 @@ fn load_config_with_buffered_logs(
 	cli: &Cli,
 	stderr: &mut impl io::Write,
 ) -> Result<(Config, bool, bool)> {
+	if cli.silent || cli.quiet {
+		let config = Config::load()?;
+		let silent = cli.silent || config.log.silent;
+		let quiet = silent || cli.quiet || config.log.quiet;
+		return Ok((config, quiet, silent));
+	}
+
 	let writer = BufferedWriter::default();
-	let subscriber = registry().with(log_targets(cli.verbose)).with(
+	let load_subscriber = registry().with(log_targets(cli.verbose)).with(
 		fmt::layer()
 			.pretty()
 			.without_time()
@@ -145,10 +152,10 @@ fn load_config_with_buffered_logs(
 			.with_writer(writer.clone()),
 	);
 
-	let config_result = subscriber::with_default(subscriber, Config::load);
+	let config_result = subscriber::with_default(load_subscriber, Config::load);
 	let should_flush = config_result
 		.as_ref()
-		.map_or(!(cli.silent || cli.quiet), |config| !is_quiet(cli, config));
+		.is_ok_and(|config| !is_quiet(cli, config));
 
 	if should_flush {
 		writer.write_to(stderr)?;
@@ -400,6 +407,33 @@ mod tests {
 		let result = load_config_with_buffered_logs(&cli, &mut stderr);
 
 		let (_config, quiet, silent) = result?;
+		assert!(quiet);
+		assert!(!silent);
+		assert!(stderr.is_empty(), "logs were: {stderr:?}");
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn buffered_config_logs_short_circuit_when_cli_quiet_is_enabled() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"[sync]\nremote_root = \"/absolute/path\"\n",
+		)?;
+
+		let _dir_guard = CurrentDirGuard::new(dir.path())?;
+
+		let cli = Cli {
+			command: None,
+			run_command_args: Vec::new(),
+			verbose: 0,
+			quiet: true,
+			silent: false,
+		};
+		let mut stderr = Vec::new();
+		let (_config, quiet, silent) = load_config_with_buffered_logs(&cli, &mut stderr)?;
+
 		assert!(quiet);
 		assert!(!silent);
 		assert!(stderr.is_empty(), "logs were: {stderr:?}");
