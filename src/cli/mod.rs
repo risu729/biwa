@@ -414,7 +414,7 @@ mod tests {
 		let dir = tempdir()?;
 		fs::write(
 			dir.path().join("biwa.toml"),
-			"[sync]\nremote_root = \"/absolute/path\"\n",
+			"[ssh]\nhost = \"example.test\"\nuser = \"testuser\"\n[sync]\nremote_root = \"/absolute/path\"\n",
 		)?;
 
 		let _dir_guard = CurrentDirGuard::new(dir.path())?;
@@ -444,7 +444,7 @@ mod tests {
 		let dir = tempdir()?;
 		fs::write(
 			dir.path().join("biwa.toml"),
-			"[log]\nquiet = true\n[sync]\nremote_root = \"/absolute/path\"\n",
+			"[ssh]\nhost = \"example.test\"\nuser = \"testuser\"\n[log]\nquiet = true\n[sync]\nremote_root = \"/absolute/path\"\n",
 		)?;
 
 		let _dir_guard = CurrentDirGuard::new(dir.path())?;
@@ -472,7 +472,7 @@ mod tests {
 		let dir = tempdir()?;
 		fs::write(
 			dir.path().join("biwa.toml"),
-			"[sync]\nremote_root = \"/absolute/path\"\n",
+			"[ssh]\nhost = \"example.test\"\nuser = \"testuser\"\n[sync]\nremote_root = \"/absolute/path\"\n",
 		)?;
 
 		let _dir_guard = CurrentDirGuard::new(dir.path())?;
