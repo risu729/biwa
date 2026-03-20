@@ -27,7 +27,3 @@ vars = [
 forward_method = "export"
 
 [hooks]
-
-[log]
-quiet = false
-silent = false

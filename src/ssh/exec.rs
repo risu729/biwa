@@ -486,11 +486,7 @@ mod tests {
 			..Config::default()
 		};
 
-		// SAFETY: This test only mutates the current process environment.
-		unsafe {
-			env::set_var("NODE_ENV", "development");
-		}
-		let _cleanup = EnvCleanup("NODE_ENV");
+		let _cleanup = EnvCleanup::set("NODE_ENV", "development");
 		let resolved = resolve_env_vars(
 			&config,
 			&[EnvVarRule::Spec(EnvVarSpec::value(
@@ -513,11 +509,7 @@ mod tests {
 	fn resolve_env_vars_keeps_explicit_cli_value_over_later_cli_pattern() -> Result<()> {
 		let config = Config::default();
 
-		// SAFETY: This test only mutates the current process environment.
-		unsafe {
-			env::set_var("BIWA_TEST_NODE_ENV", "development");
-		}
-		let _cleanup = EnvCleanup("BIWA_TEST_NODE_ENV");
+		let _cleanup = EnvCleanup::set("BIWA_TEST_NODE_ENV", "development");
 
 		let resolved = resolve_env_vars(
 			&config,
@@ -550,16 +542,8 @@ mod tests {
 			..Config::default()
 		};
 
-		// SAFETY: This test only mutates the current process environment.
-		unsafe {
-			env::set_var("BIWA_TEST_NODE_ENV", "development");
-		}
-		// SAFETY: This test only mutates the current process environment.
-		unsafe {
-			env::set_var("BIWA_TEST_NODE_PATH", "/tmp/biwa-test-node-path");
-		}
-		let _cleanup_env = EnvCleanup("BIWA_TEST_NODE_ENV");
-		let _cleanup_path = EnvCleanup("BIWA_TEST_NODE_PATH");
+		let _cleanup_env = EnvCleanup::set("BIWA_TEST_NODE_ENV", "development");
+		let _cleanup_path = EnvCleanup::set("BIWA_TEST_NODE_PATH", "/tmp/biwa-test-node-path");
 
 		let resolved = resolve_env_vars(&config, &[])?;
 		assert_eq!(

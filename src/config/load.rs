@@ -224,11 +224,7 @@ impl RequiredConfigPresence {
 	}
 
 	/// Marks required SSH fields that were present in a preloaded config layer.
-	#[expect(
-		clippy::missing_const_for_fn,
-		reason = "This runtime-only helper should not be coupled to const-evaluation constraints"
-	)]
-	fn observe_layer(&mut self, partial: &<Config as confique::Config>::Layer) {
+	const fn observe_layer(&mut self, partial: &<Config as confique::Config>::Layer) {
 		self.ssh_host |= partial.ssh.host.is_some();
 		self.ssh_user |= partial.ssh.user.is_some();
 	}
@@ -317,38 +313,21 @@ mod tests {
 	use tempfile::tempdir;
 
 	fn set_required_ssh_env(host: &str, user: &str) -> (EnvCleanup, EnvCleanup) {
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::set_var("BIWA_SSH_HOST", host);
-		}
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::set_var("BIWA_SSH_USER", user);
-		}
-
-		(EnvCleanup("BIWA_SSH_HOST"), EnvCleanup("BIWA_SSH_USER"))
+		(
+			EnvCleanup::set("BIWA_SSH_HOST", host),
+			EnvCleanup::set("BIWA_SSH_USER", user),
+		)
 	}
 
 	fn set_required_ssh_user_env(user: &str) -> EnvCleanup {
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::set_var("BIWA_SSH_USER", user);
-		}
-
-		EnvCleanup("BIWA_SSH_USER")
+		EnvCleanup::set("BIWA_SSH_USER", user)
 	}
 
 	fn clear_required_ssh_env() -> (EnvCleanup, EnvCleanup) {
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::remove_var("BIWA_SSH_HOST");
-		}
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::remove_var("BIWA_SSH_USER");
-		}
-
-		(EnvCleanup("BIWA_SSH_HOST"), EnvCleanup("BIWA_SSH_USER"))
+		(
+			EnvCleanup::remove("BIWA_SSH_HOST"),
+			EnvCleanup::remove("BIWA_SSH_USER"),
+		)
 	}
 
 	#[serial]
@@ -371,22 +350,8 @@ mod tests {
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#)?;
 		let _cleanup_user = set_required_ssh_user_env("env-user");
 
-		// Set env var override
-		// SAFETY: This is a single-threaded test context modifying the environment for current process.
-		// `#[serial]` from `serial_test` ensures serialized execution to prevent env races.
-		unsafe {
-			env::set_var("BIWA_SSH_HOST", "env");
-		}
-		// Set env var override
-		// SAFETY: This is a single-threaded test context modifying the environment for current process.
-		// `#[serial]` from `serial_test` ensures serialized execution to prevent env races.
-		unsafe {
-			env::set_var("BIWA_SSH_PORT", "8080");
-		}
-
-		// Ensure cleanup
-		let _cleanup1 = EnvCleanup("BIWA_SSH_HOST");
-		let _cleanup2 = EnvCleanup("BIWA_SSH_PORT");
+		let _cleanup1 = EnvCleanup::set("BIWA_SSH_HOST", "env");
+		let _cleanup2 = EnvCleanup::set("BIWA_SSH_PORT", "8080");
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 
@@ -431,10 +396,6 @@ mod tests {
 		  "hooks": {
 		    "pre_sync": null,
 		    "post_sync": null
-		  },
-		  "log": {
-		    "quiet": false,
-		    "silent": false
 		  }
 		}
 		"#);
@@ -445,11 +406,7 @@ mod tests {
 	fn env_vars_can_be_loaded_from_biwa_env_vars() -> Result<()> {
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 
-		// SAFETY: This is a serialized test that mutates the process environment.
-		unsafe {
-			env::set_var("BIWA_ENV_VARS", "NODE_ENV");
-		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "NODE_ENV");
 
 		let config = Config::load_internal(None, None, None)?;
 		let rules = config.env.vars.rules()?;
@@ -463,11 +420,7 @@ mod tests {
 	fn biwa_env_vars_supports_values() -> Result<()> {
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 
-		// SAFETY: This is a serialized test that mutates the process environment.
-		unsafe {
-			env::set_var("BIWA_ENV_VARS", "NODE_ENV=prod");
-		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "NODE_ENV=prod");
 
 		let config = Config::load_internal(None, None, None)?;
 		let rules = config.env.vars.rules()?;
@@ -481,11 +434,7 @@ mod tests {
 	fn biwa_env_vars_supports_empty_values() -> Result<()> {
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 
-		// SAFETY: This is a serialized test that mutates the process environment.
-		unsafe {
-			env::set_var("BIWA_ENV_VARS", "NODE_ENV=");
-		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "NODE_ENV=");
 
 		let config = Config::load_internal(None, None, None)?;
 		let rules = config.env.vars.rules()?;
@@ -507,11 +456,7 @@ mod tests {
 		",
 		)?;
 
-		// SAFETY: This is a serialized test that mutates the process environment.
-		unsafe {
-			env::set_var("BIWA_ENV_VARS", "API_KEY");
-		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "API_KEY");
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		let rules = config.env.vars.rules()?;
@@ -526,11 +471,7 @@ mod tests {
 	fn biwa_env_vars_supports_patterns() -> Result<()> {
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 
-		// SAFETY: This is a serialized test that mutates the process environment.
-		unsafe {
-			env::set_var("BIWA_ENV_VARS", "NODE_*");
-		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "NODE_*");
 
 		let config = Config::load_internal(None, None, None)?;
 		assert_eq!(
@@ -870,17 +811,8 @@ mod tests {
 		let dir = tempdir()?;
 		let (_cleanup_host, _cleanup_user) = clear_required_ssh_env();
 
-		// SAFETY: This is a serialized test that mutates the process environment.
-		unsafe {
-			env::set_var("BIWA_SSH_HOST", "env-host");
-		}
-		// SAFETY: This is a serialized test that mutates the process environment.
-		unsafe {
-			env::set_var("BIWA_SSH_USER", "env-user");
-		}
-
-		let _cleanup1 = EnvCleanup("BIWA_SSH_HOST");
-		let _cleanup2 = EnvCleanup("BIWA_SSH_USER");
+		let _cleanup1 = EnvCleanup::set("BIWA_SSH_HOST", "env-host");
+		let _cleanup2 = EnvCleanup::set("BIWA_SSH_USER", "env-user");
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 

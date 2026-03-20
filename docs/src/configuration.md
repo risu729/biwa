@@ -66,13 +66,6 @@ If you need looser permissions (e.g. making a file readable by others), you must
 Storing your password in a configuration file is **not recommended** for security reasons. If you must use password authentication, prefer `password = true` for an interactive prompt or use environment variables (`BIWA_SSH_PASSWORD`).
 :::
 
-### `[log]` — Log Output Settings
-
-| Key      | Type    | Default | Description                                                     |
-| -------- | ------- | ------- | --------------------------------------------------------------- |
-| `quiet`  | boolean | `false` | Suppress biwa internal logs, only showing remote command output |
-| `silent` | boolean | `false` | Suppress all output, including remote command stdout/stderr     |
-
 ### `[env]` — Environment Variable Settings
 
 | Key              | Type           | Default    | Description                                              |

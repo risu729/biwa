@@ -20,14 +20,6 @@
         "pre_sync": null
       }
     },
-    "log": {
-      "description": "Logging configuration.",
-      "$ref": "#/$defs/LogConfig",
-      "default": {
-        "quiet": false,
-        "silent": false
-      }
-    },
     "ssh": {
       "description": "SSH connection configuration.",
       "$ref": "#/$defs/SshConfig",
@@ -157,22 +149,6 @@
             "string",
             "null"
           ]
-        }
-      }
-    },
-    "LogConfig": {
-      "description": "Logging configuration settings.",
-      "type": "object",
-      "properties": {
-        "quiet": {
-          "description": "Suppresses biwa internal logs; only remote command output is shown.",
-          "type": "boolean",
-          "default": false
-        },
-        "silent": {
-          "description": "Suppresses all output, including remote command stdout/stderr.",
-          "type": "boolean",
-          "default": false
         }
       }
     },

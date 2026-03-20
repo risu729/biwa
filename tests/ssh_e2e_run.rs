@@ -42,6 +42,7 @@ fn e2e_run_command() -> Result<()> {
 #[test]
 fn e2e_run_stdout_stderr() -> Result<()> {
 	let output = biwa_cmd(&[
+		"--quiet",
 		"run",
 		"--skip-sync",
 		"--",
@@ -49,7 +50,6 @@ fn e2e_run_stdout_stderr() -> Result<()> {
 		"-c",
 		"echo 'out'; echo 'err' >&2",
 	])
-	.env("BIWA_LOG_QUIET", "true")
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()
@@ -67,6 +67,7 @@ fn e2e_run_stdout_stderr() -> Result<()> {
 #[test]
 fn e2e_run_streaming() -> Result<()> {
 	let mut reader = biwa_cmd(&[
+		"--quiet",
 		"run",
 		"--skip-sync",
 		"--",
@@ -74,7 +75,6 @@ fn e2e_run_streaming() -> Result<()> {
 		"-c",
 		"echo 'start'; sleep 0.5; echo 'end'",
 	])
-	.env("BIWA_LOG_QUIET", "true")
 	.reader()?;
 
 	let mut buf_reader = BufReader::new(&mut reader);
@@ -149,10 +149,7 @@ fn e2e_run_silent_large_output() -> Result<()> {
 		"-c",
 		&command,
 	]);
-	child
-		.env("BIWA_LOG_QUIET", "true")
-		.stdout(Stdio::piped())
-		.stderr(Stdio::piped());
+	child.stdout(Stdio::piped()).stderr(Stdio::piped());
 	let mut child = child.spawn()?;
 
 	let deadline = Instant::now() + Duration::from_secs(20);
@@ -189,11 +186,18 @@ fn e2e_run_silent_large_output() -> Result<()> {
 
 #[test]
 fn e2e_run_exit_code() -> Result<()> {
-	let output = biwa_cmd(&["run", "--skip-sync", "--", "bash", "-c", "exit 42"])
-		.env("BIWA_LOG_QUIET", "true")
-		.stderr_capture()
-		.unchecked()
-		.run()?;
+	let output = biwa_cmd(&[
+		"--quiet",
+		"run",
+		"--skip-sync",
+		"--",
+		"bash",
+		"-c",
+		"exit 42",
+	])
+	.stderr_capture()
+	.unchecked()
+	.run()?;
 
 	assert!(!output.status.success());
 
@@ -207,8 +211,7 @@ fn e2e_run_exit_code() -> Result<()> {
 
 #[test]
 fn e2e_run_remote_dir() -> Result<()> {
-	let output = biwa_cmd(&["run", "-d", "/tmp", "pwd"])
-		.env("BIWA_LOG_QUIET", "true")
+	let output = biwa_cmd(&["--quiet", "run", "-d", "/tmp", "pwd"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -223,8 +226,7 @@ fn e2e_run_remote_dir() -> Result<()> {
 
 #[test]
 fn e2e_run_remote_dir_tilde() -> Result<()> {
-	let home_output = biwa_cmd(&["run", "--skip-sync", "sh", "-c", "echo $HOME"])
-		.env("BIWA_LOG_QUIET", "true")
+	let home_output = biwa_cmd(&["--quiet", "run", "--skip-sync", "sh", "-c", "echo $HOME"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -233,8 +235,7 @@ fn e2e_run_remote_dir_tilde() -> Result<()> {
 		.trim()
 		.to_owned();
 
-	let output = biwa_cmd(&["run", "-d", "~", "pwd"])
-		.env("BIWA_LOG_QUIET", "true")
+	let output = biwa_cmd(&["--quiet", "run", "-d", "~", "pwd"])
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -250,6 +251,7 @@ fn e2e_run_remote_dir_tilde() -> Result<()> {
 #[test]
 fn e2e_run_env_forward_from_flag() -> Result<()> {
 	let output = biwa_cmd(&[
+		"--quiet",
 		"run",
 		"--skip-sync",
 		"--env",
@@ -258,7 +260,6 @@ fn e2e_run_env_forward_from_flag() -> Result<()> {
 		"-c",
 		"echo $NODE_ENV",
 	])
-	.env("BIWA_LOG_QUIET", "true")
 	.env("NODE_ENV", "development")
 	.stdout_capture()
 	.stderr_capture()
@@ -276,6 +277,7 @@ fn e2e_run_env_forward_from_flag() -> Result<()> {
 #[test]
 fn e2e_run_env_literal_from_flag() -> Result<()> {
 	let output = biwa_cmd(&[
+		"--quiet",
 		"run",
 		"--skip-sync",
 		"--env",
@@ -284,7 +286,6 @@ fn e2e_run_env_literal_from_flag() -> Result<()> {
 		"-c",
 		"echo $NODE_ENV",
 	])
-	.env("BIWA_LOG_QUIET", "true")
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()
@@ -298,6 +299,7 @@ fn e2e_run_env_literal_from_flag() -> Result<()> {
 #[test]
 fn e2e_run_env_literal_empty_from_flag() -> Result<()> {
 	let output = biwa_cmd(&[
+		"--quiet",
 		"run",
 		"--skip-sync",
 		"--env",
@@ -306,7 +308,6 @@ fn e2e_run_env_literal_empty_from_flag() -> Result<()> {
 		"-c",
 		"if [ \"${NODE_ENV+x}\" = x ]; then printf 'set:%s' \"$NODE_ENV\"; else printf missing; fi",
 	])
-	.env("BIWA_LOG_QUIET", "true")
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()
@@ -320,6 +321,7 @@ fn e2e_run_env_literal_empty_from_flag() -> Result<()> {
 #[test]
 fn e2e_run_env_forward_empty_from_flag() -> Result<()> {
 	let output = biwa_cmd(&[
+		"--quiet",
 		"run",
 		"--skip-sync",
 		"--env",
@@ -328,7 +330,6 @@ fn e2e_run_env_forward_empty_from_flag() -> Result<()> {
 		"-c",
 		"if [ \"${NODE_ENV+x}\" = x ]; then printf 'set:%s' \"$NODE_ENV\"; else printf missing; fi",
 	])
-	.env("BIWA_LOG_QUIET", "true")
 	.env("NODE_ENV", "")
 	.stdout_capture()
 	.stderr_capture()
@@ -343,6 +344,7 @@ fn e2e_run_env_forward_empty_from_flag() -> Result<()> {
 #[test]
 fn e2e_run_env_wildcard_and_negation_from_flag() -> Result<()> {
 	let output = biwa_cmd(&[
+		"--quiet",
 		"run",
 		"--skip-sync",
 		"--env",
@@ -353,7 +355,6 @@ fn e2e_run_env_wildcard_and_negation_from_flag() -> Result<()> {
 		"-c",
 		"printf '%s|' \"$NODE_ENV\"; if [ -n \"$NODE_PATH\" ]; then printf present; else printf missing; fi",
 	])
-	.env("BIWA_LOG_QUIET", "true")
 	.env("NODE_ENV", "development")
 	.env("NODE_PATH", "/tmp/node")
 	.stdout_capture()
@@ -373,15 +374,13 @@ fn e2e_run_env_wildcard_and_negation_from_flag() -> Result<()> {
 #[test]
 fn e2e_implicit_run_same_working_dir_as_explicit_run() -> Result<()> {
 	// Disable auto-sync so both commands just resolve and use the same project dir without syncing.
-	let explicit = biwa_cmd(&["run", "--skip-sync", "pwd"])
-		.env("BIWA_LOG_QUIET", "true")
+	let explicit = biwa_cmd(&["--quiet", "run", "--skip-sync", "pwd"])
 		.env("BIWA_SYNC_AUTO", "false")
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
 		.run()?;
-	let implicit = biwa_cmd(&["pwd"])
-		.env("BIWA_LOG_QUIET", "true")
+	let implicit = biwa_cmd(&["--quiet", "pwd"])
 		.env("BIWA_SYNC_AUTO", "false")
 		.stdout_capture()
 		.stderr_capture()
@@ -412,8 +411,7 @@ fn e2e_implicit_run_same_working_dir_as_explicit_run() -> Result<()> {
 #[test]
 fn e2e_implicit_run_command_executes_in_resolved_dir() -> Result<()> {
 	// Implicit run should run in the resolved project dir, not remote home.
-	let output = biwa_cmd(&["pwd"])
-		.env("BIWA_LOG_QUIET", "true")
+	let output = biwa_cmd(&["--quiet", "pwd"])
 		.env("BIWA_SYNC_AUTO", "false")
 		.stdout_capture()
 		.stderr_capture()

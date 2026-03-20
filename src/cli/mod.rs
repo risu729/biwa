@@ -1,16 +1,12 @@
 use crate::Result;
 use crate::cli::sync::SyncArgs;
 use crate::config::types::Config;
-use alloc::sync::Arc;
 use clap::{ArgAction, Parser, Subcommand};
-use color_eyre::eyre::{bail, eyre};
-use core::mem;
-use std::io;
-use std::sync::Mutex;
-use tracing::{Level, subscriber};
+use color_eyre::eyre::eyre;
+use std::env;
+use tracing::Level;
 use tracing_subscriber::{
-	filter::Targets, fmt, fmt::MakeWriter, layer::SubscriberExt as _, registry,
-	util::SubscriberInitExt as _,
+	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
 };
 
 /// Shell completion generation command.
@@ -79,116 +75,53 @@ enum Commands {
 	Usage(usage::Usage),
 }
 
-impl Commands {
-	/// Returns whether this subcommand needs runtime configuration loading.
-	const fn needs_config(&self) -> bool {
-		matches!(self, Self::Run(_) | Self::Sync(_))
-	}
-}
-
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
 pub async fn run() -> Result<()> {
 	let cli = Cli::parse();
+	let output_mode = OutputMode::resolve(&cli);
+	init_logging(cli.verbose, output_mode);
 
-	if let Some(command) = cli.command.as_ref() {
-		if command.needs_config() {
-			let (config, quiet, silent) =
-				load_config_with_buffered_logs(&cli, &mut io::stderr().lock())?;
-
-			if !quiet {
-				registry()
-					.with(log_targets(cli.verbose))
-					.with(fmt::layer().pretty().without_time())
-					.init();
-			}
-
-			match cli.command.expect("command presence already checked") {
-				Commands::Run(cmd) => cmd.run(&config, quiet, silent).await?,
-				Commands::Sync(cmd) => cmd.run(&config, quiet).await?,
-				Commands::Init(_)
-				| Commands::Schema(_)
-				| Commands::Completion(_)
-				| Commands::Usage(_) => {
-					bail!("Internal error: config-free command reached config-dependent path");
-				}
-			}
-		} else {
-			match cli.command.expect("command presence already checked") {
-				Commands::Init(cmd) => cmd.run()?,
-				Commands::Schema(cmd) => cmd.run()?,
-				Commands::Completion(cmd) => cmd.run()?,
-				Commands::Usage(cmd) => cmd.run()?,
-				Commands::Run(_) | Commands::Sync(_) => {
-					bail!("Internal error: config-dependent command reached config-free path");
-				}
-			}
+	match cli.command {
+		Some(Commands::Run(cmd)) => cmd.run(output_mode.quiet, output_mode.silent).await?,
+		Some(Commands::Sync(cmd)) => cmd.run(output_mode.quiet).await?,
+		Some(Commands::Init(cmd)) => cmd.run()?,
+		Some(Commands::Schema(cmd)) => cmd.run()?,
+		Some(Commands::Completion(cmd)) => cmd.run()?,
+		Some(Commands::Usage(cmd)) => cmd.run()?,
+		None => {
+			let (command, args) = cli.run_command_args.split_first().ok_or_else(|| {
+				eyre!("No command provided. Use `biwa --help` for usage information.")
+			})?;
+			let config = Config::load()?;
+			run::run_remote(
+				&config,
+				&SyncArgs::default(),
+				run::RemoteCommand {
+					command,
+					command_args: args,
+					cli_env_vars: &[],
+				},
+				config.sync.auto,
+				output_mode.quiet,
+				output_mode.silent,
+			)
+			.await?;
 		}
-	} else if !cli.run_command_args.is_empty() {
-		let (config, quiet, silent) =
-			load_config_with_buffered_logs(&cli, &mut io::stderr().lock())?;
-
-		if !quiet {
-			registry()
-				.with(log_targets(cli.verbose))
-				.with(fmt::layer().pretty().without_time())
-				.init();
-		}
-
-		let (command, args) = cli.run_command_args.split_first().ok_or_else(|| {
-			eyre!("No command provided. Use `biwa --help` for usage information.")
-		})?;
-		run::run_remote(
-			&config,
-			&SyncArgs::default(),
-			run::RemoteCommand {
-				command,
-				command_args: args,
-				cli_env_vars: &[],
-			},
-			config.sync.auto,
-			quiet,
-			silent,
-		)
-		.await?;
-	} else {
-		bail!("No command provided. Use `biwa --help` for usage information.");
 	}
+
 	Ok(())
 }
 
-/// Loads configuration while buffering any logs emitted before the global subscriber is ready.
-fn load_config_with_buffered_logs(
-	cli: &Cli,
-	stderr: &mut impl io::Write,
-) -> Result<(Config, bool, bool)> {
-	if cli.silent || cli.quiet {
-		let config = Config::load()?;
-		let silent = cli.silent || config.log.silent;
-		let quiet = silent || cli.quiet || config.log.quiet;
-		return Ok((config, quiet, silent));
+/// Installs tracing subscriber when CLI flags allow internal logs.
+fn init_logging(verbose: u8, output_mode: OutputMode) {
+	if output_mode.quiet {
+		return;
 	}
 
-	let writer = BufferedWriter::default();
-	let load_subscriber = registry().with(log_targets(cli.verbose)).with(
-		fmt::layer()
-			.pretty()
-			.without_time()
-			.with_ansi(false)
-			.with_writer(writer.clone()),
-	);
-
-	let config_result = subscriber::with_default(load_subscriber, Config::load);
-	if config_result
-		.as_ref()
-		.map_or(true, |config| !(config.log.silent || config.log.quiet))
-	{
-		writer.write_to(stderr)?;
-	}
-
-	let config = config_result?;
-	let silent = cli.silent || config.log.silent;
-	let quiet = silent || cli.quiet || config.log.quiet;
-	Ok((config, quiet, silent))
+	registry()
+		.with(log_targets(verbose))
+		.with(fmt::layer().pretty().without_time())
+		.init();
 }
 
 /// Returns the log level selected by CLI verbosity flags.
@@ -206,115 +139,79 @@ fn log_targets(verbose: u8) -> Targets {
 	Targets::new().with_target("biwa", log_level(verbose))
 }
 
-/// Shared in-memory writer for buffering load-phase logs.
-#[derive(Clone, Default)]
-struct BufferedWriter {
-	/// Shared byte buffer receiving formatted tracing output.
-	buf: Arc<Mutex<Vec<u8>>>,
+/// Effective output suppression mode resolved from CLI flags and env vars.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OutputMode {
+	/// Suppress biwa internal logs, only showing remote command output.
+	quiet: bool,
+	/// Suppress all output, including remote command stdout/stderr.
+	silent: bool,
 }
 
-/// Write guard that appends tracing output into the shared in-memory buffer.
-struct BufferedGuard {
-	/// Shared byte buffer receiving formatted tracing output.
-	buf: Arc<Mutex<Vec<u8>>>,
-}
-
-impl BufferedWriter {
-	#[cfg(test)]
-	fn output(&self) -> String {
-		let buf = self.buf.lock().expect("buffer lock should succeed");
-		String::from_utf8_lossy(&buf).into_owned()
-	}
-
-	/// Flushes the buffered tracing output into the provided writer.
-	fn write_to(&self, writer: &mut impl io::Write) -> io::Result<()> {
-		let bytes = {
-			let mut buf = match self.buf.lock() {
-				Ok(buf) => buf,
-				Err(_e) => return Ok(()),
-			};
-			mem::take(&mut *buf)
-		};
-
-		if !bytes.is_empty() {
-			if let Err(error) = writer.write_all(&bytes) {
-				if error.kind() != io::ErrorKind::BrokenPipe {
-					return Err(error);
-				}
-				return Ok(());
-			}
-
-			if let Err(error) = writer.flush()
-				&& error.kind() != io::ErrorKind::BrokenPipe
-			{
-				return Err(error);
-			}
-		}
-
-		Ok(())
+impl OutputMode {
+	/// Resolves output flags using CLI precedence over environment defaults.
+	fn resolve(cli: &Cli) -> Self {
+		let silent = cli.silent || env_flag_is_truthy("BIWA_LOG_SILENT");
+		let quiet = silent || cli.quiet || env_flag_is_truthy("BIWA_LOG_QUIET");
+		Self { quiet, silent }
 	}
 }
 
-impl<'a> MakeWriter<'a> for BufferedWriter {
-	type Writer = BufferedGuard;
-
-	fn make_writer(&'a self) -> Self::Writer {
-		BufferedGuard {
-			buf: Arc::clone(&self.buf),
-		}
-	}
-}
-
-impl io::Write for BufferedGuard {
-	fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-		self.buf
-			.lock()
-			.map_err(|_e| io::Error::other("failed to acquire buffer lock"))?
-			.extend_from_slice(buf);
-		Ok(buf.len())
-	}
-
-	fn flush(&mut self) -> io::Result<()> {
-		Ok(())
-	}
+/// Returns true when an environment variable is set to a truthy value.
+fn env_flag_is_truthy(name: &str) -> bool {
+	env::var(name)
+		.map(|value| {
+			matches!(
+				value.trim().to_ascii_lowercase().as_str(),
+				"1" | "true" | "yes" | "on"
+			)
+		})
+		.unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::testing::EnvCleanup;
+	use alloc::sync::Arc;
 	use pretty_assertions::assert_eq;
 	use serial_test::serial;
-	use std::path::{Path, PathBuf};
-	use std::{env, fs};
-	use tempfile::tempdir;
+	use std::io;
+	use std::sync::Mutex;
+	use tracing::subscriber;
+	use tracing_subscriber::fmt::MakeWriter;
 
-	struct CurrentDirGuard {
-		original_dir: PathBuf,
-	}
+	#[derive(Clone, Default)]
+	struct TestWriter(Arc<Mutex<Vec<u8>>>);
 
-	impl CurrentDirGuard {
-		fn new(path: &Path) -> Result<Self> {
-			let original_dir = env::current_dir()?;
-			env::set_current_dir(path)?;
-			Ok(Self { original_dir })
+	struct TestGuard(Arc<Mutex<Vec<u8>>>);
+
+	impl TestWriter {
+		fn output(&self) -> String {
+			let buf = self.0.lock().expect("test writer lock should succeed");
+			String::from_utf8_lossy(&buf).into_owned()
 		}
 	}
 
-	impl Drop for CurrentDirGuard {
-		fn drop(&mut self) {
-			let _result = env::set_current_dir(&self.original_dir);
+	impl<'a> MakeWriter<'a> for TestWriter {
+		type Writer = TestGuard;
+
+		fn make_writer(&'a self) -> Self::Writer {
+			TestGuard(Arc::clone(&self.0))
 		}
 	}
 
-	struct BrokenPipeWriter;
-
-	impl io::Write for BrokenPipeWriter {
-		fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-			Err(io::Error::from(io::ErrorKind::BrokenPipe))
+	impl io::Write for TestGuard {
+		fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+			self.0
+				.lock()
+				.map_err(|_e| io::Error::other("failed to acquire test writer lock"))?
+				.extend_from_slice(buf);
+			Ok(buf.len())
 		}
 
 		fn flush(&mut self) -> io::Result<()> {
-			Err(io::Error::from(io::ErrorKind::BrokenPipe))
+			Ok(())
 		}
 	}
 
@@ -373,21 +270,56 @@ mod tests {
 	}
 
 	#[test]
-	fn schema_and_usage_do_not_require_runtime_config() {
-		let schema = Cli::parse_from(["biwa", "schema"]);
-		let usage = Cli::parse_from(["biwa", "usage"]);
-		let init = Cli::parse_from(["biwa", "init"]);
-		let completion = Cli::parse_from(["biwa", "completion", "bash"]);
+	#[serial]
+	fn output_mode_defaults_to_cli_flags_only_when_env_is_unset() {
+		let _quiet_cleanup = EnvCleanup::remove("BIWA_LOG_QUIET");
+		let _silent_cleanup = EnvCleanup::remove("BIWA_LOG_SILENT");
 
-		assert!(matches!(schema.command.as_ref(), Some(command) if !command.needs_config()));
-		assert!(matches!(usage.command.as_ref(), Some(command) if !command.needs_config()));
-		assert!(matches!(init.command.as_ref(), Some(command) if !command.needs_config()));
-		assert!(matches!(completion.command.as_ref(), Some(command) if !command.needs_config()));
+		let cli = Cli::parse_from(["biwa", "run", "ls"]);
+		assert_eq!(
+			OutputMode::resolve(&cli),
+			OutputMode {
+				quiet: false,
+				silent: false
+			}
+		);
+	}
+
+	#[test]
+	#[serial]
+	fn output_mode_reads_log_env_vars() {
+		let _quiet_cleanup = EnvCleanup::set("BIWA_LOG_QUIET", "true");
+		let _silent_cleanup = EnvCleanup::set("BIWA_LOG_SILENT", "0");
+
+		let cli = Cli::parse_from(["biwa", "run", "ls"]);
+		assert_eq!(
+			OutputMode::resolve(&cli),
+			OutputMode {
+				quiet: true,
+				silent: false
+			}
+		);
+	}
+
+	#[test]
+	#[serial]
+	fn output_mode_silent_env_implies_quiet() {
+		let _quiet_cleanup = EnvCleanup::remove("BIWA_LOG_QUIET");
+		let _silent_cleanup = EnvCleanup::set("BIWA_LOG_SILENT", "yes");
+
+		let cli = Cli::parse_from(["biwa", "run", "ls"]);
+		assert_eq!(
+			OutputMode::resolve(&cli),
+			OutputMode {
+				quiet: true,
+				silent: true
+			}
+		);
 	}
 
 	#[test]
 	fn verbose_filter_only_logs_biwa_targets() {
-		let writer = BufferedWriter::default();
+		let writer = TestWriter::default();
 		let subscriber = registry().with(log_targets(3)).with(
 			fmt::layer()
 				.with_ansi(false)
@@ -406,137 +338,5 @@ mod tests {
 			!output.contains("dependency-target-log"),
 			"logs were: {output}"
 		);
-	}
-
-	#[serial]
-	#[test]
-	fn buffered_config_logs_are_flushed_when_logging_is_enabled() -> Result<()> {
-		let dir = tempdir()?;
-		fs::write(
-			dir.path().join("biwa.toml"),
-			"[ssh]\nhost = \"example.test\"\nuser = \"testuser\"\n[sync]\nremote_root = \"/absolute/path\"\n",
-		)?;
-
-		let _dir_guard = CurrentDirGuard::new(dir.path())?;
-
-		let cli = Cli {
-			command: None,
-			run_command_args: Vec::new(),
-			verbose: 0,
-			quiet: false,
-			silent: false,
-		};
-		let mut stderr = Vec::new();
-		let result = load_config_with_buffered_logs(&cli, &mut stderr);
-
-		let (_config, quiet, silent) = result?;
-		assert!(!quiet);
-		assert!(!silent);
-
-		let output = String::from_utf8(stderr)?;
-		assert!(output.contains("Absolute remote_root path detected"));
-		Ok(())
-	}
-
-	#[serial]
-	#[test]
-	fn buffered_config_logs_respect_loaded_quiet_mode() -> Result<()> {
-		let dir = tempdir()?;
-		fs::write(
-			dir.path().join("biwa.toml"),
-			"[ssh]\nhost = \"example.test\"\nuser = \"testuser\"\n[log]\nquiet = true\n[sync]\nremote_root = \"/absolute/path\"\n",
-		)?;
-
-		let _dir_guard = CurrentDirGuard::new(dir.path())?;
-
-		let cli = Cli {
-			command: None,
-			run_command_args: Vec::new(),
-			verbose: 0,
-			quiet: false,
-			silent: false,
-		};
-		let mut stderr = Vec::new();
-		let result = load_config_with_buffered_logs(&cli, &mut stderr);
-
-		let (_config, quiet, silent) = result?;
-		assert!(quiet);
-		assert!(!silent);
-		assert!(stderr.is_empty(), "logs were: {stderr:?}");
-		Ok(())
-	}
-
-	#[serial]
-	#[test]
-	fn buffered_config_logs_short_circuit_when_cli_quiet_is_enabled() -> Result<()> {
-		let dir = tempdir()?;
-		fs::write(
-			dir.path().join("biwa.toml"),
-			"[ssh]\nhost = \"example.test\"\nuser = \"testuser\"\n[sync]\nremote_root = \"/absolute/path\"\n",
-		)?;
-
-		let _dir_guard = CurrentDirGuard::new(dir.path())?;
-
-		let cli = Cli {
-			command: None,
-			run_command_args: Vec::new(),
-			verbose: 0,
-			quiet: true,
-			silent: false,
-		};
-		let mut stderr = Vec::new();
-		let (_config, quiet, silent) = load_config_with_buffered_logs(&cli, &mut stderr)?;
-
-		assert!(quiet);
-		assert!(!silent);
-		assert!(stderr.is_empty(), "logs were: {stderr:?}");
-		Ok(())
-	}
-
-	#[serial]
-	#[test]
-	fn buffered_config_logs_are_flushed_when_loading_fails() -> Result<()> {
-		let dir = tempdir()?;
-		fs::write(dir.path().join("biwa.toml"), "[sync]\nremote_root = [\n")?;
-
-		let _dir_guard = CurrentDirGuard::new(dir.path())?;
-
-		let cli = Cli {
-			command: None,
-			run_command_args: Vec::new(),
-			verbose: 2,
-			quiet: false,
-			silent: false,
-		};
-		let mut stderr = Vec::new();
-		let result = load_config_with_buffered_logs(&cli, &mut stderr);
-
-		let _error = result.expect_err("loading invalid config should fail");
-
-		let output = String::from_utf8(stderr)?;
-		assert!(
-			output.contains("Loading configuration"),
-			"logs were: {output}"
-		);
-		Ok(())
-	}
-
-	#[test]
-	fn buffered_writer_ignores_broken_pipe() -> Result<()> {
-		let writer = BufferedWriter::default();
-		let subscriber = registry().with(log_targets(0)).with(
-			fmt::layer()
-				.with_ansi(false)
-				.without_time()
-				.with_writer(writer.clone()),
-		);
-
-		subscriber::with_default(subscriber, || {
-			tracing::warn!(target: "biwa::cli::tests", "buffered warning");
-		});
-
-		let mut broken_pipe = BrokenPipeWriter;
-		writer.write_to(&mut broken_pipe)?;
-		Ok(())
 	}
 }

@@ -1,5 +1,0 @@
-# Partial config: only [log] section
-
-[log]
-quiet = true
-silent = false

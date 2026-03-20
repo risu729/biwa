@@ -140,10 +140,6 @@ pub struct Config {
 	#[config(nested)]
 	#[schemars(default)]
 	pub hooks: HooksConfig,
-	/// Logging configuration.
-	#[config(nested)]
-	#[schemars(default)]
-	pub log: LogConfig,
 }
 
 /// Password authentication configuration.
@@ -209,25 +205,6 @@ pub struct SshConfig {
 impl Default for SshConfig {
 	fn default() -> Self {
 		Config::default().ssh
-	}
-}
-
-/// Logging configuration settings.
-#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct LogConfig {
-	/// Suppresses biwa internal logs; only remote command output is shown.
-	#[config(default = false, env = "BIWA_LOG_QUIET")]
-	#[schemars(default)]
-	pub quiet: bool,
-	/// Suppresses all output, including remote command stdout/stderr.
-	#[config(default = false, env = "BIWA_LOG_SILENT")]
-	#[schemars(default)]
-	pub silent: bool,
-}
-
-impl Default for LogConfig {
-	fn default() -> Self {
-		Config::default().log
 	}
 }
 
