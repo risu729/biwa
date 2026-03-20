@@ -89,10 +89,10 @@ pub async fn run() -> Result<()> {
 		Some(Commands::Completion(cmd)) => cmd.run()?,
 		Some(Commands::Usage(cmd)) => cmd.run()?,
 		None => {
-			let config = Config::load()?;
 			let (command, args) = cli.run_command_args.split_first().ok_or_else(|| {
 				eyre!("No command provided. Use `biwa --help` for usage information.")
 			})?;
+			let config = Config::load()?;
 			run::run_remote(
 				&config,
 				&SyncArgs::default(),

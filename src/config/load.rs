@@ -313,38 +313,21 @@ mod tests {
 	use tempfile::tempdir;
 
 	fn set_required_ssh_env(host: &str, user: &str) -> (EnvCleanup, EnvCleanup) {
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::set_var("BIWA_SSH_HOST", host);
-		}
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::set_var("BIWA_SSH_USER", user);
-		}
-
-		(EnvCleanup("BIWA_SSH_HOST"), EnvCleanup("BIWA_SSH_USER"))
+		(
+			EnvCleanup::set("BIWA_SSH_HOST", host),
+			EnvCleanup::set("BIWA_SSH_USER", user),
+		)
 	}
 
 	fn set_required_ssh_user_env(user: &str) -> EnvCleanup {
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::set_var("BIWA_SSH_USER", user);
-		}
-
-		EnvCleanup("BIWA_SSH_USER")
+		EnvCleanup::set("BIWA_SSH_USER", user)
 	}
 
 	fn clear_required_ssh_env() -> (EnvCleanup, EnvCleanup) {
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::remove_var("BIWA_SSH_HOST");
-		}
-		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
-		unsafe {
-			env::remove_var("BIWA_SSH_USER");
-		}
-
-		(EnvCleanup("BIWA_SSH_HOST"), EnvCleanup("BIWA_SSH_USER"))
+		(
+			EnvCleanup::remove("BIWA_SSH_HOST"),
+			EnvCleanup::remove("BIWA_SSH_USER"),
+		)
 	}
 
 	#[serial]
@@ -381,8 +364,8 @@ mod tests {
 		}
 
 		// Ensure cleanup
-		let _cleanup1 = EnvCleanup("BIWA_SSH_HOST");
-		let _cleanup2 = EnvCleanup("BIWA_SSH_PORT");
+		let _cleanup1 = EnvCleanup::remove("BIWA_SSH_HOST");
+		let _cleanup2 = EnvCleanup::remove("BIWA_SSH_PORT");
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 
@@ -441,7 +424,7 @@ mod tests {
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "NODE_ENV");
 		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::remove("BIWA_ENV_VARS");
 
 		let config = Config::load_internal(None, None, None)?;
 		let rules = config.env.vars.rules()?;
@@ -459,7 +442,7 @@ mod tests {
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "NODE_ENV=prod");
 		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::remove("BIWA_ENV_VARS");
 
 		let config = Config::load_internal(None, None, None)?;
 		let rules = config.env.vars.rules()?;
@@ -477,7 +460,7 @@ mod tests {
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "NODE_ENV=");
 		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::remove("BIWA_ENV_VARS");
 
 		let config = Config::load_internal(None, None, None)?;
 		let rules = config.env.vars.rules()?;
@@ -503,7 +486,7 @@ mod tests {
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "API_KEY");
 		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::remove("BIWA_ENV_VARS");
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		let rules = config.env.vars.rules()?;
@@ -522,7 +505,7 @@ mod tests {
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "NODE_*");
 		}
-		let _cleanup = EnvCleanup("BIWA_ENV_VARS");
+		let _cleanup = EnvCleanup::remove("BIWA_ENV_VARS");
 
 		let config = Config::load_internal(None, None, None)?;
 		assert_eq!(
@@ -871,8 +854,8 @@ mod tests {
 			env::set_var("BIWA_SSH_USER", "env-user");
 		}
 
-		let _cleanup1 = EnvCleanup("BIWA_SSH_HOST");
-		let _cleanup2 = EnvCleanup("BIWA_SSH_USER");
+		let _cleanup1 = EnvCleanup::remove("BIWA_SSH_HOST");
+		let _cleanup2 = EnvCleanup::remove("BIWA_SSH_USER");
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 

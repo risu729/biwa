@@ -490,7 +490,7 @@ mod tests {
 		unsafe {
 			env::set_var("NODE_ENV", "development");
 		}
-		let _cleanup = EnvCleanup("NODE_ENV");
+		let _cleanup = EnvCleanup::remove("NODE_ENV");
 		let resolved = resolve_env_vars(
 			&config,
 			&[EnvVarRule::Spec(EnvVarSpec::value(
@@ -517,7 +517,7 @@ mod tests {
 		unsafe {
 			env::set_var("BIWA_TEST_NODE_ENV", "development");
 		}
-		let _cleanup = EnvCleanup("BIWA_TEST_NODE_ENV");
+		let _cleanup = EnvCleanup::remove("BIWA_TEST_NODE_ENV");
 
 		let resolved = resolve_env_vars(
 			&config,
@@ -558,8 +558,8 @@ mod tests {
 		unsafe {
 			env::set_var("BIWA_TEST_NODE_PATH", "/tmp/biwa-test-node-path");
 		}
-		let _cleanup_env = EnvCleanup("BIWA_TEST_NODE_ENV");
-		let _cleanup_path = EnvCleanup("BIWA_TEST_NODE_PATH");
+		let _cleanup_env = EnvCleanup::remove("BIWA_TEST_NODE_ENV");
+		let _cleanup_path = EnvCleanup::remove("BIWA_TEST_NODE_PATH");
 
 		let resolved = resolve_env_vars(&config, &[])?;
 		assert_eq!(
