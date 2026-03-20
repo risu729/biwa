@@ -155,7 +155,7 @@ fn load_config_with_buffered_logs(
 	let config_result = subscriber::with_default(load_subscriber, Config::load);
 	if config_result
 		.as_ref()
-		.is_ok_and(|config| !(config.log.silent || config.log.quiet))
+		.map_or(true, |config| !(config.log.silent || config.log.quiet))
 	{
 		writer.write_to(stderr)?;
 	}
@@ -430,6 +430,34 @@ mod tests {
 		assert!(quiet);
 		assert!(!silent);
 		assert!(stderr.is_empty(), "logs were: {stderr:?}");
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn buffered_config_logs_are_flushed_when_loading_fails() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(dir.path().join("biwa.toml"), "[sync]\nremote_root = [\n")?;
+
+		let _dir_guard = CurrentDirGuard::new(dir.path())?;
+
+		let cli = Cli {
+			command: None,
+			run_command_args: Vec::new(),
+			verbose: 2,
+			quiet: false,
+			silent: false,
+		};
+		let mut stderr = Vec::new();
+		let result = load_config_with_buffered_logs(&cli, &mut stderr);
+
+		let _error = result.expect_err("loading invalid config should fail");
+
+		let output = String::from_utf8(stderr)?;
+		assert!(
+			output.contains("Loading configuration"),
+			"logs were: {output}"
+		);
 		Ok(())
 	}
 }
