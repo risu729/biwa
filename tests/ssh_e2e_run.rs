@@ -95,6 +95,47 @@ fn e2e_run_streaming() -> Result<()> {
 }
 
 #[test]
+fn e2e_run_forwards_stdin() -> Result<()> {
+	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "cat"])
+		.stdin_bytes("hello from stdin\n")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout),
+		"hello from stdin\n"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_forwards_stdin_with_setenv_forward_method() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(
+		dir.path().join("biwa.toml"),
+		"[env]\nforward_method = \"setenv\"\n",
+	)?;
+
+	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "cat"])
+		.dir(dir.path())
+		.stdin_bytes("hello from stdin via setenv\n")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout),
+		"hello from stdin via setenv\n"
+	);
+	Ok(())
+}
+
+#[test]
 fn e2e_run_quiet() -> Result<()> {
 	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "echo", "hello quiet"])
 		.stdout_capture()

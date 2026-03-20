@@ -11,12 +11,14 @@ use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use bytes::Bytes;
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
+use core::future::pending;
 use core::time::Duration;
 use russh::{Channel, ChannelMsg, client::Msg};
 use std::env;
 use std::io::Error as IoError;
-use tokio::io::{copy, sink, stderr, stdout};
+use tokio::io::{AsyncReadExt as _, copy, sink, stderr, stdin, stdout};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
@@ -164,6 +166,50 @@ fn resolve_env_vars(config: &Config, cli_env_vars: &[EnvVarRule]) -> Result<Vec<
 		.collect()
 }
 
+/// Spawns a task that forwards local stdin into a channel for the remote SSH command.
+fn spawn_stdin_forwarder() -> (mpsc::Receiver<Vec<u8>>, JoinHandle<()>) {
+	let (stdin_tx, stdin_rx) = mpsc::channel(32);
+
+	let stdin_task = tokio::spawn(async move {
+		let mut local_stdin = stdin();
+		let mut buffer = vec![0_u8; 8 * 1024];
+
+		loop {
+			match local_stdin.read(&mut buffer).await {
+				Ok(0) => {
+					if stdin_tx.send(Vec::new()).await.is_ok() {
+						pending::<()>().await;
+					}
+					break;
+				}
+				Ok(bytes_read) => {
+					let Some(chunk) = buffer.get(..bytes_read).map(<[u8]>::to_vec) else {
+						debug!(
+							bytes_read,
+							buffer_len = buffer.len(),
+							"tokio stdin returned an out-of-bounds read length"
+						);
+						break;
+					};
+
+					if stdin_tx.send(chunk).await.is_err() {
+						break;
+					}
+				}
+				Err(error) => {
+					debug!(%error, "Failed to read local stdin for remote command");
+					if stdin_tx.send(Vec::new()).await.is_ok() {
+						pending::<()>().await;
+					}
+					break;
+				}
+			}
+		}
+	});
+
+	(stdin_rx, stdin_task)
+}
+
 /// Run a pre-built command string on an already-connected SSH client.
 ///
 /// Returns the remote exit code, printing stdout/stderr as they arrive
@@ -231,6 +277,7 @@ async fn run_command(
 
 	let stdout_stream = ReceiverStream::new(stdout_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
 	let stderr_stream = ReceiverStream::new(stderr_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
+	let (stdin_rx, stdin_task) = spawn_stdin_forwarder();
 
 	let mut stdout_reader = StreamReader::new(stdout_stream);
 	let mut stderr_reader = StreamReader::new(stderr_stream);
@@ -242,6 +289,7 @@ async fn run_command(
 		forward_method,
 		stdout_tx,
 		stderr_tx,
+		Some(stdin_rx),
 	);
 
 	let stdout_task = async {
@@ -261,6 +309,7 @@ async fn run_command(
 	};
 
 	let (exit_status, (), ()) = tokio::join!(exec_future, stdout_task, stderr_task);
+	stdin_task.abort();
 	let exit_status = exit_status.wrap_err("Failed to execute remote command")?;
 
 	debug!(exit_status, "Remote command completed");
@@ -328,10 +377,11 @@ async fn execute_with_forward_method(
 	forward_method: &EnvForwardMethod,
 	stdout_tx: mpsc::Sender<Vec<u8>>,
 	stderr_tx: mpsc::Sender<Vec<u8>>,
+	stdin_rx: Option<mpsc::Receiver<Vec<u8>>>,
 ) -> Result<u32> {
 	match forward_method {
 		EnvForwardMethod::Export => client
-			.execute_io(command, stdout_tx, Some(stderr_tx), None, false, None)
+			.execute_io(command, stdout_tx, Some(stderr_tx), stdin_rx, false, None)
 			.await
 			.wrap_err("Failed to execute remote command"),
 		EnvForwardMethod::Setenv => {
@@ -393,7 +443,7 @@ async fn execute_with_forward_method(
 				}
 			}
 
-			stream_channel_output(channel, stdout_tx, stderr_tx).await
+			stream_channel_output(channel, stdout_tx, stderr_tx, stdin_rx).await
 		}
 	}
 }
@@ -403,28 +453,58 @@ async fn stream_channel_output(
 	mut channel: Channel<Msg>,
 	stdout_tx: mpsc::Sender<Vec<u8>>,
 	stderr_tx: mpsc::Sender<Vec<u8>>,
+	mut stdin_rx: Option<mpsc::Receiver<Vec<u8>>>,
 ) -> Result<u32> {
 	let mut exit_status = None;
 
+	#[expect(
+		clippy::integer_division_remainder_used,
+		reason = "tokio::select! macro expansion triggers this lint spuriously"
+	)]
 	loop {
-		match channel.wait().await {
-			Some(ChannelMsg::Data { data }) => {
-				stdout_tx
-					.send(data.to_vec())
-					.await
-					.wrap_err("Failed to forward remote stdout")?;
+		let recv_stdin = async {
+			if let Some(receiver) = stdin_rx.as_mut() {
+				Some(receiver.recv().await)
+			} else {
+				None
 			}
-			Some(ChannelMsg::ExtendedData { data, ext: 1 }) => {
-				stderr_tx
-					.send(data.to_vec())
-					.await
-					.wrap_err("Failed to forward remote stderr")?;
+		};
+
+		tokio::select! {
+			Some(input) = recv_stdin => {
+				if let Some(input) = input {
+					if input.is_empty() {
+						channel.eof().await.wrap_err("Failed to send stdin EOF to remote command")?;
+						stdin_rx = None;
+					} else {
+						channel
+							.data(input.as_slice())
+							.await
+							.wrap_err("Failed to forward local stdin to remote command")?;
+					}
+				} else {
+					stdin_rx = None;
+				}
 			}
-			Some(ChannelMsg::ExitStatus {
-				exit_status: status,
-			}) => exit_status = Some(status),
-			Some(_) => {}
-			None => break,
+			msg = channel.wait() => match msg {
+				Some(ChannelMsg::Data { data }) => {
+					stdout_tx
+						.send(data.to_vec())
+						.await
+						.wrap_err("Failed to forward remote stdout")?;
+				}
+				Some(ChannelMsg::ExtendedData { data, ext: 1 }) => {
+					stderr_tx
+						.send(data.to_vec())
+						.await
+						.wrap_err("Failed to forward remote stderr")?;
+				}
+				Some(ChannelMsg::ExitStatus {
+					exit_status: status,
+				}) => exit_status = Some(status),
+				Some(_) => {}
+				None => break,
+			}
 		}
 	}
 
