@@ -25,7 +25,6 @@ allow = [
 	"BSD-3-Clause",
 	"ISC",
 	"CC0-1.0",
-	"OpenSSL"
 ]
 unused-allowed-license = "deny"
 unused-license-exception = "deny"
@@ -48,7 +47,6 @@ skip = [
 	{ name = "toml", version = "*" },
 	{ name = "toml_datetime", version = "*" },
 	{ name = "unicode-width", version = "*" },
-	{ name = "untrusted", version = "*" },
 	{ name = "winnow", version = "*" },
 ]
 

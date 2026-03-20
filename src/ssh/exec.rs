@@ -582,10 +582,12 @@ async fn stream_channel_output(
 				}) => {
 					exit_status = Some(status);
 					if stdin_rx.is_some() {
-						channel
-							.eof()
-							.await
-							.wrap_err("Failed to send stdin EOF after remote command exit")?;
+						if let Err(error) = channel.eof().await {
+							debug!(
+								%error,
+								"Ignoring stdin EOF send failure after remote command exit"
+							);
+						}
 						stdin_rx = None;
 					}
 				}
