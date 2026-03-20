@@ -14,7 +14,7 @@ use console::style;
 use core::time::Duration;
 use russh::{Channel, ChannelMsg, client::Msg};
 use std::env;
-use std::io::Error as IoError;
+use std::io::{Error as IoError, IsTerminal as _, stdin as std_stdin};
 use tokio::io::{AsyncReadExt as _, copy, sink, stderr, stdin, stdout};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -32,6 +32,12 @@ struct ResolvedEnvVar {
 	/// Concrete value to send to the remote process.
 	value: String,
 }
+
+/// Optional stdin forwarding state for a remote command.
+type StdinForwarding = (
+	Option<mpsc::Receiver<Option<Vec<u8>>>>,
+	Option<JoinHandle<()>>,
+);
 
 /// Static execution settings reused across remote command helpers.
 struct RunCommandOptions<'a> {
@@ -204,6 +210,21 @@ fn spawn_stdin_forwarder() -> (mpsc::Receiver<Option<Vec<u8>>>, JoinHandle<()>) 
 	(stdin_rx, stdin_task)
 }
 
+/// Returns whether stdin should be forwarded to the remote command.
+fn should_forward_stdin() -> bool {
+	!std_stdin().is_terminal()
+}
+
+/// Initializes stdin forwarding when local stdin is redirected.
+fn prepare_stdin_forwarding() -> StdinForwarding {
+	if should_forward_stdin() {
+		let (stdin_rx, stdin_task) = spawn_stdin_forwarder();
+		(Some(stdin_rx), Some(stdin_task))
+	} else {
+		(None, None)
+	}
+}
+
 /// Run a pre-built command string on an already-connected SSH client.
 ///
 /// Returns the remote exit code, printing stdout/stderr as they arrive
@@ -271,7 +292,7 @@ async fn run_command(
 
 	let stdout_stream = ReceiverStream::new(stdout_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
 	let stderr_stream = ReceiverStream::new(stderr_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
-	let (stdin_rx, stdin_task) = spawn_stdin_forwarder();
+	let (stdin_rx, stdin_task) = prepare_stdin_forwarding();
 
 	let mut stdout_reader = StreamReader::new(stdout_stream);
 	let mut stderr_reader = StreamReader::new(stderr_stream);
@@ -283,7 +304,7 @@ async fn run_command(
 		forward_method,
 		stdout_tx,
 		stderr_tx,
-		Some(stdin_rx),
+		stdin_rx,
 	);
 
 	let stdout_task = async {
@@ -303,7 +324,9 @@ async fn run_command(
 	};
 
 	let (exit_status, (), ()) = tokio::join!(exec_future, stdout_task, stderr_task);
-	stdin_task.abort();
+	if let Some(stdin_task) = stdin_task {
+		stdin_task.abort();
+	}
 	let exit_status = exit_status.wrap_err("Failed to execute remote command")?;
 
 	debug!(exit_status, "Remote command completed");

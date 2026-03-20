@@ -95,6 +95,67 @@ fn e2e_run_streaming() -> Result<()> {
 }
 
 #[test]
+fn e2e_run_with_tty_stdin_exits_without_waiting_for_input() -> Result<()> {
+	let python = format!(
+		r#"import os, pty, subprocess, sys, time
+master, slave = pty.openpty()
+try:
+    proc = subprocess.Popen(
+        [{biwa_path:?}, "--quiet", "run", "--skip-sync", "pwd"],
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=os.environ.copy(),
+    )
+finally:
+    os.close(slave)
+
+deadline = time.time() + 5
+while proc.poll() is None and time.time() < deadline:
+    time.sleep(0.05)
+
+if proc.poll() is None:
+    proc.kill()
+    out, err = proc.communicate()
+    sys.stderr.write("timed out while waiting for biwa to exit\n")
+    sys.stderr.buffer.write(out)
+    sys.stderr.buffer.write(err)
+    sys.exit(124)
+
+os.close(master)
+out, err = proc.communicate()
+sys.stdout.buffer.write(out)
+sys.stderr.buffer.write(err)
+sys.exit(proc.returncode)
+"#,
+		biwa_path = env!("CARGO_BIN_EXE_biwa")
+	);
+
+	let output = Command::new("python3")
+		.arg("-c")
+		.arg(&python)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_PASSWORD", "password123")
+		.output()?;
+
+	assert!(
+		output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	assert!(
+		String::from_utf8_lossy(&output.stdout)
+			.trim()
+			.contains(".cache/biwa/projects/"),
+		"stdout: {}",
+		String::from_utf8_lossy(&output.stdout)
+	);
+	Ok(())
+}
+
+#[test]
 fn e2e_run_forwards_stdin() -> Result<()> {
 	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "cat"])
 		.stdin_bytes("hello from stdin\n")

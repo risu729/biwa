@@ -91,11 +91,15 @@ If you're in a project directory, biwa will automatically sync your local files 
 
 ## Piping Input
 
-`biwa run` forwards local stdin to the remote command, so piping and simple interactive input work as expected:
+`biwa run` forwards redirected local stdin to the remote command, so piping works as expected:
 
 ```bash
 printf 'Hello from stdin\n' | biwa run --skip-sync cat
 ```
+
+::: tip Current Limitation
+stdin forwarding currently applies to redirected input such as pipes, here-docs, and files. When stdin is an interactive terminal, biwa does not forward it yet, because it also does not allocate a remote PTY. For fully interactive terminal programs, use `ssh` directly for now.
+:::
 
 ## Log Output
 
