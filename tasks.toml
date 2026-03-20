@@ -55,7 +55,8 @@ run = "pinact run --verify {% if env.LINT is defined %}--check{% endif %}"
 description = "Run pinact to pin/check pinned GitHub Actions dependencies in workflows."
 
 ["check:zizmor"]
-run = "{% if env.GITHUB_TOKEN is defined %}GH_TOKEN=\"$GITHUB_TOKEN\" {% elif env.GH_TOKEN is defined %}GH_TOKEN=\"$GH_TOKEN\" {% endif %}zizmor --pedantic {% if env.LINT is undefined %}--fix{% endif %} ."
+run = "zizmor --pedantic {% if env.LINT is undefined %}--fix{% endif %} ."
+env.GH_TOKEN = "{{ env.GITHUB_TOKEN }}"
 description = "Run Zizmor to check GitHub Actions workflows."
 
 ["check:yamllint"]
