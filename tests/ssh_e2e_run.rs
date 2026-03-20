@@ -156,6 +156,66 @@ sys.exit(proc.returncode)
 }
 
 #[test]
+fn e2e_run_forwards_tty_stdin() -> Result<()> {
+	let python = format!(
+		r#"import os, pty, select, subprocess, sys
+master, slave = pty.openpty()
+try:
+    proc = subprocess.Popen(
+        [{biwa_path:?}, "--quiet", "run", "--skip-sync", "cat"],
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=os.environ.copy(),
+    )
+finally:
+    os.close(slave)
+
+os.write(master, b"hello from tty stdin\n")
+ready, _, _ = select.select([proc.stdout], [], [], 10)
+if not ready:
+    proc.kill()
+    out, err = proc.communicate()
+    sys.stderr.write("timed out while waiting for biwa to echo tty stdin\n")
+    sys.stderr.buffer.write(out)
+    sys.stderr.buffer.write(err)
+    sys.exit(124)
+
+line = proc.stdout.readline()
+sys.stdout.buffer.write(line)
+proc.kill()
+_, err = proc.communicate()
+sys.stderr.buffer.write(err)
+if line.replace(b"\r\n", b"\n") != b"hello from tty stdin\n":
+    sys.stderr.write(f"unexpected stdout line: {{line!r}}\n")
+    sys.exit(1)
+sys.exit(0)
+"#,
+		biwa_path = env!("CARGO_BIN_EXE_biwa")
+	);
+
+	let output = Command::new("python3")
+		.arg("-c")
+		.arg(&python)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_PASSWORD", "password123")
+		.output()?;
+
+	assert!(
+		output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+		"hello from tty stdin\n"
+	);
+	Ok(())
+}
+
+#[test]
 fn e2e_run_forwards_stdin() -> Result<()> {
 	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "cat"])
 		.stdin_bytes("hello from stdin\n")

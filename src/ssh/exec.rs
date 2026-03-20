@@ -12,12 +12,11 @@ use bytes::Bytes;
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
 use core::time::Duration;
-use russh::{Channel, ChannelMsg, client::Msg};
+use russh::{Channel, ChannelMsg, Pty, client::Msg};
 use std::env;
-use std::io::{Error as IoError, IsTerminal as _, stdin as std_stdin};
-use tokio::io::{AsyncReadExt as _, copy, sink, stderr, stdin, stdout};
+use std::io::{Error as IoError, IsTerminal as _, Read as _, stdin as std_stdin};
+use tokio::io::{copy, sink, stderr, stdout};
 use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
@@ -34,10 +33,7 @@ struct ResolvedEnvVar {
 }
 
 /// Optional stdin forwarding state for a remote command.
-type StdinForwarding = (
-	Option<mpsc::Receiver<Option<Vec<u8>>>>,
-	Option<JoinHandle<()>>,
-);
+type StdinForwarding = Option<mpsc::Receiver<Option<Vec<u8>>>>;
 
 /// Static execution settings reused across remote command helpers.
 struct RunCommandOptions<'a> {
@@ -172,15 +168,15 @@ fn resolve_env_vars(config: &Config, cli_env_vars: &[EnvVarRule]) -> Result<Vec<
 }
 
 /// Spawns a task that forwards local stdin into a channel for the remote SSH command.
-fn spawn_stdin_forwarder() -> (mpsc::Receiver<Option<Vec<u8>>>, JoinHandle<()>) {
+fn spawn_stdin_forwarder() -> mpsc::Receiver<Option<Vec<u8>>> {
 	let (stdin_tx, stdin_rx) = mpsc::channel(32);
 
-	let stdin_task = tokio::spawn(async move {
-		let mut local_stdin = stdin();
+	std::thread::spawn(move || {
+		let mut local_stdin = std_stdin();
 		let mut buffer = vec![0_u8; 8 * 1024];
 
 		loop {
-			match local_stdin.read(&mut buffer).await {
+			match local_stdin.read(&mut buffer) {
 				Ok(bytes_read) if bytes_read > 0 => {
 					let Some(chunk) = buffer.get(..bytes_read).map(<[u8]>::to_vec) else {
 						debug!(
@@ -191,7 +187,7 @@ fn spawn_stdin_forwarder() -> (mpsc::Receiver<Option<Vec<u8>>>, JoinHandle<()>) 
 						break;
 					};
 
-					if stdin_tx.send(Some(chunk)).await.is_err() {
+					if stdin_tx.blocking_send(Some(chunk)).is_err() {
 						break;
 					}
 				}
@@ -200,29 +196,58 @@ fn spawn_stdin_forwarder() -> (mpsc::Receiver<Option<Vec<u8>>>, JoinHandle<()>) 
 						debug!(%error, "Failed to read local stdin for remote command");
 					}
 
-					drop(stdin_tx.send(None).await);
+					drop(stdin_tx.blocking_send(None));
 					break;
 				}
 			}
 		}
 	});
 
-	(stdin_rx, stdin_task)
+	stdin_rx
 }
 
-/// Returns whether stdin should be forwarded to the remote command.
-fn should_forward_stdin() -> bool {
-	!std_stdin().is_terminal()
-}
-
-/// Initializes stdin forwarding when local stdin is redirected.
+/// Initializes stdin forwarding for the remote command.
 fn prepare_stdin_forwarding() -> StdinForwarding {
-	if should_forward_stdin() {
-		let (stdin_rx, stdin_task) = spawn_stdin_forwarder();
-		(Some(stdin_rx), Some(stdin_task))
-	} else {
-		(None, None)
-	}
+	Some(spawn_stdin_forwarder())
+}
+
+/// Returns whether local stdin is an interactive terminal.
+fn stdin_is_terminal() -> bool {
+	std_stdin().is_terminal()
+}
+
+/// Returns the terminal type to advertise to the SSH server.
+fn local_terminal_type() -> String {
+	env::var("TERM")
+		.ok()
+		.filter(|term| !term.trim().is_empty())
+		.unwrap_or_else(|| "xterm".to_owned())
+}
+
+/// Reads a positive terminal dimension from the environment or falls back to a default.
+fn terminal_dimension(var_name: &str, default: u32) -> u32 {
+	env::var(var_name)
+		.ok()
+		.and_then(|value| value.parse::<u32>().ok())
+		.filter(|value| *value > 0)
+		.unwrap_or(default)
+}
+
+/// Requests an interactive PTY for terminal-backed stdin so commands can complete without EOF.
+async fn request_terminal_pty(channel: &mut Channel<Msg>) -> Result<()> {
+	channel
+		.request_pty(
+			true,
+			&local_terminal_type(),
+			terminal_dimension("COLUMNS", 80),
+			terminal_dimension("LINES", 24),
+			0,
+			0,
+			&[(Pty::ECHO, 0)],
+		)
+		.await
+		.wrap_err("Failed to request SSH PTY")?;
+	await_channel_confirmation(channel, "SSH PTY request").await
 }
 
 /// Run a pre-built command string on an already-connected SSH client.
@@ -292,7 +317,8 @@ async fn run_command(
 
 	let stdout_stream = ReceiverStream::new(stdout_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
 	let stderr_stream = ReceiverStream::new(stderr_rx).map(|b| Ok::<_, IoError>(Bytes::from(b)));
-	let (stdin_rx, stdin_task) = prepare_stdin_forwarding();
+	let stdin_is_terminal = stdin_is_terminal();
+	let stdin_rx = prepare_stdin_forwarding();
 
 	let mut stdout_reader = StreamReader::new(stdout_stream);
 	let mut stderr_reader = StreamReader::new(stderr_stream);
@@ -305,6 +331,7 @@ async fn run_command(
 		stdout_tx,
 		stderr_tx,
 		stdin_rx,
+		stdin_is_terminal,
 	);
 
 	let stdout_task = async {
@@ -324,9 +351,6 @@ async fn run_command(
 	};
 
 	let (exit_status, (), ()) = tokio::join!(exec_future, stdout_task, stderr_task);
-	if let Some(stdin_task) = stdin_task {
-		stdin_task.abort();
-	}
 	let exit_status = exit_status.wrap_err("Failed to execute remote command")?;
 
 	debug!(exit_status, "Remote command completed");
@@ -395,6 +419,7 @@ async fn execute_with_forward_method(
 	stdout_tx: mpsc::Sender<Vec<u8>>,
 	stderr_tx: mpsc::Sender<Vec<u8>>,
 	stdin_rx: Option<mpsc::Receiver<Option<Vec<u8>>>>,
+	stdin_is_terminal: bool,
 ) -> Result<u32> {
 	match forward_method {
 		EnvForwardMethod::Export => {
@@ -403,11 +428,15 @@ async fn execute_with_forward_method(
 				.await
 				.wrap_err("Failed to open SSH session channel")?;
 
+			if stdin_is_terminal {
+				request_terminal_pty(&mut channel).await?;
+			}
+
 			channel
 				.exec(true, command)
 				.await
 				.wrap_err("Failed to execute remote command")?;
-			await_exec_confirmation(&mut channel).await?;
+			await_channel_confirmation(&mut channel, "remote command exec request").await?;
 
 			stream_channel_output(channel, stdout_tx, stderr_tx, stdin_rx).await
 		}
@@ -416,6 +445,10 @@ async fn execute_with_forward_method(
 				.get_channel()
 				.await
 				.wrap_err("Failed to open SSH session channel")?;
+
+			if stdin_is_terminal {
+				request_terminal_pty(&mut channel).await?;
+			}
 
 			for env_var in env_vars {
 				channel
@@ -449,28 +482,28 @@ async fn execute_with_forward_method(
 				.exec(true, command)
 				.await
 				.wrap_err("Failed to execute remote command")?;
-			await_exec_confirmation(&mut channel).await?;
+			await_channel_confirmation(&mut channel, "remote command exec request").await?;
 
 			stream_channel_output(channel, stdout_tx, stderr_tx, stdin_rx).await
 		}
 	}
 }
 
-/// Waits for the SSH server to accept or reject the exec request.
-async fn await_exec_confirmation(channel: &mut Channel<Msg>) -> Result<()> {
+/// Waits for the SSH server to accept or reject a channel request.
+async fn await_channel_confirmation(channel: &mut Channel<Msg>, request_name: &str) -> Result<()> {
 	loop {
 		match channel.wait().await {
 			Some(ChannelMsg::Success) => {
 				break;
 			}
 			Some(ChannelMsg::Failure) => {
-				bail!("SSH server rejected remote command exec request");
+				bail!("SSH server rejected {request_name}");
 			}
 			Some(_message) => {
 				// Ignore unrelated channel messages and keep waiting for Success/Failure.
 			}
 			None => {
-				bail!("SSH channel closed before remote command exec confirmation was received");
+				bail!("SSH channel closed before {request_name} confirmation was received");
 			}
 		}
 	}
@@ -531,7 +564,16 @@ async fn stream_channel_output(
 				}
 				Some(ChannelMsg::ExitStatus {
 					exit_status: status,
-				}) => exit_status = Some(status),
+				}) => {
+					exit_status = Some(status);
+					if stdin_rx.is_some() {
+						channel
+							.eof()
+							.await
+							.wrap_err("Failed to send stdin EOF after remote command exit")?;
+						stdin_rx = None;
+					}
+				}
 				Some(_) => {}
 				None => break,
 			}
