@@ -3,6 +3,7 @@ use crate::cli::sync::SyncArgs;
 use crate::config::types::Config;
 use clap::{ArgAction, Parser, Subcommand};
 use color_eyre::eyre::{bail, eyre};
+use std::env;
 use tracing::Level;
 use tracing_subscriber::{
 	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
@@ -77,11 +78,12 @@ enum Commands {
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
 pub async fn run() -> Result<()> {
 	let cli = Cli::parse();
-	init_logging(cli.verbose, cli.quiet, cli.silent);
+	let output_mode = OutputMode::resolve(&cli);
+	init_logging(cli.verbose, output_mode);
 
 	match cli.command {
-		Some(Commands::Run(cmd)) => cmd.run(cli.quiet, cli.silent).await?,
-		Some(Commands::Sync(cmd)) => cmd.run(cli.quiet).await?,
+		Some(Commands::Run(cmd)) => cmd.run(output_mode.quiet, output_mode.silent).await?,
+		Some(Commands::Sync(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Init(cmd)) => cmd.run()?,
 		Some(Commands::Schema(cmd)) => cmd.run()?,
 		Some(Commands::Completion(cmd)) => cmd.run()?,
@@ -100,8 +102,8 @@ pub async fn run() -> Result<()> {
 					cli_env_vars: &[],
 				},
 				config.sync.auto,
-				cli.quiet,
-				cli.silent,
+				output_mode.quiet,
+				output_mode.silent,
 			)
 			.await?;
 		}
@@ -114,8 +116,8 @@ pub async fn run() -> Result<()> {
 }
 
 /// Installs tracing subscriber when CLI flags allow internal logs.
-fn init_logging(verbose: u8, quiet: bool, silent: bool) {
-	if quiet || silent {
+fn init_logging(verbose: u8, output_mode: OutputMode) {
+	if output_mode.quiet {
 		return;
 	}
 
@@ -140,11 +142,43 @@ fn log_targets(verbose: u8) -> Targets {
 	Targets::new().with_target("biwa", log_level(verbose))
 }
 
+/// Effective output suppression mode resolved from CLI flags and env vars.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct OutputMode {
+	/// Suppress biwa internal logs, only showing remote command output.
+	quiet: bool,
+	/// Suppress all output, including remote command stdout/stderr.
+	silent: bool,
+}
+
+impl OutputMode {
+	/// Resolves output flags using CLI precedence over environment defaults.
+	fn resolve(cli: &Cli) -> Self {
+		let silent = cli.silent || env_flag_is_truthy("BIWA_LOG_SILENT");
+		let quiet = silent || cli.quiet || env_flag_is_truthy("BIWA_LOG_QUIET");
+		Self { quiet, silent }
+	}
+}
+
+/// Returns true when an environment variable is set to a truthy value.
+fn env_flag_is_truthy(name: &str) -> bool {
+	env::var(name)
+		.map(|value| {
+			matches!(
+				value.trim().to_ascii_lowercase().as_str(),
+				"1" | "true" | "yes" | "on"
+			)
+		})
+		.unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::testing::EnvCleanup;
 	use alloc::sync::Arc;
 	use pretty_assertions::assert_eq;
+	use serial_test::serial;
 	use std::io;
 	use std::sync::Mutex;
 	use tracing::subscriber;
@@ -236,6 +270,54 @@ mod tests {
 		let cli = Cli::parse_from(["biwa", "-q", "-vv", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.verbose, 2);
+	}
+
+	#[test]
+	#[serial]
+	fn output_mode_defaults_to_cli_flags_only_when_env_is_unset() {
+		let _quiet_cleanup = EnvCleanup::remove("BIWA_LOG_QUIET");
+		let _silent_cleanup = EnvCleanup::remove("BIWA_LOG_SILENT");
+
+		let cli = Cli::parse_from(["biwa", "run", "ls"]);
+		assert_eq!(
+			OutputMode::resolve(&cli),
+			OutputMode {
+				quiet: false,
+				silent: false
+			}
+		);
+	}
+
+	#[test]
+	#[serial]
+	fn output_mode_reads_log_env_vars() {
+		let _quiet_cleanup = EnvCleanup::set("BIWA_LOG_QUIET", "true");
+		let _silent_cleanup = EnvCleanup::set("BIWA_LOG_SILENT", "0");
+
+		let cli = Cli::parse_from(["biwa", "run", "ls"]);
+		assert_eq!(
+			OutputMode::resolve(&cli),
+			OutputMode {
+				quiet: true,
+				silent: false
+			}
+		);
+	}
+
+	#[test]
+	#[serial]
+	fn output_mode_silent_env_implies_quiet() {
+		let _quiet_cleanup = EnvCleanup::remove("BIWA_LOG_QUIET");
+		let _silent_cleanup = EnvCleanup::set("BIWA_LOG_SILENT", "yes");
+
+		let cli = Cli::parse_from(["biwa", "run", "ls"]);
+		assert_eq!(
+			OutputMode::resolve(&cli),
+			OutputMode {
+				quiet: true,
+				silent: true
+			}
+		);
 	}
 
 	#[test]

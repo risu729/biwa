@@ -104,6 +104,8 @@ biwa -s run echo "Hello"
 biwa -vv run echo "Hello"
 ```
 
+You can also set `BIWA_LOG_QUIET=true` or `BIWA_LOG_SILENT=true` in the environment for the same behavior.
+
 ## Next Steps
 
 - Read about [Configuration](/configuration) options

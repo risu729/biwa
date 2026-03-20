@@ -25,17 +25,12 @@ fn biwa_process(args: &[&str]) -> Command {
 
 #[test]
 fn e2e_run_command() -> Result<()> {
-	let output = biwa_cmd(&[
-		"--quiet",
-		"run",
-		"--skip-sync",
-		"echo",
-		"hello e2e from biwa",
-	])
-	.stdout_capture()
-	.stderr_capture()
-	.unchecked()
-	.run()?;
+	let output = biwa_cmd(&["run", "--skip-sync", "echo", "hello e2e from biwa"])
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
 
 	let stdout = String::from_utf8_lossy(&output.stdout);
 
