@@ -89,6 +89,20 @@ biwa run give cs1521 lab02
 If you're in a project directory, biwa will automatically sync your local files to the remote server before executing commands.
 :::
 
+## Piping Input
+
+`biwa run` forwards redirected local stdin to the remote command, so piping works as expected:
+
+```bash
+printf 'Hello from stdin\n' | biwa run --skip-sync cat
+```
+
+::: tip Current Limitation
+`biwa run` forwards both redirected stdin and interactive terminal stdin. When your local stdin is a TTY, biwa also requests a remote PTY so simple interactive commands work without waiting for local EOF.
+
+Interactive support is still partial, though: biwa does not currently provide full terminal emulation such as raw mode, window resize propagation, or signal forwarding like `Ctrl-C`. For complex full-screen or highly interactive programs, use `ssh` directly for the most reliable behavior.
+:::
+
 ## Log Output
 
 By default, biwa shows internal logs (connection status, etc.) alongside remote command output. You can control this:

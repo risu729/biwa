@@ -10,7 +10,17 @@ mod common;
 use color_eyre::eyre::{WrapErr as _, eyre};
 use common::{Result, biwa_cmd};
 use rstest::rstest;
-use std::{ffi::OsStr, fs, path::PathBuf, process::Command, process::Stdio, thread, time::Instant};
+use std::{
+	env, ffi::OsStr, fs, path::PathBuf, process::Command, process::Stdio, thread, time::Instant,
+};
+
+fn e2e_timeout_secs() -> u64 {
+	env::var("BIWA_E2E_TIMEOUT_SECS")
+		.ok()
+		.and_then(|value| value.parse::<u64>().ok())
+		.filter(|value| *value > 0)
+		.unwrap_or(10)
+}
 
 fn biwa_process(args: &[&str]) -> Command {
 	let mut command = Command::new(env!("CARGO_BIN_EXE_biwa"));
@@ -91,6 +101,172 @@ fn e2e_run_streaming() -> Result<()> {
 	let mut rest = String::new();
 	buf_reader.read_to_string(&mut rest)?;
 	assert!(rest.contains("end"));
+	Ok(())
+}
+
+#[test]
+fn e2e_run_with_tty_stdin_exits_without_waiting_for_input() -> Result<()> {
+	let timeout_secs = e2e_timeout_secs();
+	let python = format!(
+		r#"import os, pty, subprocess, sys, time
+master, slave = pty.openpty()
+try:
+    proc = subprocess.Popen(
+        [{biwa_path:?}, "--quiet", "run", "--skip-sync", "pwd"],
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=os.environ.copy(),
+    )
+finally:
+    os.close(slave)
+
+deadline = time.time() + {timeout_secs}
+while proc.poll() is None and time.time() < deadline:
+    time.sleep(0.05)
+
+if proc.poll() is None:
+    proc.kill()
+    out, err = proc.communicate()
+    sys.stderr.write("timed out while waiting for biwa to exit\n")
+    sys.stderr.buffer.write(out)
+    sys.stderr.buffer.write(err)
+    sys.exit(124)
+
+os.close(master)
+out, err = proc.communicate()
+sys.stdout.buffer.write(out)
+sys.stderr.buffer.write(err)
+sys.exit(proc.returncode)
+"#,
+		biwa_path = env!("CARGO_BIN_EXE_biwa"),
+		timeout_secs = timeout_secs,
+	);
+
+	let output = Command::new("python3")
+		.arg("-c")
+		.arg(&python)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_PASSWORD", "password123")
+		.output()?;
+
+	assert!(
+		output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	assert!(
+		String::from_utf8_lossy(&output.stdout)
+			.trim()
+			.contains(".cache/biwa/projects/"),
+		"stdout: {}",
+		String::from_utf8_lossy(&output.stdout)
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_forwards_tty_stdin() -> Result<()> {
+	let timeout_secs = e2e_timeout_secs();
+	let python = format!(
+		r#"import os, pty, select, subprocess, sys
+master, slave = pty.openpty()
+try:
+    proc = subprocess.Popen(
+        [{biwa_path:?}, "--quiet", "run", "--skip-sync", "cat"],
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=os.environ.copy(),
+    )
+finally:
+    os.close(slave)
+
+os.write(master, b"hello from tty stdin\n")
+ready, _, _ = select.select([proc.stdout], [], [], {timeout_secs})
+if not ready:
+    proc.kill()
+    out, err = proc.communicate()
+    sys.stderr.write("timed out while waiting for biwa to echo tty stdin\n")
+    sys.stderr.buffer.write(out)
+    sys.stderr.buffer.write(err)
+    sys.exit(124)
+
+line = proc.stdout.readline()
+sys.stdout.buffer.write(line)
+proc.kill()
+_, err = proc.communicate()
+sys.stderr.buffer.write(err)
+if line.replace(b"\r\n", b"\n") != b"hello from tty stdin\n":
+    sys.stderr.write(f"unexpected stdout line: {{line!r}}\n")
+    sys.exit(1)
+sys.exit(0)
+"#,
+		biwa_path = env!("CARGO_BIN_EXE_biwa"),
+		timeout_secs = timeout_secs,
+	);
+
+	let output = Command::new("python3")
+		.arg("-c")
+		.arg(&python)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_PASSWORD", "password123")
+		.output()?;
+
+	assert!(
+		output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+		"hello from tty stdin\n"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_forwards_stdin() -> Result<()> {
+	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "cat"])
+		.stdin_bytes("hello from stdin\n")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout),
+		"hello from stdin\n"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_forwards_stdin_with_setenv_forward_method() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(
+		dir.path().join("biwa.toml"),
+		"[env]\nforward_method = \"setenv\"\n",
+	)?;
+
+	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "cat"])
+		.dir(dir.path())
+		.stdin_bytes("hello from stdin via setenv\n")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(output.status.success());
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout),
+		"hello from stdin via setenv\n"
+	);
 	Ok(())
 }
 
