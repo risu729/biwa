@@ -80,16 +80,9 @@ enum Commands {
 }
 
 impl Commands {
-	/// Executes the specific subcommand logic.
-	async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
-		match self {
-			Self::Run(cmd) => cmd.run(config, quiet, silent).await,
-			Self::Sync(cmd) => cmd.run(config, quiet).await,
-			Self::Init(cmd) => cmd.run(),
-			Self::Schema(cmd) => cmd.run(),
-			Self::Completion(cmd) => cmd.run(),
-			Self::Usage(cmd) => cmd.run(),
-		}
+	/// Returns whether this subcommand needs runtime configuration loading.
+	const fn needs_config(&self) -> bool {
+		matches!(self, Self::Run(_) | Self::Sync(_))
 	}
 }
 
@@ -97,18 +90,50 @@ impl Commands {
 pub async fn run() -> Result<()> {
 	let cli = Cli::parse();
 
-	let (config, quiet, silent) = load_config_with_buffered_logs(&cli, &mut io::stderr().lock())?;
+	if let Some(command) = cli.command.as_ref() {
+		if command.needs_config() {
+			let (config, quiet, silent) =
+				load_config_with_buffered_logs(&cli, &mut io::stderr().lock())?;
 
-	if !quiet {
-		registry()
-			.with(log_targets(cli.verbose))
-			.with(fmt::layer().pretty().without_time())
-			.init();
-	}
+			if !quiet {
+				registry()
+					.with(log_targets(cli.verbose))
+					.with(fmt::layer().pretty().without_time())
+					.init();
+			}
 
-	if let Some(command) = cli.command {
-		command.run(&config, quiet, silent).await?;
+			match cli.command.expect("command presence already checked") {
+				Commands::Run(cmd) => cmd.run(&config, quiet, silent).await?,
+				Commands::Sync(cmd) => cmd.run(&config, quiet).await?,
+				Commands::Init(_)
+				| Commands::Schema(_)
+				| Commands::Completion(_)
+				| Commands::Usage(_) => {
+					bail!("Internal error: config-free command reached config-dependent path");
+				}
+			}
+		} else {
+			match cli.command.expect("command presence already checked") {
+				Commands::Init(cmd) => cmd.run()?,
+				Commands::Schema(cmd) => cmd.run()?,
+				Commands::Completion(cmd) => cmd.run()?,
+				Commands::Usage(cmd) => cmd.run()?,
+				Commands::Run(_) | Commands::Sync(_) => {
+					bail!("Internal error: config-dependent command reached config-free path");
+				}
+			}
+		}
 	} else if !cli.run_command_args.is_empty() {
+		let (config, quiet, silent) =
+			load_config_with_buffered_logs(&cli, &mut io::stderr().lock())?;
+
+		if !quiet {
+			registry()
+				.with(log_targets(cli.verbose))
+				.with(fmt::layer().pretty().without_time())
+				.init();
+		}
+
 		let (command, args) = cli.run_command_args.split_first().ok_or_else(|| {
 			eyre!("No command provided. Use `biwa --help` for usage information.")
 		})?;
@@ -345,6 +370,19 @@ mod tests {
 		let cli = Cli::parse_from(["biwa", "-q", "-vv", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.verbose, 2);
+	}
+
+	#[test]
+	fn schema_and_usage_do_not_require_runtime_config() {
+		let schema = Cli::parse_from(["biwa", "schema"]);
+		let usage = Cli::parse_from(["biwa", "usage"]);
+		let init = Cli::parse_from(["biwa", "init"]);
+		let completion = Cli::parse_from(["biwa", "completion", "bash"]);
+
+		assert!(matches!(schema.command.as_ref(), Some(command) if !command.needs_config()));
+		assert!(matches!(usage.command.as_ref(), Some(command) if !command.needs_config()));
+		assert!(matches!(init.command.as_ref(), Some(command) if !command.needs_config()));
+		assert!(matches!(completion.command.as_ref(), Some(command) if !command.needs_config()));
 	}
 
 	#[test]
