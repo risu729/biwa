@@ -79,11 +79,12 @@ pub(super) struct Sync {
 
 impl Sync {
 	/// Run the sync logic.
-	pub async fn run(self, config: &Config, quiet: bool) -> Result<()> {
-		let sync_root = self.sync_args.resolve_sync_root(config)?;
+	pub async fn run(self, quiet: bool) -> Result<()> {
+		let config = Config::load()?;
+		let sync_root = self.sync_args.resolve_sync_root(&config)?;
 		let options = self.sync_args.resolve_options();
 		sync_project(
-			config,
+			&config,
 			&sync_root,
 			&options,
 			self.sync_args.remote_dir.as_deref(),

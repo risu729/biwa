@@ -104,14 +104,6 @@ biwa -s run echo "Hello"
 biwa -vv run echo "Hello"
 ```
 
-You can also set these in your config:
-
-```toml
-[log]
-quiet = true   # Suppress biwa internal logs
-silent = true  # Suppress all output
-```
-
 ## Next Steps
 
 - Read about [Configuration](/configuration) options

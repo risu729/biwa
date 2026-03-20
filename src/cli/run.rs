@@ -1,8 +1,8 @@
 use crate::Result;
 use crate::cli::sync::SyncArgs;
+use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
 use crate::{
-	config::types::Config,
 	ssh::exec::execute_command,
 	ssh::sync::{compute_project_remote_dir, sync_project},
 };
@@ -109,9 +109,10 @@ impl Run {
 	}
 
 	/// Run the execution logic for remote command.
-	pub async fn run(self, config: &Config, quiet: bool, silent: bool) -> Result<()> {
+	pub async fn run(self, quiet: bool, silent: bool) -> Result<()> {
+		let config = Config::load()?;
 		run_remote(
-			config,
+			&config,
 			&self.sync_args,
 			RemoteCommand {
 				command: &self.command,

@@ -224,11 +224,7 @@ impl RequiredConfigPresence {
 	}
 
 	/// Marks required SSH fields that were present in a preloaded config layer.
-	#[expect(
-		clippy::missing_const_for_fn,
-		reason = "This runtime-only helper should not be coupled to const-evaluation constraints"
-	)]
-	fn observe_layer(&mut self, partial: &<Config as confique::Config>::Layer) {
+	const fn observe_layer(&mut self, partial: &<Config as confique::Config>::Layer) {
 		self.ssh_host |= partial.ssh.host.is_some();
 		self.ssh_user |= partial.ssh.user.is_some();
 	}
@@ -431,10 +427,6 @@ mod tests {
 		  "hooks": {
 		    "pre_sync": null,
 		    "post_sync": null
-		  },
-		  "log": {
-		    "quiet": false,
-		    "silent": false
 		  }
 		}
 		"#);
