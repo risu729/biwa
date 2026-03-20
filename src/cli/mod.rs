@@ -154,8 +154,8 @@ fn load_config_with_buffered_logs(
 
 	let config_result = subscriber::with_default(load_subscriber, Config::load);
 	let should_flush = config_result.as_ref().is_ok_and(|config| {
-		let silent = cli.silent || config.log.silent;
-		let quiet = silent || cli.quiet || config.log.quiet;
+		let silent = config.log.silent;
+		let quiet = silent || config.log.quiet;
 		!quiet
 	});
 
