@@ -9,6 +9,15 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 use tracing::{debug, info, warn};
 
+/// Tracks whether required SSH settings were supplied explicitly rather than inherited from defaults.
+#[derive(Debug, Default)]
+struct RequiredConfigPresence {
+	/// Whether `ssh.host` was provided by any config layer or environment variable.
+	ssh_host: bool,
+	/// Whether `ssh.user` was provided by any config layer or environment variable.
+	ssh_user: bool,
+}
+
 impl Config {
 	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
@@ -26,6 +35,7 @@ impl Config {
 		cwd: Option<&PathBuf>,
 	) -> Result<Self> {
 		let mut builder = Self::builder().env();
+		let mut required_presence = RequiredConfigPresence::from_env();
 
 		let mut global_candidates = Vec::new();
 		let global_root: Option<PathBuf> = home.map(|home_path| {
@@ -82,6 +92,7 @@ impl Config {
 
 				if let Some((config_path, format)) = find_single_config(&local_candidates)? {
 					let partial = Self::load_partial(&config_path, format, config_root)?;
+					required_presence.observe_layer(&partial);
 					info!(
 						path = %config_path.display(),
 						format = ?format,
@@ -100,6 +111,7 @@ impl Config {
 				.as_deref()
 				.unwrap_or_else(|| config_path.parent().unwrap_or_else(|| Path::new("")));
 			let partial = Self::load_partial(&config_path, format, config_root)?;
+			required_presence.observe_layer(&partial);
 			info!(
 				path = %config_path.display(),
 				format = ?format,
@@ -110,6 +122,7 @@ impl Config {
 		}
 
 		let mut config = builder.load()?;
+		required_presence.ensure_all_present()?;
 
 		if let Ok(value) = env::var("BIWA_ENV_VARS") {
 			let mut rules = config.env.vars.rules()?;
@@ -198,6 +211,44 @@ impl Config {
 				confique::json5::template::<Self>(confique::json5::FormatOptions::default())
 			}
 		}
+	}
+}
+
+impl RequiredConfigPresence {
+	/// Builds presence flags from environment variables handled by `confique`.
+	fn from_env() -> Self {
+		Self {
+			ssh_host: env::var_os("BIWA_SSH_HOST").is_some(),
+			ssh_user: env::var_os("BIWA_SSH_USER").is_some(),
+		}
+	}
+
+	/// Marks required SSH fields that were present in a preloaded config layer.
+	const fn observe_layer(&mut self, partial: &<Config as confique::Config>::Layer) {
+		self.ssh_host |= partial.ssh.host.is_some();
+		self.ssh_user |= partial.ssh.user.is_some();
+	}
+
+	/// Fails when any required SSH setting was not supplied by configuration input.
+	fn ensure_all_present(&self) -> Result<()> {
+		let mut missing = Vec::new();
+
+		if !self.ssh_host {
+			missing.push("ssh.host (or BIWA_SSH_HOST)");
+		}
+
+		if !self.ssh_user {
+			missing.push("ssh.user (or BIWA_SSH_USER)");
+		}
+
+		if missing.is_empty() {
+			return Ok(());
+		}
+
+		bail!(
+			"Missing required configuration values: {}. Set them in a config file or via environment variables.",
+			missing.join(", ")
+		);
 	}
 }
 
@@ -705,6 +756,63 @@ mod tests {
 
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
 		assert_matches!(result, Err(_));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn missing_required_config_values_error_when_no_sources_exist() -> Result<()> {
+		let dir = tempdir()?;
+
+		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let err = match result {
+			Err(err) => err.to_string(),
+			Ok(_) => bail!("Expected missing required config values to fail"),
+		};
+
+		assert!(err.contains("ssh.host (or BIWA_SSH_HOST)"));
+		assert!(err.contains("ssh.user (or BIWA_SSH_USER)"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn missing_required_config_values_error_when_partial_file_exists() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "configured""#)?;
+
+		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let err = match result {
+			Err(err) => err.to_string(),
+			Ok(_) => bail!("Expected missing required config values to fail"),
+		};
+
+		assert!(!err.contains("ssh.host (or BIWA_SSH_HOST)"));
+		assert!(err.contains("ssh.user (or BIWA_SSH_USER)"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn env_vars_can_satisfy_required_ssh_settings_without_files() -> Result<()> {
+		let dir = tempdir()?;
+
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_SSH_HOST", "env-host");
+		}
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_SSH_USER", "env-user");
+		}
+
+		let _cleanup1 = EnvCleanup("BIWA_SSH_HOST");
+		let _cleanup2 = EnvCleanup("BIWA_SSH_USER");
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+
+		assert_eq!(config.ssh.host, "env-host");
+		assert_eq!(config.ssh.user, "env-user");
 		Ok(())
 	}
 
