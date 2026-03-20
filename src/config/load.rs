@@ -9,6 +9,15 @@ use std::path::{Path, PathBuf};
 use std::{env, fs};
 use tracing::{debug, info, warn};
 
+/// Tracks whether required SSH settings were supplied explicitly rather than inherited from defaults.
+#[derive(Debug, Default)]
+struct RequiredConfigPresence {
+	/// Whether `ssh.host` was provided by any config layer or environment variable.
+	ssh_host: bool,
+	/// Whether `ssh.user` was provided by any config layer or environment variable.
+	ssh_user: bool,
+}
+
 impl Config {
 	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
@@ -26,6 +35,7 @@ impl Config {
 		cwd: Option<&PathBuf>,
 	) -> Result<Self> {
 		let mut builder = Self::builder().env();
+		let mut required_presence = RequiredConfigPresence::from_env();
 
 		let mut global_candidates = Vec::new();
 		let global_root: Option<PathBuf> = home.map(|home_path| {
@@ -82,6 +92,7 @@ impl Config {
 
 				if let Some((config_path, format)) = find_single_config(&local_candidates)? {
 					let partial = Self::load_partial(&config_path, format, config_root)?;
+					required_presence.observe_layer(&partial);
 					info!(
 						path = %config_path.display(),
 						format = ?format,
@@ -100,6 +111,7 @@ impl Config {
 				.as_deref()
 				.unwrap_or_else(|| config_path.parent().unwrap_or_else(|| Path::new("")));
 			let partial = Self::load_partial(&config_path, format, config_root)?;
+			required_presence.observe_layer(&partial);
 			info!(
 				path = %config_path.display(),
 				format = ?format,
@@ -110,6 +122,7 @@ impl Config {
 		}
 
 		let mut config = builder.load()?;
+		required_presence.ensure_all_present()?;
 
 		if let Ok(value) = env::var("BIWA_ENV_VARS") {
 			let mut rules = config.env.vars.rules()?;
@@ -201,6 +214,48 @@ impl Config {
 	}
 }
 
+impl RequiredConfigPresence {
+	/// Builds presence flags from environment variables handled by `confique`.
+	fn from_env() -> Self {
+		Self {
+			ssh_host: env::var_os("BIWA_SSH_HOST").is_some(),
+			ssh_user: env::var_os("BIWA_SSH_USER").is_some(),
+		}
+	}
+
+	/// Marks required SSH fields that were present in a preloaded config layer.
+	#[expect(
+		clippy::missing_const_for_fn,
+		reason = "This runtime-only helper should not be coupled to const-evaluation constraints"
+	)]
+	fn observe_layer(&mut self, partial: &<Config as confique::Config>::Layer) {
+		self.ssh_host |= partial.ssh.host.is_some();
+		self.ssh_user |= partial.ssh.user.is_some();
+	}
+
+	/// Fails when any required SSH setting was not supplied by configuration input.
+	fn ensure_all_present(&self) -> Result<()> {
+		let mut missing = Vec::new();
+
+		if !self.ssh_host {
+			missing.push("ssh.host (or BIWA_SSH_HOST)");
+		}
+
+		if !self.ssh_user {
+			missing.push("ssh.user (or BIWA_SSH_USER)");
+		}
+
+		if !missing.is_empty() {
+			bail!(
+				"Missing required configuration values: {}. Set them in a config file or via environment variables.",
+				missing.join(", ")
+			);
+		}
+
+		Ok(())
+	}
+}
+
 /// Expands a tilde (`~`) at the start of a path to the user's home directory.
 fn expand_tilde(path: &Path) -> PathBuf {
 	if let Some(home) = homedir::my_home().ok().flatten()
@@ -261,6 +316,41 @@ mod tests {
 	use std::fs;
 	use tempfile::tempdir;
 
+	fn set_required_ssh_env(host: &str, user: &str) -> (EnvCleanup, EnvCleanup) {
+		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
+		unsafe {
+			env::set_var("BIWA_SSH_HOST", host);
+		}
+		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
+		unsafe {
+			env::set_var("BIWA_SSH_USER", user);
+		}
+
+		(EnvCleanup("BIWA_SSH_HOST"), EnvCleanup("BIWA_SSH_USER"))
+	}
+
+	fn set_required_ssh_user_env(user: &str) -> EnvCleanup {
+		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
+		unsafe {
+			env::set_var("BIWA_SSH_USER", user);
+		}
+
+		EnvCleanup("BIWA_SSH_USER")
+	}
+
+	fn clear_required_ssh_env() -> (EnvCleanup, EnvCleanup) {
+		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
+		unsafe {
+			env::remove_var("BIWA_SSH_HOST");
+		}
+		// SAFETY: This helper is used only by `#[serial]` tests that intentionally mutate env.
+		unsafe {
+			env::remove_var("BIWA_SSH_USER");
+		}
+
+		(EnvCleanup("BIWA_SSH_HOST"), EnvCleanup("BIWA_SSH_USER"))
+	}
+
 	#[serial]
 	#[test]
 	fn default() {
@@ -279,6 +369,7 @@ mod tests {
 	fn env_override() -> Result<()> {
 		let dir = tempdir()?;
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "file""#)?;
+		let _cleanup_user = set_required_ssh_user_env("env-user");
 
 		// Set env var override
 		// SAFETY: This is a single-threaded test context modifying the environment for current process.
@@ -352,6 +443,8 @@ mod tests {
 	#[serial]
 	#[test]
 	fn env_vars_can_be_loaded_from_biwa_env_vars() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
 		// SAFETY: This is a serialized test that mutates the process environment.
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "NODE_ENV");
@@ -368,6 +461,8 @@ mod tests {
 	#[serial]
 	#[test]
 	fn biwa_env_vars_supports_values() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
 		// SAFETY: This is a serialized test that mutates the process environment.
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "NODE_ENV=prod");
@@ -384,6 +479,8 @@ mod tests {
 	#[serial]
 	#[test]
 	fn biwa_env_vars_supports_empty_values() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
 		// SAFETY: This is a serialized test that mutates the process environment.
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "NODE_ENV=");
@@ -401,6 +498,7 @@ mod tests {
 	#[test]
 	fn biwa_env_vars_extends_existing_config_env_vars() -> Result<()> {
 		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 		fs::write(
 			dir.path().join("biwa.toml"),
 			"
@@ -426,6 +524,8 @@ mod tests {
 	#[serial]
 	#[test]
 	fn biwa_env_vars_supports_patterns() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
 		// SAFETY: This is a serialized test that mutates the process environment.
 		unsafe {
 			env::set_var("BIWA_ENV_VARS", "NODE_*");
@@ -444,6 +544,7 @@ mod tests {
 	#[test]
 	fn load_partial_supports_env_vars_table() -> Result<()> {
 		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 		let path = dir.path().join("biwa.toml");
 		fs::write(
 			&path,
@@ -470,6 +571,7 @@ mod tests {
 	#[test]
 	fn load_partial_supports_env_vars_array_of_tables() -> Result<()> {
 		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 		let path = dir.path().join("biwa.toml");
 		fs::write(
 			&path,
@@ -495,6 +597,7 @@ mod tests {
 	#[test]
 	fn load_partial_supports_env_vars_array_of_tables_with_multiple_entries() -> Result<()> {
 		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 		let path = dir.path().join("biwa.toml");
 		fs::write(
 			&path,
@@ -531,6 +634,7 @@ mod tests {
 	#[test]
 	fn load_partial_supports_env_var_patterns_in_array_form() -> Result<()> {
 		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 		let path = dir.path().join("biwa.toml");
 		fs::write(
 			&path,
@@ -555,10 +659,10 @@ mod tests {
 
 	#[rstest]
 	#[serial]
-	#[case::toml("ssh.host = 'toml'", "toml", "toml")]
-	#[case::json(r#"{ "ssh": { "host": "json" } }"#, "json", "json")]
-	#[case::json5("{ ssh: { host: 'json5' } }", "json5", "json5")]
-	#[case::yaml("ssh:\n  host: yaml", "yaml", "yaml")]
+	#[case::toml("ssh.host = 'toml'\nssh.user = 'user'", "toml", "toml")]
+	#[case::json(r#"{ "ssh": { "host": "json", "user": "user" } }"#, "json", "json")]
+	#[case::json5("{ ssh: { host: 'json5', user: 'user' } }", "json5", "json5")]
+	#[case::yaml("ssh:\n  host: yaml\n  user: user", "yaml", "yaml")]
 	fn format_extensions(
 		#[case] content: &str,
 		#[case] ext: &str,
@@ -582,8 +686,14 @@ mod tests {
 		let nested = subdir.join("nested");
 		fs::create_dir_all(&nested)?;
 
-		fs::write(root.join("biwa.toml"), r#"ssh.host = "root""#)?;
-		fs::write(subdir.join("biwa.toml"), r#"ssh.host = "subdir""#)?;
+		fs::write(
+			root.join("biwa.toml"),
+			"ssh.host = \"root\"\nssh.user = \"user\"\n",
+		)?;
+		fs::write(
+			subdir.join("biwa.toml"),
+			"ssh.host = \"subdir\"\nssh.user = \"user\"\n",
+		)?;
 
 		let config = Config::load_internal(None, None, Some(nested).as_ref())?;
 		assert_eq!(config.ssh.host, "subdir");
@@ -594,6 +704,7 @@ mod tests {
 	#[test]
 	fn traversal_stops_at_home() -> Result<()> {
 		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 		let root = dir.path();
 		let home = root.join("home");
 		let project = home.join("project");
@@ -608,7 +719,7 @@ mod tests {
 		let config = Config::load_internal(Some(&home), None, Some(&project))?;
 
 		assert_ne!(config.ssh.host, "outside");
-		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
+		assert_eq!(config.ssh.host, "test-host");
 		Ok(())
 	}
 
@@ -620,7 +731,10 @@ mod tests {
 		let config_home = home.join(".config");
 		fs::create_dir_all(config_home.join("biwa"))?;
 
-		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#)?;
+		fs::write(
+			config_home.join("biwa/config.toml"),
+			"ssh.host = \"xdg\"\nssh.user = \"user\"\n",
+		)?;
 
 		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)?;
 		assert_eq!(config.ssh.host, "xdg");
@@ -637,10 +751,16 @@ mod tests {
 		fs::create_dir_all(&biwa_dir)?;
 
 		// Standard config locatable from 'project' layer
-		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "standard""#)?;
+		fs::write(
+			dot_config.join("biwa.toml"),
+			"ssh.host = \"standard\"\nssh.user = \"user\"\n",
+		)?;
 
 		// Weird config only locatable if '.config' is a layer
-		fs::write(dot_config.join(".biwa.toml"), r#"ssh.host = "weird""#)?;
+		fs::write(
+			dot_config.join(".biwa.toml"),
+			"ssh.host = \"weird\"\nssh.user = \"user\"\n",
+		)?;
 
 		// CWD is .config
 		let config = Config::load_internal(None, None, Some(&dot_config))?;
@@ -654,6 +774,7 @@ mod tests {
 	#[test]
 	fn nested_within_dot_config() -> Result<()> {
 		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
 		let subdir = dot_config.join("subdir");
@@ -671,7 +792,7 @@ mod tests {
 
 		// Should NOT load "weird" because .config dir should be skipped as a layer
 		assert_ne!(config.ssh.host, "weird");
-		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
+		assert_eq!(config.ssh.host, "test-host");
 		Ok(())
 	}
 
@@ -710,6 +831,66 @@ mod tests {
 
 	#[serial]
 	#[test]
+	fn missing_required_config_values_error_when_no_sources_exist() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = clear_required_ssh_env();
+
+		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let err = match result {
+			Err(err) => err.to_string(),
+			Ok(_) => bail!("Expected missing required config values to fail"),
+		};
+
+		assert!(err.contains("ssh.host (or BIWA_SSH_HOST)"));
+		assert!(err.contains("ssh.user (or BIWA_SSH_USER)"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn missing_required_config_values_error_when_partial_file_exists() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = clear_required_ssh_env();
+		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "configured""#)?;
+
+		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let err = match result {
+			Err(err) => err.to_string(),
+			Ok(_) => bail!("Expected missing required config values to fail"),
+		};
+
+		assert!(!err.contains("ssh.host (or BIWA_SSH_HOST)"));
+		assert!(err.contains("ssh.user (or BIWA_SSH_USER)"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn env_vars_can_satisfy_required_ssh_settings_without_files() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = clear_required_ssh_env();
+
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_SSH_HOST", "env-host");
+		}
+		// SAFETY: This is a serialized test that mutates the process environment.
+		unsafe {
+			env::set_var("BIWA_SSH_USER", "env-user");
+		}
+
+		let _cleanup1 = EnvCleanup("BIWA_SSH_HOST");
+		let _cleanup2 = EnvCleanup("BIWA_SSH_USER");
+
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+
+		assert_eq!(config.ssh.host, "env-host");
+		assert_eq!(config.ssh.user, "env-user");
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
 	fn conflict_root_and_dot_config() -> Result<()> {
 		let dir = tempdir()?;
 		// Test multiple "local" configs (one within .config) should fail
@@ -717,7 +898,10 @@ mod tests {
 
 		let dot_config = dir.path().join(".config");
 		fs::create_dir_all(&dot_config)?;
-		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "dotconfig""#)?;
+		fs::write(
+			dot_config.join("biwa.toml"),
+			"ssh.host = \"dotconfig\"\nssh.user = \"user\"\n",
+		)?;
 
 		// Should error because we found >1 config for the same dir scope
 		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
@@ -732,7 +916,10 @@ mod tests {
 		let dot_config = dir.path().join(".config");
 		fs::create_dir_all(&dot_config)?;
 
-		fs::write(dot_config.join("biwa.toml"), r#"ssh.host = "dotconfig""#)?;
+		fs::write(
+			dot_config.join("biwa.toml"),
+			"ssh.host = \"dotconfig\"\nssh.user = \"user\"\n",
+		)?;
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		assert_eq!(config.ssh.host, "dotconfig");
@@ -755,7 +942,10 @@ mod tests {
 
 		// This is a valid global config: ~/biwa.toml
 		// We use this to verify that the other one was indeed ignored and didn't conflict/override.
-		fs::write(home.join("biwa.toml"), r#"ssh.host = "fallback""#)?;
+		fs::write(
+			home.join("biwa.toml"),
+			"ssh.host = \"fallback\"\nssh.user = \"user\"\n",
+		)?;
 
 		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)?;
 
@@ -825,6 +1015,7 @@ remote_root = "libs"
 			r#"
 [ssh]
 host = "child"
+user = "user"
 "#,
 		)?;
 
@@ -844,6 +1035,7 @@ host = "child"
 	#[test]
 	fn local_config_root_dot_config_biwa() -> Result<()> {
 		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 		let project = dir.path().join("project");
 		let dot_config = project.join(".config");
 		fs::create_dir_all(&dot_config)?;
@@ -871,6 +1063,7 @@ remote_root = "libs"
 	#[test]
 	fn global_config_root_home_and_xdg() -> Result<()> {
 		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 		let home = dir.path().join("home");
 		let config_home = home.join(".config");
 		fs::create_dir_all(&home)?;
@@ -929,7 +1122,10 @@ remote_root = "xdg_libs"
 			"[ssh]\nkey_path = \"my_key\"\n",
 		)?;
 		fs::write(parent.path().join("my_key"), "fake key")?;
-		fs::write(child.join("biwa.toml"), "[ssh]\nhost = \"other.host\"\n")?;
+		fs::write(
+			child.join("biwa.toml"),
+			"[ssh]\nhost = \"other.host\"\nuser = \"user\"\n",
+		)?;
 
 		let config = Config::load_internal(None, None, Some(&child))?;
 
