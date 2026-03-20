@@ -204,16 +204,26 @@ impl BufferedWriter {
 	/// Flushes the buffered tracing output into the provided writer.
 	fn write_to(&self, writer: &mut impl io::Write) -> io::Result<()> {
 		let bytes = {
-			let mut buf = self
-				.buf
-				.lock()
-				.map_err(|_e| io::Error::other("failed to acquire buffer lock"))?;
+			let mut buf = match self.buf.lock() {
+				Ok(buf) => buf,
+				Err(_e) => return Ok(()),
+			};
 			mem::take(&mut *buf)
 		};
 
 		if !bytes.is_empty() {
-			writer.write_all(&bytes)?;
-			writer.flush()?;
+			if let Err(error) = writer.write_all(&bytes) {
+				if error.kind() != io::ErrorKind::BrokenPipe {
+					return Err(error);
+				}
+				return Ok(());
+			}
+
+			if let Err(error) = writer.flush()
+				&& error.kind() != io::ErrorKind::BrokenPipe
+			{
+				return Err(error);
+			}
 		}
 
 		Ok(())
@@ -268,6 +278,18 @@ mod tests {
 	impl Drop for CurrentDirGuard {
 		fn drop(&mut self) {
 			let _result = env::set_current_dir(&self.original_dir);
+		}
+	}
+
+	struct BrokenPipeWriter;
+
+	impl io::Write for BrokenPipeWriter {
+		fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+			Err(io::Error::from(io::ErrorKind::BrokenPipe))
+		}
+
+		fn flush(&mut self) -> io::Result<()> {
+			Err(io::Error::from(io::ErrorKind::BrokenPipe))
 		}
 	}
 
@@ -458,6 +480,25 @@ mod tests {
 			output.contains("Loading configuration"),
 			"logs were: {output}"
 		);
+		Ok(())
+	}
+
+	#[test]
+	fn buffered_writer_ignores_broken_pipe() -> Result<()> {
+		let writer = BufferedWriter::default();
+		let subscriber = registry().with(log_targets(0)).with(
+			fmt::layer()
+				.with_ansi(false)
+				.without_time()
+				.with_writer(writer.clone()),
+		);
+
+		subscriber::with_default(subscriber, || {
+			tracing::warn!(target: "biwa::cli::tests", "buffered warning");
+		});
+
+		let mut broken_pipe = BrokenPipeWriter;
+		writer.write_to(&mut broken_pipe)?;
 		Ok(())
 	}
 }
