@@ -11,7 +11,7 @@
 		"@risu729/tsconfigs": "2.0.0",
 		"@types/bun": "1.3.10",
 		"oxc-minify": "0.120.0",
-		"typescript": "6.0.0-dev.20260317",
+		"typescript": "6.0.0-dev.20260318",
 		"vitepress": "2.0.0-alpha.16",
 		"vitepress-plugin-mermaid": "2.0.17",
 		"vue-tsc": "3.2.6",
