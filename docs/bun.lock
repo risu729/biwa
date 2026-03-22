@@ -8,7 +8,7 @@
         "@risu729/tsconfigs": "2.0.0",
         "@types/bun": "1.3.11",
         "oxc-minify": "0.121.0",
-        "typescript": "6.0.0-dev.20260318",
+        "typescript": "6.0.0-dev.20260319",
         "vitepress": "2.0.0-alpha.16",
         "vitepress-plugin-mermaid": "2.0.17",
         "vue-tsc": "3.2.6",
@@ -714,7 +714,7 @@
 
     "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
 
-    "typescript": ["typescript@6.0.0-dev.20260318", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-PQ57E8YNjaplLBN3mKiU+/Be06ZHPcYL2ythAaAp81hfpit/uzqYUb6UDcutrf467egC28wV3pBRRMJQ6tF37w=="],
+    "typescript": ["typescript@6.0.0-dev.20260319", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-cPKC2xbgwa6CfD0IZ2ri818t0tkJdx2S+HCsFtO+n+H7ElNu0XecKUEgjzzq9dBeRWvuVXbk4Gfr98pQSOXtCA=="],
 
     "ufo": ["ufo@1.6.3", "", {}, "sha512-yDJTmhydvl5lJzBmy/hyOAA0d+aqCBuwl818haVdYCRrWV84o7YyeVm4QlVHStqNrrJSTb6jKuFAVqAFsr+K3Q=="],
 
