@@ -22,7 +22,7 @@ extern crate alloc;
 )]
 pub type Result<T> = color_eyre::Result<T>;
 
-/// Local cache for connection tracking.
+/// Local state for connection tracking (`$XDG_STATE_HOME/biwa` by default).
 mod cache;
 /// CLI commands and parsing.
 mod cli;

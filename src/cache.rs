@@ -40,34 +40,34 @@ const CACHE_FILE: &str = "connections.json";
 /// PID filename for the background cleanup daemon.
 pub const PID_FILE: &str = "clean.pid";
 
-/// Returns the biwa cache directory.
+/// Returns the biwa state directory (XDG state).
 ///
-/// Priority: `$BIWA_CACHE_DIR` > `$XDG_CACHE_HOME/biwa` > `~/.cache/biwa`.
+/// Priority: `$BIWA_STATE_DIR` > `$XDG_STATE_HOME/biwa` > `~/.local/state/biwa`.
 #[must_use]
-pub fn cache_dir() -> PathBuf {
-	if let Ok(dir) = env::var("BIWA_CACHE_DIR") {
+pub fn state_dir() -> PathBuf {
+	if let Ok(dir) = env::var("BIWA_STATE_DIR") {
 		return PathBuf::from(dir);
 	}
-	dirs::cache_dir()
-		.unwrap_or_else(|| {
+	dirs::state_dir()
+		.or_else(|| {
 			homedir::my_home()
 				.ok()
 				.flatten()
-				.unwrap_or_else(|| PathBuf::from("~"))
-				.join(".cache")
+				.map(|home| home.join(".local/state"))
 		})
+		.unwrap_or_else(|| PathBuf::from("~").join(".local/state"))
 		.join("biwa")
 }
 
-/// Returns the path to the cache file.
+/// Returns the path to the connections file.
 fn cache_file_path() -> PathBuf {
-	cache_dir().join(CACHE_FILE)
+	state_dir().join(CACHE_FILE)
 }
 
 /// Returns the path to the PID file for the cleanup daemon.
 #[must_use]
 pub fn pid_file_path() -> PathBuf {
-	cache_dir().join(PID_FILE)
+	state_dir().join(PID_FILE)
 }
 
 /// Loads the cache from disk, returning an empty cache if the file does not exist.
@@ -249,7 +249,7 @@ mod tests {
 	#[serial]
 	fn record_and_load_connection() {
 		let dir = tempfile::tempdir().unwrap();
-		let _cleanup = EnvCleanup::set("BIWA_CACHE_DIR", dir.path().to_str().unwrap());
+		let _cleanup = EnvCleanup::set("BIWA_STATE_DIR", dir.path().to_str().unwrap());
 
 		record_connection("host", "user", 22, "/remote/dir").unwrap();
 		let cache = load_cache().unwrap();
@@ -263,7 +263,7 @@ mod tests {
 	#[serial]
 	fn upsert_updates_timestamp() {
 		let dir = tempfile::tempdir().unwrap();
-		let _cleanup = EnvCleanup::set("BIWA_CACHE_DIR", dir.path().to_str().unwrap());
+		let _cleanup = EnvCleanup::set("BIWA_STATE_DIR", dir.path().to_str().unwrap());
 
 		record_connection("host", "user", 22, "/remote/dir").unwrap();
 		let cache1 = load_cache().unwrap();
@@ -281,7 +281,7 @@ mod tests {
 	#[serial]
 	fn stale_connections_filters_by_age() {
 		let dir = tempfile::tempdir().unwrap();
-		let _cleanup = EnvCleanup::set("BIWA_CACHE_DIR", dir.path().to_str().unwrap());
+		let _cleanup = EnvCleanup::set("BIWA_STATE_DIR", dir.path().to_str().unwrap());
 
 		let mut cache = Cache::default();
 		cache.connections.push(CachedConnection {
@@ -307,7 +307,7 @@ mod tests {
 	#[serial]
 	fn remove_connections_from_cache() {
 		let dir = tempfile::tempdir().unwrap();
-		let _cleanup = EnvCleanup::set("BIWA_CACHE_DIR", dir.path().to_str().unwrap());
+		let _cleanup = EnvCleanup::set("BIWA_STATE_DIR", dir.path().to_str().unwrap());
 
 		record_connection("host", "user", 22, "/dir1").unwrap();
 		record_connection("host", "user", 22, "/dir2").unwrap();
