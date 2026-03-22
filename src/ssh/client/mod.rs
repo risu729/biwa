@@ -73,9 +73,9 @@ impl Client {
 		let Some(mut handle) = connect_res else {
 			match last_err {
 				Some(err) => {
-					return Err(err.wrap_err(
-						format!("Could not connect to any address for {addr:?}")
-					));
+					return Err(
+						err.wrap_err(format!("Could not connect to any address for {addr:?}"))
+					);
 				}
 				None => {
 					return Err(color_eyre::eyre::eyre!(

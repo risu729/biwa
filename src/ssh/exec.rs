@@ -76,7 +76,9 @@ pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 			Ok(c) => break c,
 			Err(e) if retries > 0 => {
 				let err_msg = e.to_string();
-				if err_msg.contains("authentication failed") || err_msg.contains("has no identities") {
+				if err_msg.contains("authentication failed")
+					|| err_msg.contains("has no identities")
+				{
 					return Err(e).wrap_err_with(|| {
 						format!("Failed to authenticate as {}@{}", ssh.user, ssh.host)
 					});
