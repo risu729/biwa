@@ -196,9 +196,21 @@ pub fn remove_pid_file() {
 }
 
 /// Returns `true` if a cleanup daemon is currently running.
+///
+/// Uses `kill(pid, 0)` to probe the process. `ESRCH` means the process does
+/// not exist; any other error (including `EPERM`) is treated as "still running"
+/// to avoid accidentally spawning a second daemon.
 #[must_use]
 pub fn is_daemon_running() -> bool {
-	read_daemon_pid().is_some_and(|pid| signal::kill(Pid::from_raw(pid), None).is_ok())
+	read_daemon_pid().is_some_and(|pid| {
+		match signal::kill(Pid::from_raw(pid), None) {
+			Ok(()) => true,
+			// ESRCH: no such process — definitely not running.
+			Err(nix::errno::Errno::ESRCH) => false,
+			// EPERM or other errors: process exists but we cannot signal it.
+			Err(_) => true,
+		}
+	})
 }
 
 /// Reads the daemon PID from the PID file.

@@ -69,7 +69,7 @@
         "auto": {
           "description": "Enable automatic background cleanup after `run`/`sync`.",
           "type": "boolean",
-          "default": false
+          "default": true
         },
         "max_age": {
           "description": "Hard age limit: directories older than this are always removed during auto-cleanup.\nInternally stored as the 0% quota threshold.\nAccepts duration strings like \"30d\", \"12h\", \"45m\", \"60s\" or a plain number (= minutes).",

@@ -121,6 +121,12 @@ mod schema_defaults {
 	pub const fn max_files_to_sync() -> usize {
 		100
 	}
+
+	/// Default for `CleanConfig::auto` in schema.
+	#[must_use]
+	pub const fn clean_auto() -> bool {
+		true
+	}
 }
 
 /// Root configuration struct for biwa.
@@ -341,7 +347,7 @@ pub struct CleanConfig {
 
 	/// Enable automatic background cleanup after `run`/`sync`.
 	#[config(default = true, env = "BIWA_CLEAN_AUTO")]
-	#[schemars(default)]
+	#[schemars(default = "crate::config::types::schema_defaults::clean_auto")]
 	pub auto: bool,
 
 	/// Quota-based cleanup thresholds.

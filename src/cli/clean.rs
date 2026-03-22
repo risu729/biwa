@@ -169,14 +169,18 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 	for dir in &dirs_to_remove {
 		let client_clone = client.clone();
 		let dir_clone = dir.clone();
-		join_set.spawn(async move { remove_remote_dir(&client_clone, &dir_clone).await });
+		join_set.spawn(async move {
+			let result = remove_remote_dir(&client_clone, &dir_clone).await;
+			(dir_clone, result)
+		});
 	}
 
 	let mut errors = 0_usize;
+	let mut succeeded: Vec<String> = Vec::new();
 	while let Some(result) = join_set.join_next().await {
 		match result {
-			Ok(Ok(())) => {}
-			Ok(Err(e)) => {
+			Ok((dir, Ok(()))) => succeeded.push(dir),
+			Ok((_, Err(e))) => {
 				warn!(error = %e, "Failed to remove a remote directory");
 				errors = errors.saturating_add(1);
 			}
@@ -187,15 +191,15 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 		}
 	}
 
-	// Remove all successfully cleaned entries from cache.
-	let dir_refs: Vec<&str> = dirs_to_remove.iter().map(String::as_str).collect();
+	// Only remove successfully deleted entries from cache.
+	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections(&dir_refs)?;
 
 	if !quiet {
 		eprintln!(
 			"{} Cleaned {} remote directories ({} errors)",
 			style("✓").green().bold(),
-			dirs_to_remove.len().saturating_sub(errors),
+			succeeded.len(),
 			errors
 		);
 	}
@@ -233,14 +237,18 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 	for path in &full_paths {
 		let client_clone = client.clone();
 		let path_clone = path.clone();
-		join_set.spawn(async move { remove_remote_dir(&client_clone, &path_clone).await });
+		join_set.spawn(async move {
+			let result = remove_remote_dir(&client_clone, &path_clone).await;
+			(path_clone, result)
+		});
 	}
 
 	let mut errors = 0_usize;
+	let mut succeeded: Vec<String> = Vec::new();
 	while let Some(result) = join_set.join_next().await {
 		match result {
-			Ok(Ok(())) => {}
-			Ok(Err(e)) => {
+			Ok((path, Ok(()))) => succeeded.push(path),
+			Ok((_, Err(e))) => {
 				warn!(error = %e, "Failed to remove a remote directory");
 				errors = errors.saturating_add(1);
 			}
@@ -251,15 +259,15 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 		}
 	}
 
-	// Remove matching entries from cache.
-	let dir_refs: Vec<&str> = full_paths.iter().map(String::as_str).collect();
+	// Only remove successfully deleted entries from cache.
+	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections(&dir_refs)?;
 
 	if !quiet {
 		eprintln!(
 			"{} Purged {} directories under {remote_root} ({} errors)",
 			style("✓").green().bold(),
-			full_paths.len().saturating_sub(errors),
+			succeeded.len(),
 			errors
 		);
 	}
@@ -363,14 +371,18 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 	for dir in &stale_dirs {
 		let client_clone = client.clone();
 		let dir_clone = dir.clone();
-		join_set.spawn(async move { remove_remote_dir(&client_clone, &dir_clone).await });
+		join_set.spawn(async move {
+			let result = remove_remote_dir(&client_clone, &dir_clone).await;
+			(dir_clone, result)
+		});
 	}
 
 	let mut errors = 0_usize;
+	let mut succeeded: Vec<String> = Vec::new();
 	while let Some(result) = join_set.join_next().await {
 		match result {
-			Ok(Ok(())) => {}
-			Ok(Err(e)) => {
+			Ok((dir, Ok(()))) => succeeded.push(dir),
+			Ok((_, Err(e))) => {
 				warn!(error = %e, "Failed to remove a stale directory");
 				errors = errors.saturating_add(1);
 			}
@@ -381,12 +393,12 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 		}
 	}
 
-	// Remove cleaned entries from cache.
-	let dir_refs: Vec<&str> = stale_dirs.iter().map(String::as_str).collect();
+	// Only remove successfully deleted entries from cache.
+	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections(&dir_refs)?;
 
 	info!(
-		removed = stale_dirs.len().saturating_sub(errors),
+		removed = succeeded.len(),
 		errors, "Background cleanup completed"
 	);
 
