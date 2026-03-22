@@ -2,6 +2,7 @@ use crate::Result;
 use chrono::{DateTime, Utc};
 use color_eyre::eyre::Context as _;
 use core::time::Duration;
+use nix::errno::Errno;
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
@@ -204,11 +205,10 @@ pub fn remove_pid_file() {
 pub fn is_daemon_running() -> bool {
 	read_daemon_pid().is_some_and(|pid| {
 		match signal::kill(Pid::from_raw(pid), None) {
-			Ok(()) => true,
 			// ESRCH: no such process — definitely not running.
-			Err(nix::errno::Errno::ESRCH) => false,
-			// EPERM or other errors: process exists but we cannot signal it.
-			Err(_) => true,
+			Err(Errno::ESRCH) => false,
+			// Ok or any other error (e.g. EPERM): process exists.
+			Ok(()) | Err(_) => true,
 		}
 	})
 }
