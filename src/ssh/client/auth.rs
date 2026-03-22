@@ -1,11 +1,26 @@
 use crate::Result;
 use alloc::sync::Arc;
-use color_eyre::eyre::{Context as _, bail};
+use color_eyre::eyre::{Context as _, Report};
+use core::error::Error as StdError;
 use core::fmt;
 use russh::client::{Handle, Handler};
 use russh::keys::agent::client::AgentClient;
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
 use std::path::{Path, PathBuf};
+
+/// Marker error for SSH authentication failures.
+///
+/// Returned from [`authenticate`] so callers can detect auth failures without matching error strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthenticationFailed;
+
+impl fmt::Display for AuthenticationFailed {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.write_str("SSH authentication failed")
+	}
+}
+
+impl StdError for AuthenticationFailed {}
 
 /// An authentication token.
 ///
@@ -72,7 +87,8 @@ pub(super) async fn authenticate<H: Handler>(
 		Method::Password(password) => {
 			let is_authenticated = handle.authenticate_password(username, password).await?;
 			if !is_authenticated.success() {
-				bail!("Password authentication failed");
+				return Err(Report::from(AuthenticationFailed))
+					.wrap_err("Password authentication failed");
 			}
 		}
 		Method::PrivateKeyFile {
@@ -91,7 +107,8 @@ pub(super) async fn authenticate<H: Handler>(
 				.await?;
 
 			if !is_authenticated.success() {
-				bail!("Key authentication failed");
+				return Err(Report::from(AuthenticationFailed))
+					.wrap_err("Key authentication failed");
 			}
 		}
 		Method::Agent => {
@@ -104,7 +121,8 @@ pub(super) async fn authenticate<H: Handler>(
 				.wrap_err("Failed to request identities from agent")?;
 
 			if identities.is_empty() {
-				bail!("SSH agent has no identities");
+				return Err(Report::from(AuthenticationFailed))
+					.wrap_err("SSH agent has no identities");
 			}
 
 			let mut authenticated = false;
@@ -120,7 +138,8 @@ pub(super) async fn authenticate<H: Handler>(
 			}
 
 			if !authenticated {
-				bail!("Agent authentication failed");
+				return Err(Report::from(AuthenticationFailed))
+					.wrap_err("Agent authentication failed");
 			}
 		}
 	}
