@@ -1,4 +1,3 @@
-use super::exec::connect;
 use crate::Result;
 use crate::config::types::{Config, SftpPermissions, SyncEngine};
 use crate::ssh::client::Client;
@@ -782,6 +781,7 @@ async fn apply_sync_actions(
 /// Synchronizes a project to a remote server.
 #[expect(clippy::module_name_repetitions, reason = "No better name exists")]
 pub async fn sync_project(
+	client: &Client,
 	config: &Config,
 	project_root: &Path,
 	options: &Options,
@@ -792,12 +792,12 @@ pub async fn sync_project(
 		bail!("Only SFTP sync engine is currently supported");
 	}
 	info!(
-		project_root = %project_root.display(),
-		force = options.force,
-		include_patterns = options.include.len(),
-		exclude_patterns = options.exclude.len(),
-		has_remote_override = remote_dir_override.is_some(),
-		"Starting project synchronization"
+			project_root = %project_root.display(),
+			force = options.force,
+			include_patterns = options.include.len(),
+			exclude_patterns = options.exclude.len(),
+			has_remote_override = remote_dir_override.is_some(),
+			"Starting project synchronization"
 	);
 
 	let unique_project_name = compute_unique_project_name(project_root)?;
@@ -817,8 +817,6 @@ pub async fn sync_project(
 	);
 	ensure_sync_file_limit(local_state.files.len(), config.sync.sftp.max_files_to_sync)?;
 
-	let client = connect(config, quiet).await?;
-
 	let spinner = if quiet {
 		None
 	} else {
@@ -837,7 +835,7 @@ pub async fn sync_project(
 		String::from,
 	);
 
-	let remote_state = fetch_remote_state(&client, config, &remote_dir).await?;
+	let remote_state = fetch_remote_state(client, config, &remote_dir).await?;
 	debug!(
 		remote_dir = %remote_dir,
 		remote_directories = remote_state.directories.len(),
@@ -861,7 +859,7 @@ pub async fn sync_project(
 	);
 
 	apply_sync_actions(
-		&client,
+		client,
 		config,
 		SyncTarget {
 			project_root,

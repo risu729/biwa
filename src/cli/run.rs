@@ -3,7 +3,7 @@ use crate::cli::sync::SyncArgs;
 use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
 use crate::{
-	ssh::exec::execute_command,
+	ssh::exec::{connect, execute_command},
 	ssh::sync::{compute_project_remote_dir, sync_project},
 };
 use clap::Args;
@@ -62,9 +62,12 @@ pub(super) async fn run_remote(
 ) -> Result<()> {
 	let sync_root = sync_args.resolve_sync_root(config)?;
 
+	let client = connect(config, quiet || silent).await?;
+
 	if should_sync {
 		let options = sync_args.resolve_options();
 		sync_project(
+			&client,
 			config,
 			&sync_root,
 			&options,
@@ -84,6 +87,7 @@ pub(super) async fn run_remote(
 	};
 
 	execute_command(
+		&client,
 		config,
 		remote_command.command,
 		remote_command.command_args,
@@ -95,7 +99,6 @@ pub(super) async fn run_remote(
 	.await?;
 	Ok(())
 }
-
 impl Run {
 	/// Determines whether synchronization should be performed before running the command.
 	const fn should_sync(&self, config_sync_auto: bool) -> bool {

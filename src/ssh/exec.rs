@@ -69,7 +69,7 @@ struct RunCommandOptions<'a> {
 }
 
 /// Connect to the SSH server using the resolved authentication method.
-pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
+pub async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 	let auth_method = resolve_auth(config)?;
 	let ssh = &config.ssh;
 
@@ -411,7 +411,12 @@ async fn run_command(
 ///
 /// If `working_dir` is set, the command executes inside that remote directory.
 /// Returns the exit code of the remote command.
+#[expect(
+	clippy::too_many_arguments,
+	reason = "Internal execution helper with many settings"
+)]
 pub async fn execute_command(
+	client: &Client,
 	config: &Config,
 	command: &str,
 	args: &[String],
@@ -428,11 +433,10 @@ pub async fn execute_command(
 		silent,
 		"Starting remote command execution"
 	);
-	let client = connect(config, quiet || silent).await?;
 	let full_command = build_command(command, args);
 	let env_vars = resolve_env_vars(config, cli_env_vars)?;
 	run_command(
-		&client,
+		client,
 		&full_command,
 		&env_vars,
 		&config.env.forward_method,

@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::config::types::Config;
+use crate::ssh::exec::connect;
 use crate::ssh::sync::{Options, sync_project};
 use clap::Args;
 use std::env;
@@ -83,7 +84,9 @@ impl Sync {
 		let config = Config::load()?;
 		let sync_root = self.sync_args.resolve_sync_root(&config)?;
 		let options = self.sync_args.resolve_options();
+		let client = connect(&config, quiet).await?;
 		sync_project(
+			&client,
 			&config,
 			&sync_root,
 			&options,
