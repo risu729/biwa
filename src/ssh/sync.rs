@@ -1,8 +1,8 @@
 use super::exec::connect;
 use crate::Result;
 use crate::config::types::{Config, SftpPermissions, SyncEngine};
+use crate::ssh::client::Client;
 use crate::ui::create_spinner;
-use async_ssh2_tokio::client::Client;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
 use console::style;
 use core::mem::take;
@@ -607,9 +607,10 @@ async fn create_remote_directories(
 }
 
 /// Uploads a file to a remote SFTP server using an existing session.
-/// We provide our own upload method because `async-ssh2-tokio`'s `upload_file`
-/// creates a new channel for every file and does not allow specifying file attributes (like permissions)
-/// atomically on creation, leading to race conditions where sensitive files might be readable.
+///
+/// We provide our own upload method so we can set file attributes atomically on
+/// creation (`open_with_flags_and_attributes`), avoiding races where sensitive
+/// files might be briefly world-readable.
 async fn upload_file(
 	sftp: &SftpSession,
 	local_path: &Path,

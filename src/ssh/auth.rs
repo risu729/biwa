@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::config::types::Config;
 use crate::config::types::PasswordConfig;
-use async_ssh2_tokio::client::AuthMethod;
+use crate::ssh::client::auth::Method;
 use color_eyre::eyre::bail;
 use dialoguer::Password;
 use russh::keys::{Error as RusshKeysError, load_secret_key};
@@ -19,7 +19,7 @@ const DEFAULT_KEY_PATHS: &[&str] = &["~/.ssh/id_ed25519", "~/.ssh/id_rsa"];
 /// 2. Explicit password (`ssh.password = "..."` or `ssh.password = true` for prompt)
 /// 3. Default key file discovery (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`)
 /// 4. SSH Agent (fallback for zero-config users)
-pub(super) fn resolve_auth(config: &Config) -> Result<AuthMethod> {
+pub(super) fn resolve_auth(config: &Config) -> Result<Method> {
 	let ssh = &config.ssh;
 
 	// 1. Explicit key_path (paths are already resolved natively by confique)
@@ -35,14 +35,14 @@ pub(super) fn resolve_auth(config: &Config) -> Result<AuthMethod> {
 	match &ssh.password {
 		PasswordConfig::Value(password) => {
 			info!("Using password authentication from config");
-			return Ok(AuthMethod::with_password(password));
+			return Ok(Method::with_password(password));
 		}
 		PasswordConfig::Interactive(true) => {
 			info!("Prompting for password (ssh.password = true)");
 			let password = Password::new()
 				.with_prompt(format!("Password for {}@{}", ssh.user, ssh.host))
 				.interact()?;
-			return Ok(AuthMethod::with_password(&password));
+			return Ok(Method::with_password(&password));
 		}
 		PasswordConfig::Interactive(false) => {
 			debug!("Password authentication disabled");
@@ -58,7 +58,7 @@ pub(super) fn resolve_auth(config: &Config) -> Result<AuthMethod> {
 	// 4. SSH Agent as last resort (for zero-config users)
 	if try_agent(env::var("SSH_AUTH_SOCK").ok().as_deref()) {
 		info!("Using SSH agent authentication");
-		return Ok(AuthMethod::with_agent());
+		return Ok(Method::with_agent());
 	}
 
 	bail!(
@@ -68,7 +68,7 @@ pub(super) fn resolve_auth(config: &Config) -> Result<AuthMethod> {
 }
 
 /// Load an SSH key from the given path, prompting for a passphrase if needed.
-fn load_key(path: &Path) -> Result<AuthMethod> {
+fn load_key(path: &Path) -> Result<Method> {
 	let path_str = path.to_string_lossy();
 	match load_secret_key(path_str.as_ref(), None) {
 		Err(RusshKeysError::KeyIsEncrypted) => {
@@ -76,15 +76,12 @@ fn load_key(path: &Path) -> Result<AuthMethod> {
 			let passphrase = Password::new()
 				.with_prompt(format!("Passphrase for {}", path.display()))
 				.interact()?;
-			Ok(AuthMethod::with_key_file(
-				path_str.as_ref(),
-				Some(&passphrase),
-			))
+			Ok(Method::with_key_file(path_str.as_ref(), Some(&passphrase)))
 		}
 		_ => {
 			// If it succeeds, or fails with any other error (e.g. invalid format),
 			// we let the actual SSH connection attempt handle it and report the error.
-			Ok(AuthMethod::with_key_file(path_str.as_ref(), None))
+			Ok(Method::with_key_file(path_str.as_ref(), None))
 		}
 	}
 }
@@ -145,7 +142,7 @@ mod tests {
 		config.ssh.key_path = Some(key_file);
 
 		let method = resolve_auth(&config)?;
-		assert_matches!(method, AuthMethod::PrivateKeyFile { .. });
+		assert_matches!(method, Method::PrivateKeyFile { .. });
 		Ok(())
 	}
 
@@ -188,7 +185,7 @@ mod tests {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Value("secret".to_owned());
 		let method = resolve_auth(&config)?;
-		assert_matches!(method, AuthMethod::Password(_));
+		assert_matches!(method, Method::Password(_));
 		Ok(())
 	}
 
@@ -201,10 +198,7 @@ mod tests {
 		// Without explicit password, it may fall back to agent or key, or fail
 		// — but it must not use Password auth (password = false means skip password)
 		if let Ok(method) = result {
-			assert_matches!(
-				method,
-				AuthMethod::PrivateKeyFile { .. } | AuthMethod::Agent
-			);
+			assert_matches!(method, Method::PrivateKeyFile { .. } | Method::Agent);
 		}
 	}
 }

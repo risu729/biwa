@@ -152,19 +152,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async-ssh2-tokio"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bedb4cd98079c0ec1a23af90ed3383f8ba794894ed05c486451b06121a9db2b1"
-dependencies = [
- "log",
- "russh",
- "russh-sftp",
- "thiserror 2.0.18",
- "tokio",
-]
-
-[[package]]
 name = "autocfg"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -221,7 +208,6 @@ dependencies = [
 name = "biwa"
 version = "0.1.0"
 dependencies = [
- "async-ssh2-tokio",
  "bytes",
  "clap",
  "color-eyre",

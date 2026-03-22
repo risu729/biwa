@@ -6,12 +6,15 @@ use crate::env_vars::{
 	EnvForwardMethod, EnvVarRule, EnvVarSource, is_environment_dependent_env_var,
 	local_env_var_names, resolve_env_var_rules,
 };
+use crate::ssh::client::Client;
+use crate::ssh::client::auth::AuthenticationFailed;
+use crate::ssh::client::execute::await_channel_confirmation;
 use crate::ui::create_spinner;
-use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use bytes::Bytes;
-use color_eyre::eyre::{Context as _, bail};
+use color_eyre::eyre::{Context as _, Report, bail};
 use console::style;
 use core::time::Duration;
+use indicatif::ProgressBar;
 use russh::{Channel, ChannelMsg, Pty, client::Msg};
 use std::env;
 use std::io::{Error as IoError, IsTerminal as _, Read as _, stdin as std_stdin};
@@ -23,6 +26,23 @@ use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::io::StreamReader;
 use tracing::{debug, info, warn};
+
+/// Clears the spinner on drop so early returns and errors do not leave a stuck spinner.
+struct SpinnerGuard(Option<ProgressBar>);
+
+impl Drop for SpinnerGuard {
+	fn drop(&mut self) {
+		if let Some(s) = self.0.take() {
+			s.finish_and_clear();
+		}
+	}
+}
+
+/// Returns true when `report` includes the structured authentication failure marker (including
+/// context added via `wrap_err`).
+fn report_is_authentication_failure(report: &Report) -> bool {
+	report.downcast_ref::<AuthenticationFailed>().is_some()
+}
 
 /// Resolved environment variable to send remotely.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,6 +82,8 @@ pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 		)))
 	};
 
+	let _spinner_cleanup = SpinnerGuard(spinner);
+
 	let mut retries = 3_usize;
 	let mut delay = Duration::from_millis(500);
 
@@ -70,12 +92,16 @@ pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 			(ssh.host.as_str(), ssh.port),
 			ssh.user.as_str(),
 			auth_method.clone(),
-			ServerCheckMethod::NoCheck,
 		)
 		.await
 		{
 			Ok(c) => break c,
 			Err(e) if retries > 0 => {
+				if report_is_authentication_failure(&e) {
+					return Err(e).wrap_err_with(|| {
+						format!("Failed to authenticate as {}@{}", ssh.user, ssh.host)
+					});
+				}
 				debug!(
 					error = %e,
 					retry_delay_ms = delay.as_millis(),
@@ -97,7 +123,6 @@ pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 		}
 	};
 
-	spinner.as_ref().inspect(|s| s.finish_and_clear());
 	info!(
 		host = %ssh.host,
 		port = ssh.port,
@@ -504,28 +529,6 @@ async fn execute_with_forward_method(
 	}
 }
 
-/// Waits for the SSH server to accept or reject a channel request.
-async fn await_channel_confirmation(channel: &mut Channel<Msg>, request_name: &str) -> Result<()> {
-	loop {
-		match channel.wait().await {
-			Some(ChannelMsg::Success) => {
-				break;
-			}
-			Some(ChannelMsg::Failure) => {
-				bail!("SSH server rejected {request_name}");
-			}
-			Some(_message) => {
-				// Ignore unrelated channel messages and keep waiting for Success/Failure.
-			}
-			None => {
-				bail!("SSH channel closed before {request_name} confirmation was received");
-			}
-		}
-	}
-
-	Ok(())
-}
-
 /// Streams SSH channel stdout/stderr into local output buffers until exit.
 async fn stream_channel_output(
 	mut channel: Channel<Msg>,
@@ -606,9 +609,17 @@ mod tests {
 	use super::*;
 	use crate::config::types::EnvConfig;
 	use crate::env_vars::{EnvForwardMethod, EnvVarRule, EnvVarSelector, EnvVarSpec, EnvVars};
+	use crate::ssh::client::auth::AuthenticationFailed;
 	use crate::testing::EnvCleanup;
+	use color_eyre::eyre::Report;
 	use pretty_assertions::assert_eq;
 	use serial_test::serial;
+
+	#[test]
+	fn report_is_authentication_failure_detects_wrapped_auth_error() {
+		let report = Report::from(AuthenticationFailed).wrap_err("Password authentication failed");
+		assert!(super::report_is_authentication_failure(&report));
+	}
 
 	#[test]
 	fn build_command_no_args() {
