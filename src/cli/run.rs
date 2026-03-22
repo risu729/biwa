@@ -1,4 +1,6 @@
 use crate::Result;
+use crate::cache;
+use crate::cli::clean::spawn_background_cleanup;
 use crate::cli::sync::SyncArgs;
 use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
@@ -7,6 +9,7 @@ use crate::{
 	ssh::sync::{compute_project_remote_dir, sync_project},
 };
 use clap::Args;
+use tracing::warn;
 
 /// Run a command on the CSE server.
 #[derive(Args, Debug)]
@@ -100,6 +103,23 @@ pub(super) async fn run_remote(
 		},
 	)
 	.await?;
+
+	// Record the connection in the local cache.
+	if let Err(e) = cache::record_connection(
+		&config.ssh.host,
+		&config.ssh.user,
+		config.ssh.port,
+		working_dir,
+	) {
+		warn!(error = %e, "Failed to record connection in cache");
+	}
+
+	// Spawn background cleanup daemon if enabled.
+	if config.clean.auto
+		&& let Err(e) = spawn_background_cleanup() {
+			warn!(error = %e, "Failed to spawn background cleanup");
+		}
+
 	Ok(())
 }
 impl Run {

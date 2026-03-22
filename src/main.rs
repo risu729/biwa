@@ -22,10 +22,14 @@ extern crate alloc;
 )]
 pub type Result<T> = color_eyre::Result<T>;
 
+/// Local cache for connection tracking.
+mod cache;
 /// CLI commands and parsing.
 mod cli;
 /// Configuration loading and definitions.
 mod config;
+/// Duration parsing for human-readable time values.
+mod duration;
 /// Environment variable parsing and forward.
 mod env_vars;
 /// SSH execution logic.

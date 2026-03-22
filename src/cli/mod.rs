@@ -9,6 +9,8 @@ use tracing_subscriber::{
 	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
 };
 
+/// Cleanup of stale remote directories.
+mod clean;
 /// Shell completion generation command.
 mod completion;
 /// Configuration initialization command.
@@ -65,6 +67,8 @@ enum Commands {
 	Run(run::Run),
 	/// Synchronize files to remote host.
 	Sync(sync::Sync),
+	/// Clean stale remote project directories.
+	Clean(clean::Clean),
 	/// Initialize a biwa configuration file.
 	Init(init::Init),
 	/// Generate the JSON schema for the configuration.
@@ -84,6 +88,7 @@ pub async fn run() -> Result<()> {
 	match cli.command {
 		Some(Commands::Run(cmd)) => cmd.run(output_mode.quiet, output_mode.silent).await?,
 		Some(Commands::Sync(cmd)) => cmd.run(output_mode.quiet).await?,
+		Some(Commands::Clean(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Init(cmd)) => cmd.run()?,
 		Some(Commands::Schema(cmd)) => cmd.run()?,
 		Some(Commands::Completion(cmd)) => cmd.run()?,

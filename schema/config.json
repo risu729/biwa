@@ -4,6 +4,15 @@
   "description": "Root configuration struct for biwa.",
   "type": "object",
   "properties": {
+    "clean": {
+      "description": "Cleanup configuration for stale remote directories.",
+      "$ref": "#/$defs/CleanConfig",
+      "default": {
+        "auto": true,
+        "max_age": "30days",
+        "quota_thresholds": {}
+      }
+    },
     "env": {
       "description": "Environment variables configuration.",
       "$ref": "#/$defs/EnvConfig",
@@ -53,6 +62,33 @@
     }
   },
   "$defs": {
+    "CleanConfig": {
+      "description": "Cleanup configuration for stale remote directories.",
+      "type": "object",
+      "properties": {
+        "auto": {
+          "description": "Enable automatic background cleanup after `run`/`sync`.",
+          "type": "boolean",
+          "default": false
+        },
+        "max_age": {
+          "description": "Hard age limit: directories older than this are always removed during auto-cleanup.\nInternally stored as the 0% quota threshold.\nAccepts duration strings like \"30d\", \"12h\", \"45m\", \"60s\" or a plain number (= minutes).",
+          "$ref": "#/$defs/HumanDuration",
+          "default": "30days"
+        },
+        "quota_thresholds": {
+          "description": "Quota-based cleanup thresholds.\n\nKeys are disk quota usage percentages (0-100), values are maximum directory ages.\nWhen quota usage exceeds a threshold percentage, directories older than the\ncorresponding age are removed. The `max_age` value is merged as the 0% threshold.\n\nExample: `{ 80 = \"5d\" }` means clean dirs older than 5 days when quota ≥ 80%.",
+          "type": "object",
+          "additionalProperties": false,
+          "default": {},
+          "patternProperties": {
+            "^\\d+$": {
+              "$ref": "#/$defs/HumanDuration"
+            }
+          }
+        }
+      }
+    },
     "EnvConfig": {
       "description": "Environment settings.",
       "type": "object",
@@ -151,6 +187,9 @@
           ]
         }
       }
+    },
+    "HumanDuration": {
+      "type": "string"
     },
     "PasswordConfig": {
       "description": "Password authentication configuration.\n\n- `false` (default): No password authentication.\n- `true`: Interactively prompt for a password.\n- `\"string\"`: Use the provided password value.",

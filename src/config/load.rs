@@ -396,6 +396,11 @@ mod tests {
 		  "hooks": {
 		    "pre_sync": null,
 		    "post_sync": null
+		  },
+		  "clean": {
+		    "max_age": "30days",
+		    "auto": true,
+		    "quota_thresholds": {}
 		  }
 		}
 		"#);
