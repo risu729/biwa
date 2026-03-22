@@ -69,7 +69,8 @@ struct RunCommandOptions<'a> {
 }
 
 /// Connect to the SSH server using the resolved authentication method.
-pub async fn connect(config: &Config, quiet: bool) -> Result<Client> {
+#[expect(clippy::redundant_pub_crate, reason = "Preferred by reviewer")]
+pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 	let auth_method = resolve_auth(config)?;
 	let ssh = &config.ssh;
 
@@ -407,44 +408,51 @@ async fn run_command(
 	Ok(exit_status)
 }
 
+/// Options for remote command execution.
+pub struct ExecuteCommandOptions<'a> {
+	/// The command to run.
+	pub command: &'a str,
+	/// The arguments for the command.
+	pub args: &'a [String],
+	/// CLI-provided environment variables.
+	pub cli_env_vars: &'a [EnvVarRule],
+	/// Remote working directory to enter before running the command.
+	pub working_dir: Option<&'a str>,
+	/// Suppresses local progress output when true.
+	pub quiet: bool,
+	/// Suppresses forwarded remote stdout/stderr when true.
+	pub silent: bool,
+}
+
 /// Execute a command on the remote host via SSH.
 ///
 /// If `working_dir` is set, the command executes inside that remote directory.
 /// Returns the exit code of the remote command.
-#[expect(
-	clippy::too_many_arguments,
-	reason = "Internal execution helper with many settings"
-)]
 pub async fn execute_command(
 	client: &Client,
 	config: &Config,
-	command: &str,
-	args: &[String],
-	cli_env_vars: &[EnvVarRule],
-	working_dir: Option<&str>,
-	quiet: bool,
-	silent: bool,
+	options: ExecuteCommandOptions<'_>,
 ) -> Result<u32> {
 	info!(
-		command,
-		args_count = args.len(),
-		has_working_dir = working_dir.is_some(),
-		quiet,
-		silent,
+		command = options.command,
+		args_count = options.args.len(),
+		has_working_dir = options.working_dir.is_some(),
+		quiet = options.quiet,
+		silent = options.silent,
 		"Starting remote command execution"
 	);
-	let full_command = build_command(command, args);
-	let env_vars = resolve_env_vars(config, cli_env_vars)?;
+	let full_command = build_command(options.command, options.args);
+	let env_vars = resolve_env_vars(config, options.cli_env_vars)?;
 	run_command(
 		client,
 		&full_command,
 		&env_vars,
 		&config.env.forward_method,
 		RunCommandOptions {
-			working_dir,
+			working_dir: options.working_dir,
 			umask: &config.ssh.umask,
-			quiet,
-			silent,
+			quiet: options.quiet,
+			silent: options.silent,
 		},
 	)
 	.await

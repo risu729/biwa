@@ -3,7 +3,7 @@ use crate::cli::sync::SyncArgs;
 use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
 use crate::{
-	ssh::exec::{connect, execute_command},
+	ssh::exec::{ExecuteCommandOptions, connect, execute_command},
 	ssh::sync::{compute_project_remote_dir, sync_project},
 };
 use clap::Args;
@@ -86,15 +86,18 @@ pub(super) async fn run_remote(
 		&computed_working_dir
 	};
 
+	let cli_env_vars = parse_cli_env_vars(remote_command.cli_env_vars)?;
 	execute_command(
 		&client,
 		config,
-		remote_command.command,
-		remote_command.command_args,
-		&parse_cli_env_vars(remote_command.cli_env_vars)?,
-		Some(working_dir),
-		quiet,
-		silent,
+		ExecuteCommandOptions {
+			command: remote_command.command,
+			args: remote_command.command_args,
+			cli_env_vars: &cli_env_vars,
+			working_dir: Some(working_dir),
+			quiet,
+			silent,
+		},
 	)
 	.await?;
 	Ok(())
