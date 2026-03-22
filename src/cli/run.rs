@@ -116,9 +116,10 @@ pub(super) async fn run_remote(
 
 	// Spawn background cleanup daemon if enabled.
 	if config.clean.auto
-		&& let Err(e) = spawn_background_cleanup() {
-			warn!(error = %e, "Failed to spawn background cleanup");
-		}
+		&& let Err(e) = spawn_background_cleanup()
+	{
+		warn!(error = %e, "Failed to spawn background cleanup");
+	}
 
 	Ok(())
 }

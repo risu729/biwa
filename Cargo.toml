@@ -16,16 +16,16 @@ chrono = { version = "=0.4.44", features = ["serde"] }
 clap = { version = "=4.6.0", features = ["derive"] }
 color-eyre = "=0.6.5"
 confique = { version = "=0.4.0", features = ["json5", "toml", "yaml"] }
-dirs = "=6.0.0"
 console = "=0.16.3"
 derive_more = { version = "=2.1.1", features = ["deref"] }
 dialoguer = "=0.12.0"
+dirs = "=6.0.0"
 duct = "=1.1.1"
 gethostname = "=1.1.0"
 globset = "=0.4.18"
 hex = "=0.4.3"
-humantime = "=2.3.0"
 homedir = "=0.3.6"
+humantime = "=2.3.0"
 ignore = "=0.4.25"
 indicatif = "=0.18.4"
 itertools = "=0.14.0"

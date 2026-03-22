@@ -75,8 +75,8 @@ pub fn load_cache() -> Result<Cache> {
 	if !path.exists() {
 		return Ok(Cache::default());
 	}
-	let contents =
-		fs::read_to_string(&path).wrap_err_with(|| format!("Failed to read cache: {}", path.display()))?;
+	let contents = fs::read_to_string(&path)
+		.wrap_err_with(|| format!("Failed to read cache: {}", path.display()))?;
 	serde_json::from_str(&contents)
 		.wrap_err_with(|| format!("Failed to parse cache: {}", path.display()))
 }
@@ -88,37 +88,35 @@ pub fn save_cache(cache: &Cache) -> Result<()> {
 		fs::create_dir_all(parent)
 			.wrap_err_with(|| format!("Failed to create cache directory: {}", parent.display()))?;
 	}
-	let contents = serde_json::to_string_pretty(cache)
-		.wrap_err("Failed to serialize cache")?;
+	let contents = serde_json::to_string_pretty(cache).wrap_err("Failed to serialize cache")?;
 	let tmp_path = path.with_extension("json.tmp");
 	fs::write(&tmp_path, &contents)
 		.wrap_err_with(|| format!("Failed to write cache: {}", tmp_path.display()))?;
-	fs::rename(&tmp_path, &path)
-		.wrap_err_with(|| format!("Failed to rename cache: {} -> {}", tmp_path.display(), path.display()))?;
+	fs::rename(&tmp_path, &path).wrap_err_with(|| {
+		format!(
+			"Failed to rename cache: {} -> {}",
+			tmp_path.display(),
+			path.display()
+		)
+	})?;
 	debug!(path = %path.display(), "Saved cache");
 	Ok(())
 }
 
 /// Records a connection in the cache, upserting by `(host, user, port, remote_dir)`.
-pub fn record_connection(
-	host: &str,
-	user: &str,
-	port: u16,
-	remote_dir: &str,
-) -> Result<()> {
+pub fn record_connection(host: &str, user: &str, port: u16, remote_dir: &str) -> Result<()> {
 	let mut cache = load_cache()?;
 	let now = Utc::now();
 
-	if let Some(existing) = cache.connections.iter_mut().find(|c| {
-		c.host == host && c.user == user && c.port == port && c.remote_dir == remote_dir
-	}) {
+	if let Some(existing) = cache
+		.connections
+		.iter_mut()
+		.find(|c| c.host == host && c.user == user && c.port == port && c.remote_dir == remote_dir)
+	{
 		existing.last_used = now;
 		debug!(
 			host,
-			user,
-			port,
-			remote_dir,
-			"Updated existing connection in cache"
+			user, port, remote_dir, "Updated existing connection in cache"
 		);
 	} else {
 		cache.connections.push(CachedConnection {
@@ -130,10 +128,7 @@ pub fn record_connection(
 		});
 		debug!(
 			host,
-			user,
-			port,
-			remote_dir,
-			"Added new connection to cache"
+			user, port, remote_dir, "Added new connection to cache"
 		);
 	}
 
@@ -203,9 +198,7 @@ pub fn remove_pid_file() {
 /// Returns `true` if a cleanup daemon is currently running.
 #[must_use]
 pub fn is_daemon_running() -> bool {
-	read_daemon_pid().is_some_and(|pid| {
-		signal::kill(Pid::from_raw(pid), None).is_ok()
-	})
+	read_daemon_pid().is_some_and(|pid| signal::kill(Pid::from_raw(pid), None).is_ok())
 }
 
 /// Reads the daemon PID from the PID file.

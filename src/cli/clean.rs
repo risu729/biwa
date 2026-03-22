@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::cache::{
-	is_daemon_running, kill_daemon, load_cache,
-	remove_connections, remove_pid_file, stale_connections, write_pid_file,
+	is_daemon_running, kill_daemon, load_cache, remove_connections, remove_pid_file,
+	stale_connections, write_pid_file,
 };
 use crate::config::types::Config;
 use crate::duration::HumanDuration;
@@ -142,7 +142,9 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 	let matching: Vec<_> = cache
 		.connections
 		.iter()
-		.filter(|c| c.host == config.ssh.host && c.user == config.ssh.user && c.port == config.ssh.port)
+		.filter(|c| {
+			c.host == config.ssh.host && c.user == config.ssh.user && c.port == config.ssh.port
+		})
 		.collect();
 
 	if matching.is_empty() {
@@ -226,10 +228,7 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 	}
 
 	let mut join_set = JoinSet::new();
-	let full_paths: Vec<String> = dirs
-		.iter()
-		.map(|d| format!("{remote_root}/{d}"))
-		.collect();
+	let full_paths: Vec<String> = dirs.iter().map(|d| format!("{remote_root}/{d}")).collect();
 
 	for path in &full_paths {
 		let client_clone = client.clone();
@@ -304,9 +303,7 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 
 	// Check quota to determine which threshold to apply.
 	let quota = check_quota(&client).await?;
-	let usage_percent = quota
-		.as_ref()
-		.map_or(0.0, QuotaUsage::usage_percent);
+	let usage_percent = quota.as_ref().map_or(0.0, QuotaUsage::usage_percent);
 
 	let thresholds = config.clean.effective_thresholds();
 	info!(
@@ -390,8 +387,7 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 
 	info!(
 		removed = stale_dirs.len().saturating_sub(errors),
-		errors,
-		"Background cleanup completed"
+		errors, "Background cleanup completed"
 	);
 
 	Ok(())
@@ -441,11 +437,10 @@ pub fn spawn_background_cleanup() -> Result<()> {
 		}
 	}
 
-	cmd.spawn()
-		.map_err(|e| {
-			debug!(error = %e, "Failed to spawn background cleanup process");
-			e
-		})?;
+	cmd.spawn().map_err(|e| {
+		debug!(error = %e, "Failed to spawn background cleanup process");
+		e
+	})?;
 
 	debug!("Spawned background cleanup process");
 	Ok(())
