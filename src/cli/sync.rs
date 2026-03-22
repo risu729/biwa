@@ -1,9 +1,9 @@
 use crate::Result;
-use crate::cache;
 use crate::cli::clean::spawn_background_cleanup;
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::{Options, compute_project_remote_dir, sync_project};
+use crate::state;
 use clap::Args;
 use std::env;
 use std::fs::canonicalize;
@@ -98,18 +98,18 @@ impl Sync {
 		)
 		.await?;
 
-		// Record the connection in the local cache.
+		// Record the connection in local persisted state.
 		let remote_dir = self.sync_args.remote_dir.as_deref().map_or_else(
 			|| compute_project_remote_dir(&config, &sync_root),
 			|d| Ok(d.to_owned()),
 		)?;
-		if let Err(e) = cache::record_connection(
+		if let Err(e) = state::record_connection(
 			&config.ssh.host,
 			&config.ssh.user,
 			config.ssh.port,
 			&remote_dir,
 		) {
-			warn!(error = %e, "Failed to record connection in cache");
+			warn!(error = %e, "Failed to record connection in local state");
 		}
 
 		// Spawn background cleanup daemon if enabled.

@@ -22,8 +22,6 @@ extern crate alloc;
 )]
 pub type Result<T> = color_eyre::Result<T>;
 
-/// Local state for connection tracking (`$XDG_STATE_HOME/biwa` by default).
-mod cache;
 /// CLI commands and parsing.
 mod cli;
 /// Configuration loading and definitions.
@@ -34,6 +32,8 @@ mod duration;
 mod env_vars;
 /// SSH execution logic.
 mod ssh;
+/// Local state for connection tracking (`$XDG_STATE_HOME/biwa` by default).
+mod state;
 #[cfg(test)]
 mod testing;
 /// UI components.

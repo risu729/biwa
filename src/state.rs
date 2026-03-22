@@ -14,7 +14,7 @@ use tracing::{debug, warn};
 
 /// A tracked remote project connection.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CachedConnection {
+pub struct Connection {
 	/// Hostname or IP address of the SSH server.
 	pub host: String,
 	/// Username for the SSH connection.
@@ -27,15 +27,15 @@ pub struct CachedConnection {
 	pub last_used: DateTime<Utc>,
 }
 
-/// Full cache state.
+/// Persisted connection tracking state.
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct Cache {
+pub struct State {
 	/// All tracked remote project connections.
-	pub connections: Vec<CachedConnection>,
+	pub connections: Vec<Connection>,
 }
 
-/// Cache filename.
-const CACHE_FILE: &str = "connections.json";
+/// Connections list filename under the state directory.
+const CONNECTIONS_FILE: &str = "connections.json";
 
 /// PID filename for the background cleanup daemon.
 pub const PID_FILE: &str = "clean.pid";
@@ -65,8 +65,8 @@ pub fn state_dir() -> PathBuf {
 }
 
 /// Returns the path to the connections file.
-fn cache_file_path() -> PathBuf {
-	state_dir().join(CACHE_FILE)
+fn connections_file_path() -> PathBuf {
+	state_dir().join(CONNECTIONS_FILE)
 }
 
 /// Returns the path to the PID file for the cleanup daemon.
@@ -75,46 +75,46 @@ pub fn pid_file_path() -> PathBuf {
 	state_dir().join(PID_FILE)
 }
 
-/// Loads the cache from disk, returning an empty cache if the file does not exist.
-pub fn load_cache() -> Result<Cache> {
-	let path = cache_file_path();
+/// Loads persisted state from disk, returning empty state if the file does not exist.
+pub fn load_state() -> Result<State> {
+	let path = connections_file_path();
 	if !path.exists() {
-		return Ok(Cache::default());
+		return Ok(State::default());
 	}
 	let contents = fs::read_to_string(&path)
-		.wrap_err_with(|| format!("Failed to read cache: {}", path.display()))?;
+		.wrap_err_with(|| format!("Failed to read state: {}", path.display()))?;
 	serde_json::from_str(&contents)
-		.wrap_err_with(|| format!("Failed to parse cache: {}", path.display()))
+		.wrap_err_with(|| format!("Failed to parse state: {}", path.display()))
 }
 
-/// Saves the cache to disk atomically by writing to a temporary file first.
-pub fn save_cache(cache: &Cache) -> Result<()> {
-	let path = cache_file_path();
+/// Saves state to disk atomically by writing to a temporary file first.
+pub fn save_state(state: &State) -> Result<()> {
+	let path = connections_file_path();
 	if let Some(parent) = path.parent() {
 		fs::create_dir_all(parent)
-			.wrap_err_with(|| format!("Failed to create cache directory: {}", parent.display()))?;
+			.wrap_err_with(|| format!("Failed to create state directory: {}", parent.display()))?;
 	}
-	let contents = serde_json::to_string_pretty(cache).wrap_err("Failed to serialize cache")?;
+	let contents = serde_json::to_string_pretty(state).wrap_err("Failed to serialize state")?;
 	let tmp_path = path.with_extension("json.tmp");
 	fs::write(&tmp_path, &contents)
-		.wrap_err_with(|| format!("Failed to write cache: {}", tmp_path.display()))?;
+		.wrap_err_with(|| format!("Failed to write state: {}", tmp_path.display()))?;
 	fs::rename(&tmp_path, &path).wrap_err_with(|| {
 		format!(
-			"Failed to rename cache: {} -> {}",
+			"Failed to rename state file: {} -> {}",
 			tmp_path.display(),
 			path.display()
 		)
 	})?;
-	debug!(path = %path.display(), "Saved cache");
+	debug!(path = %path.display(), "Saved state");
 	Ok(())
 }
 
-/// Records a connection in the cache, upserting by `(host, user, port, remote_dir)`.
+/// Records a connection, upserting by `(host, user, port, remote_dir)`.
 pub fn record_connection(host: &str, user: &str, port: u16, remote_dir: &str) -> Result<()> {
-	let mut cache = load_cache()?;
+	let mut state = load_state()?;
 	let now = Utc::now();
 
-	if let Some(existing) = cache
+	if let Some(existing) = state
 		.connections
 		.iter_mut()
 		.find(|c| c.host == host && c.user == user && c.port == port && c.remote_dir == remote_dir)
@@ -122,10 +122,10 @@ pub fn record_connection(host: &str, user: &str, port: u16, remote_dir: &str) ->
 		existing.last_used = now;
 		debug!(
 			host,
-			user, port, remote_dir, "Updated existing connection in cache"
+			user, port, remote_dir, "Updated existing connection in state"
 		);
 	} else {
-		cache.connections.push(CachedConnection {
+		state.connections.push(Connection {
 			host: host.to_owned(),
 			user: user.to_owned(),
 			port,
@@ -134,18 +134,18 @@ pub fn record_connection(host: &str, user: &str, port: u16, remote_dir: &str) ->
 		});
 		debug!(
 			host,
-			user, port, remote_dir, "Added new connection to cache"
+			user, port, remote_dir, "Added new connection to state"
 		);
 	}
 
-	save_cache(&cache)
+	save_state(&state)
 }
 
 /// Returns connections that have not been used within the given threshold.
 #[must_use]
-pub fn stale_connections(cache: &Cache, threshold: Duration) -> Vec<&CachedConnection> {
+pub fn stale_connections(state: &State, threshold: Duration) -> Vec<&Connection> {
 	let now = Utc::now();
-	cache
+	state
 		.connections
 		.iter()
 		.filter(|c| {
@@ -166,19 +166,19 @@ pub fn remove_connections_for_target(
 	port: u16,
 	remote_dirs: &[&str],
 ) -> Result<()> {
-	let mut cache = load_cache()?;
-	let before = cache.connections.len();
-	cache.connections.retain(|c| {
+	let mut state = load_state()?;
+	let before = state.connections.len();
+	state.connections.retain(|c| {
 		if c.host == host && c.user == user && c.port == port {
 			!remote_dirs.contains(&c.remote_dir.as_str())
 		} else {
 			true
 		}
 	});
-	let removed = before.saturating_sub(cache.connections.len());
+	let removed = before.saturating_sub(state.connections.len());
 	if removed > 0 {
-		debug!(removed, "Removed connections from cache");
-		save_cache(&cache)?;
+		debug!(removed, "Removed connections from state");
+		save_state(&state)?;
 	}
 	Ok(())
 }
@@ -272,9 +272,9 @@ mod tests {
 		let _cleanup = EnvCleanup::set("BIWA_STATE_DIR", dir.path().to_str().unwrap());
 
 		record_connection("host", "user", 22, "/remote/dir").unwrap();
-		let cache = load_cache().unwrap();
-		assert_eq!(cache.connections.len(), 1);
-		let first = cache.connections.first().unwrap();
+		let state = load_state().unwrap();
+		assert_eq!(state.connections.len(), 1);
+		let first = state.connections.first().unwrap();
 		assert_eq!(first.host, "host");
 		assert_eq!(first.remote_dir, "/remote/dir");
 	}
@@ -286,15 +286,15 @@ mod tests {
 		let _cleanup = EnvCleanup::set("BIWA_STATE_DIR", dir.path().to_str().unwrap());
 
 		record_connection("host", "user", 22, "/remote/dir").unwrap();
-		let cache1 = load_cache().unwrap();
-		let ts1 = cache1.connections.first().unwrap().last_used;
+		let state1 = load_state().unwrap();
+		let ts1 = state1.connections.first().unwrap().last_used;
 
 		// Tiny delay so timestamp differs.
 		thread::sleep(Duration::from_millis(10));
 		record_connection("host", "user", 22, "/remote/dir").unwrap();
-		let cache2 = load_cache().unwrap();
-		assert_eq!(cache2.connections.len(), 1);
-		assert!(cache2.connections.first().unwrap().last_used >= ts1);
+		let state2 = load_state().unwrap();
+		assert_eq!(state2.connections.len(), 1);
+		assert!(state2.connections.first().unwrap().last_used >= ts1);
 	}
 
 	#[test]
@@ -303,37 +303,37 @@ mod tests {
 		let dir = tempfile::tempdir().unwrap();
 		let _cleanup = EnvCleanup::set("BIWA_STATE_DIR", dir.path().to_str().unwrap());
 
-		let mut cache = Cache::default();
-		cache.connections.push(CachedConnection {
+		let mut state = State::default();
+		state.connections.push(Connection {
 			host: "host".to_owned(),
 			user: "user".to_owned(),
 			port: 22,
 			remote_dir: "/old".to_owned(),
 			last_used: Utc::now() - chrono::Duration::days(31),
 		});
-		cache.connections.push(CachedConnection {
+		state.connections.push(Connection {
 			host: "host".to_owned(),
 			user: "user".to_owned(),
 			port: 22,
 			remote_dir: "/new".to_owned(),
 			last_used: Utc::now(),
 		});
-		let stale = stale_connections(&cache, Duration::from_secs(30 * 86400));
+		let stale = stale_connections(&state, Duration::from_secs(30 * 86400));
 		assert_eq!(stale.len(), 1);
 		assert_eq!(stale.first().unwrap().remote_dir, "/old");
 	}
 
 	#[test]
 	#[serial]
-	fn remove_connections_from_cache() {
+	fn remove_connections_from_state() {
 		let dir = tempfile::tempdir().unwrap();
 		let _cleanup = EnvCleanup::set("BIWA_STATE_DIR", dir.path().to_str().unwrap());
 
 		record_connection("host", "user", 22, "/dir1").unwrap();
 		record_connection("host", "user", 22, "/dir2").unwrap();
 		remove_connections_for_target("host", "user", 22, &["/dir1"]).unwrap();
-		let cache = load_cache().unwrap();
-		assert_eq!(cache.connections.len(), 1);
-		assert_eq!(cache.connections.first().unwrap().remote_dir, "/dir2");
+		let state = load_state().unwrap();
+		assert_eq!(state.connections.len(), 1);
+		assert_eq!(state.connections.first().unwrap().remote_dir, "/dir2");
 	}
 }

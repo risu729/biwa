@@ -1,14 +1,14 @@
 use crate::Result;
-use crate::cache::{
-	is_daemon_running, kill_daemon, load_cache, remove_connections_for_target, remove_pid_file,
-	stale_connections, write_pid_file,
-};
 use crate::config::types::{Config, PasswordConfig};
 use crate::duration::HumanDuration;
 use crate::ssh::clean::{QuotaUsage, check_quota, list_remote_dirs, remove_remote_dir};
 use crate::ssh::client::Client;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::{compute_client_host_hash, compute_project_remote_dir};
+use crate::state::{
+	is_daemon_running, kill_daemon, load_state, remove_connections_for_target, remove_pid_file,
+	stale_connections, write_pid_file,
+};
 use alloc::sync::Arc;
 use clap::{Args, Subcommand};
 use color_eyre::eyre::{Context as _, bail};
@@ -188,10 +188,10 @@ async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Res
 
 /// Clean all this client's tracked remote directories.
 async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<()> {
-	let cache = load_cache()?;
+	let state = load_state()?;
 
 	// Filter to connections matching current SSH config.
-	let matching: Vec<_> = cache
+	let matching: Vec<_> = state
 		.connections
 		.iter()
 		.filter(|c| {
@@ -223,7 +223,7 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 	)
 	.await?;
 
-	// Only remove successfully deleted entries from cache.
+	// Only remove successfully deleted entries from persisted state.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections_for_target(
 		&config.ssh.host,
@@ -273,7 +273,7 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 		remove_remote_dirs_bounded(&client, &full_paths, "Failed to remove a remote directory")
 			.await?;
 
-	// Only remove successfully deleted entries from cache.
+	// Only remove successfully deleted entries from persisted state.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections_for_target(
 		&config.ssh.host,
@@ -310,11 +310,11 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 	// Clean up PID file when we're done, regardless of success or failure.
 	let _pid_guard = scopeguard::guard((), |()| remove_pid_file());
 
-	let cache = load_cache()?;
+	let state = load_state()?;
 	let host_hash = compute_client_host_hash();
 
 	// Check if any connections match current SSH config and this client's host hash.
-	let has_matching = cache.connections.iter().any(|c| {
+	let has_matching = state.connections.iter().any(|c| {
 		c.host == config.ssh.host
 			&& c.user == config.ssh.user
 			&& c.port == config.ssh.port
@@ -362,8 +362,8 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 		return Ok(());
 	};
 
-	let stale = stale_connections(&cache, max_age);
-	let stale_dirs: Vec<String> = stale
+	let expired = stale_connections(&state, max_age);
+	let stale_dirs: Vec<String> = expired
 		.iter()
 		.filter(|c| {
 			c.host == config.ssh.host
@@ -389,7 +389,7 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 		remove_remote_dirs_bounded(&client, &stale_dirs, "Failed to remove a stale directory")
 			.await?;
 
-	// Only remove successfully deleted entries from cache.
+	// Only remove successfully deleted entries from persisted state.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections_for_target(
 		&config.ssh.host,
