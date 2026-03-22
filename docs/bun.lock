@@ -9,7 +9,7 @@
         "@types/bun": "1.3.11",
         "oxc-minify": "0.121.0",
         "typescript": "6.0.0-dev.20260319",
-        "vitepress": "2.0.0-alpha.16",
+        "vitepress": "2.0.0-alpha.17",
         "vitepress-plugin-mermaid": "2.0.17",
         "vue-tsc": "3.2.6",
         "wrangler": "4.75.0",
@@ -552,7 +552,7 @@
 
     "fdir": ["fdir@6.5.0", "", { "peerDependencies": { "picomatch": "^3 || ^4" }, "optionalPeers": ["picomatch"] }, "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg=="],
 
-    "focus-trap": ["focus-trap@7.8.0", "", { "dependencies": { "tabbable": "^6.4.0" } }, "sha512-/yNdlIkpWbM0ptxno3ONTuf+2g318kh2ez3KSeZN5dZ8YC6AAmgeWz+GasYYiBJPFaYcSAPeu4GfhUaChzIJXA=="],
+    "focus-trap": ["focus-trap@8.0.1", "", { "dependencies": { "tabbable": "^6.4.0" } }, "sha512-9ptSG6z51YQOstI/oN4XuVGP/03u2nh0g//qz7L6zX0i6PZiPnkcf3GenXq7N2hZnASXaMxTPpbKwdI+PFvxlw=="],
 
     "fsevents": ["fsevents@2.3.3", "", { "os": "darwin" }, "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw=="],
 
@@ -742,7 +742,7 @@
 
     "vite": ["vite@8.0.1", "", { "dependencies": { "lightningcss": "^1.32.0", "picomatch": "^4.0.3", "postcss": "^8.5.8", "rolldown": "1.0.0-rc.10", "tinyglobby": "^0.2.15" }, "optionalDependencies": { "fsevents": "~2.3.3" }, "peerDependencies": { "@types/node": "^20.19.0 || >=22.12.0", "@vitejs/devtools": "^0.1.0", "esbuild": "^0.27.0", "jiti": ">=1.21.0", "less": "^4.0.0", "sass": "^1.70.0", "sass-embedded": "^1.70.0", "stylus": ">=0.54.8", "sugarss": "^5.0.0", "terser": "^5.16.0", "tsx": "^4.8.1", "yaml": "^2.4.2" }, "optionalPeers": ["@types/node", "@vitejs/devtools", "esbuild", "jiti", "less", "sass", "sass-embedded", "stylus", "sugarss", "terser", "tsx", "yaml"], "bin": { "vite": "bin/vite.js" } }, "sha512-wt+Z2qIhfFt85uiyRt5LPU4oVEJBXj8hZNWKeqFG4gRG/0RaRGJ7njQCwzFVjO+v4+Ipmf5CY7VdmZRAYYBPHw=="],
 
-    "vitepress": ["vitepress@2.0.0-alpha.16", "", { "dependencies": { "@docsearch/css": "^4.5.3", "@docsearch/js": "^4.5.3", "@docsearch/sidepanel-js": "^4.5.3", "@iconify-json/simple-icons": "^1.2.68", "@shikijs/core": "^3.21.0", "@shikijs/transformers": "^3.21.0", "@shikijs/types": "^3.21.0", "@types/markdown-it": "^14.1.2", "@vitejs/plugin-vue": "^6.0.3", "@vue/devtools-api": "^8.0.5", "@vue/shared": "^3.5.27", "@vueuse/core": "^14.1.0", "@vueuse/integrations": "^14.1.0", "focus-trap": "^7.8.0", "mark.js": "8.11.1", "minisearch": "^7.2.0", "shiki": "^3.21.0", "vite": "^7.3.1", "vue": "^3.5.27" }, "peerDependencies": { "markdown-it-mathjax3": "^4", "oxc-minify": "*", "postcss": "^8" }, "optionalPeers": ["markdown-it-mathjax3", "oxc-minify", "postcss"], "bin": { "vitepress": "bin/vitepress.js" } }, "sha512-w1nwsefDVIsje7BZr2tsKxkZutDGjG0YoQ2yxO7+a9tvYVqfljYbwj5LMYkPy8Tb7YbPwa22HtIhk62jbrvuEQ=="],
+    "vitepress": ["vitepress@2.0.0-alpha.17", "", { "dependencies": { "@docsearch/css": "^4.5.3", "@docsearch/js": "^4.5.3", "@docsearch/sidepanel-js": "^4.5.3", "@iconify-json/simple-icons": "^1.2.69", "@shikijs/core": "^3.22.0", "@shikijs/transformers": "^3.22.0", "@shikijs/types": "^3.22.0", "@types/markdown-it": "^14.1.2", "@vitejs/plugin-vue": "^6.0.4", "@vue/devtools-api": "^8.0.5", "@vue/shared": "^3.5.27", "@vueuse/core": "^14.2.0", "@vueuse/integrations": "^14.2.0", "focus-trap": "^8.0.0", "mark.js": "8.11.1", "minisearch": "^7.2.0", "shiki": "^3.22.0", "vite": "^7.3.1", "vue": "^3.5.27" }, "peerDependencies": { "markdown-it-mathjax3": "^4", "oxc-minify": "*", "postcss": "^8" }, "optionalPeers": ["markdown-it-mathjax3", "oxc-minify", "postcss"], "bin": { "vitepress": "bin/vitepress.js" } }, "sha512-Z3VPUpwk/bHYqt1uMVOOK1/4xFiWQov1GNc2FvMdz6kvje4JRXEOngVI9C+bi5jeedMSHiA4dwKkff1NCvbZ9Q=="],
 
     "vitepress-plugin-mermaid": ["vitepress-plugin-mermaid@2.0.17", "", { "optionalDependencies": { "@mermaid-js/mermaid-mindmap": "^9.3.0" }, "peerDependencies": { "mermaid": "10 || 11", "vitepress": "^1.0.0 || ^1.0.0-alpha" } }, "sha512-IUzYpwf61GC6k0XzfmAmNrLvMi9TRrVRMsUyCA8KNXhg/mQ1VqWnO0/tBVPiX5UoKF1mDUwqn5QV4qAJl6JnUg=="],
 
