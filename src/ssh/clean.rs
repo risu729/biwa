@@ -16,13 +16,17 @@ pub struct QuotaUsage {
 impl QuotaUsage {
 	/// Returns the disk usage percentage relative to the soft quota.
 	#[must_use]
+	#[expect(
+		clippy::cast_precision_loss,
+		clippy::as_conversions,
+		reason = "Block counts are only used to form a ratio; f64 precision is sufficient for quota percentages"
+	)]
 	pub fn usage_percent(&self) -> f64 {
 		if self.blocks_quota == 0 {
 			return 0.0;
 		}
-		// These are disk block counts, so precision loss at extreme values is acceptable.
-		let used = f64::from(u32::try_from(self.blocks_used).unwrap_or(u32::MAX));
-		let quota = f64::from(u32::try_from(self.blocks_quota).unwrap_or(u32::MAX));
+		let used = self.blocks_used as f64;
+		let quota = self.blocks_quota as f64;
 		(used / quota) * 100.0
 	}
 }
@@ -92,7 +96,7 @@ pub async fn check_quota(client: &Client) -> Result<Option<QuotaUsage>> {
 pub async fn list_remote_dirs(client: &Client, remote_root: &str) -> Result<Vec<String>> {
 	let quoted_root = shell_quote_path(remote_root);
 	let script = format!(
-		"if [ -d {quoted_root} ]; then find {quoted_root} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null; fi"
+		"if [ -d {quoted_root} ]; then find -- {quoted_root} -mindepth 1 -maxdepth 1 -type d -printf '%f\\n' 2>/dev/null; fi"
 	);
 
 	let result = client
@@ -192,5 +196,15 @@ Disk quotas for user test (uid 1000):
 		};
 		let pct = usage.usage_percent();
 		assert!((pct - 50.0).abs() < f64::EPSILON);
+	}
+
+	#[test]
+	fn usage_percent_large_block_counts() {
+		let usage = QuotaUsage {
+			blocks_used: u64::from(u32::MAX) + 10,
+			blocks_quota: (u64::from(u32::MAX) + 10) * 2,
+		};
+		let pct = usage.usage_percent();
+		assert!((pct - 50.0).abs() < 1e-6, "got {pct}");
 	}
 }

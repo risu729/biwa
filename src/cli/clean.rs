@@ -3,18 +3,21 @@ use crate::cache::{
 	is_daemon_running, kill_daemon, load_cache, remove_connections, remove_pid_file,
 	stale_connections, write_pid_file,
 };
-use crate::config::types::Config;
+use crate::config::types::{Config, PasswordConfig};
 use crate::duration::HumanDuration;
 use crate::ssh::clean::{QuotaUsage, check_quota, list_remote_dirs, remove_remote_dir};
+use crate::ssh::client::Client;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::{compute_client_host_hash, compute_project_remote_dir};
+use alloc::sync::Arc;
 use clap::{Args, Subcommand};
-use color_eyre::eyre::bail;
+use color_eyre::eyre::{Context as _, bail};
 use console::style;
 use nix::unistd;
 use std::io;
 use std::process::{Command, Stdio};
 use std::{env, fs};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
@@ -110,6 +113,50 @@ fn stop_daemon(quiet: bool) {
 	}
 }
 
+/// Upper bound on concurrent SSH sessions used for bulk `rm -rf`.
+const MAX_CONCURRENT_REMOTE_REMOVALS: usize = 8;
+
+/// Removes multiple remote directories with bounded parallelism.
+async fn remove_remote_dirs_bounded(
+	client: &Client,
+	paths: &[String],
+	failed_task_log: &'static str,
+) -> Result<(Vec<String>, usize)> {
+	let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_REMOTE_REMOVALS));
+	let mut join_set = JoinSet::new();
+	for path in paths {
+		let permit = Arc::clone(&semaphore)
+			.acquire_owned()
+			.await
+			.wrap_err("Failed to acquire cleanup semaphore")?;
+		let client_clone = client.clone();
+		let path_clone = path.clone();
+		join_set.spawn(async move {
+			let _permit = permit;
+			let result = remove_remote_dir(&client_clone, &path_clone).await;
+			(path_clone, result)
+		});
+	}
+
+	let mut errors = 0_usize;
+	let mut succeeded: Vec<String> = Vec::new();
+	while let Some(result) = join_set.join_next().await {
+		match result {
+			Ok((path, Ok(()))) => succeeded.push(path),
+			Ok((_, Err(e))) => {
+				warn!(error = %e, "{}", failed_task_log);
+				errors = errors.saturating_add(1);
+			}
+			Err(e) => {
+				warn!(error = %e, "Task panicked during remote directory removal");
+				errors = errors.saturating_add(1);
+			}
+		}
+	}
+
+	Ok((succeeded, errors))
+}
+
 /// Clean current project's remote directory.
 async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<()> {
 	let sync_root = env::current_dir()?;
@@ -163,33 +210,13 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 
 	let client = connect(config, quiet).await?;
 
-	let mut join_set = JoinSet::new();
 	let dirs_to_remove: Vec<String> = matching.iter().map(|c| c.remote_dir.clone()).collect();
-
-	for dir in &dirs_to_remove {
-		let client_clone = client.clone();
-		let dir_clone = dir.clone();
-		join_set.spawn(async move {
-			let result = remove_remote_dir(&client_clone, &dir_clone).await;
-			(dir_clone, result)
-		});
-	}
-
-	let mut errors = 0_usize;
-	let mut succeeded: Vec<String> = Vec::new();
-	while let Some(result) = join_set.join_next().await {
-		match result {
-			Ok((dir, Ok(()))) => succeeded.push(dir),
-			Ok((_, Err(e))) => {
-				warn!(error = %e, "Failed to remove a remote directory");
-				errors = errors.saturating_add(1);
-			}
-			Err(e) => {
-				warn!(error = %e, "Task panicked while removing directory");
-				errors = errors.saturating_add(1);
-			}
-		}
-	}
+	let (succeeded, errors) = remove_remote_dirs_bounded(
+		&client,
+		&dirs_to_remove,
+		"Failed to remove a remote directory",
+	)
+	.await?;
 
 	// Only remove successfully deleted entries from cache.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
@@ -231,33 +258,10 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 		return Ok(());
 	}
 
-	let mut join_set = JoinSet::new();
 	let full_paths: Vec<String> = dirs.iter().map(|d| format!("{remote_root}/{d}")).collect();
-
-	for path in &full_paths {
-		let client_clone = client.clone();
-		let path_clone = path.clone();
-		join_set.spawn(async move {
-			let result = remove_remote_dir(&client_clone, &path_clone).await;
-			(path_clone, result)
-		});
-	}
-
-	let mut errors = 0_usize;
-	let mut succeeded: Vec<String> = Vec::new();
-	while let Some(result) = join_set.join_next().await {
-		match result {
-			Ok((path, Ok(()))) => succeeded.push(path),
-			Ok((_, Err(e))) => {
-				warn!(error = %e, "Failed to remove a remote directory");
-				errors = errors.saturating_add(1);
-			}
-			Err(e) => {
-				warn!(error = %e, "Task panicked while removing directory");
-				errors = errors.saturating_add(1);
-			}
-		}
-	}
+	let (succeeded, errors) =
+		remove_remote_dirs_bounded(&client, &full_paths, "Failed to remove a remote directory")
+			.await?;
 
 	// Only remove successfully deleted entries from cache.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
@@ -366,32 +370,9 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 		"Cleaning stale remote directories"
 	);
 
-	// Remove directories in parallel.
-	let mut join_set = JoinSet::new();
-	for dir in &stale_dirs {
-		let client_clone = client.clone();
-		let dir_clone = dir.clone();
-		join_set.spawn(async move {
-			let result = remove_remote_dir(&client_clone, &dir_clone).await;
-			(dir_clone, result)
-		});
-	}
-
-	let mut errors = 0_usize;
-	let mut succeeded: Vec<String> = Vec::new();
-	while let Some(result) = join_set.join_next().await {
-		match result {
-			Ok((dir, Ok(()))) => succeeded.push(dir),
-			Ok((_, Err(e))) => {
-				warn!(error = %e, "Failed to remove a stale directory");
-				errors = errors.saturating_add(1);
-			}
-			Err(e) => {
-				warn!(error = %e, "Task panicked while removing stale directory");
-				errors = errors.saturating_add(1);
-			}
-		}
-	}
+	let (succeeded, errors) =
+		remove_remote_dirs_bounded(&client, &stale_dirs, "Failed to remove a stale directory")
+			.await?;
 
 	// Only remove successfully deleted entries from cache.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
@@ -409,7 +390,14 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 ///
 /// The child process is fully detached (new session, stdio to /dev/null) so it
 /// survives the parent exiting.
-pub fn spawn_background_cleanup() -> Result<()> {
+pub fn spawn_background_cleanup(config: &Config) -> Result<()> {
+	if matches!(config.ssh.password, PasswordConfig::Interactive(true)) {
+		warn!(
+			"Skipping background auto-cleanup: ssh.password is interactive-only; use a string password, SSH key, or agent authentication"
+		);
+		return Ok(());
+	}
+
 	if is_daemon_running() {
 		debug!("Background cleanup daemon is already running; skipping");
 		return Ok(());

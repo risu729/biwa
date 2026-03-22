@@ -55,7 +55,12 @@ pub fn state_dir() -> PathBuf {
 				.flatten()
 				.map(|home| home.join(".local/state"))
 		})
-		.unwrap_or_else(|| PathBuf::from("~").join(".local/state"))
+		.unwrap_or_else(|| {
+			warn!("Could not resolve XDG state directory; using cwd/.local/state/biwa");
+			env::current_dir()
+				.unwrap_or_else(|_| PathBuf::from("."))
+				.join(".local/state")
+		})
 		.join("biwa")
 }
 
@@ -168,10 +173,13 @@ pub fn remove_connections(remote_dirs: &[&str]) -> Result<()> {
 
 /// Writes the current process PID to the PID file.
 ///
-/// Returns `true` if a daemon was already running (PID file existed with a live process).
+/// Returns `true` if a daemon was already running (does not write the PID file in that case).
 pub fn write_pid_file() -> Result<bool> {
+	if is_daemon_running() {
+		return Ok(true);
+	}
+
 	let path = pid_file_path();
-	let already_running = is_daemon_running();
 
 	if let Some(parent) = path.parent() {
 		fs::create_dir_all(parent)
@@ -183,7 +191,7 @@ pub fn write_pid_file() -> Result<bool> {
 		.wrap_err_with(|| format!("Failed to write PID file: {}", path.display()))?;
 	debug!(pid, path = %path.display(), "Wrote PID file");
 
-	Ok(already_running)
+	Ok(false)
 }
 
 /// Removes the PID file.
