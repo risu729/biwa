@@ -32,7 +32,7 @@ mod duration;
 mod env_vars;
 /// SSH execution logic.
 mod ssh;
-/// Local state for connection tracking (`$XDG_STATE_HOME/biwa` by default).
+/// Local state for connection tracking (`dirs::state_dir` + `/biwa` by default).
 mod state;
 #[cfg(test)]
 mod testing;

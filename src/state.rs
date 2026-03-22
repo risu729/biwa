@@ -40,9 +40,10 @@ const CONNECTIONS_FILE: &str = "connections.json";
 /// PID filename for the background cleanup daemon.
 pub const PID_FILE: &str = "clean.pid";
 
-/// Returns the biwa state directory (XDG state).
+/// Returns the biwa state directory.
 ///
-/// Priority: `$BIWA_STATE_DIR` > `$XDG_STATE_HOME/biwa` > `~/.local/state/biwa`.
+/// Priority: `$BIWA_STATE_DIR` > `dirs::state_dir()` with `biwa` appended (see the `dirs` crate
+/// for platform-specific resolution, e.g. XDG state paths on Linux).
 #[must_use]
 pub fn state_dir() -> PathBuf {
 	if let Ok(dir) = env::var("BIWA_STATE_DIR") {
@@ -56,7 +57,7 @@ pub fn state_dir() -> PathBuf {
 				.map(|home| home.join(".local/state"))
 		})
 		.unwrap_or_else(|| {
-			warn!("Could not resolve XDG state directory; using cwd/.local/state/biwa");
+			warn!("Could not resolve state directory; using cwd/.local/state/biwa");
 			env::current_dir()
 				.unwrap_or_else(|_| PathBuf::from("."))
 				.join(".local/state")
