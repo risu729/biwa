@@ -1,8 +1,8 @@
 use super::exec::connect;
 use crate::Result;
 use crate::config::types::{Config, SftpPermissions, SyncEngine};
+use crate::ssh::client::Client;
 use crate::ui::create_spinner;
-use async_ssh2_tokio::client::Client;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
 use console::style;
 use core::mem::take;

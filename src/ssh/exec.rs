@@ -6,8 +6,8 @@ use crate::env_vars::{
 	EnvForwardMethod, EnvVarRule, EnvVarSource, is_environment_dependent_env_var,
 	local_env_var_names, resolve_env_var_rules,
 };
+use crate::ssh::client::Client;
 use crate::ui::create_spinner;
-use async_ssh2_tokio::client::{Client, ServerCheckMethod};
 use bytes::Bytes;
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
@@ -70,12 +70,17 @@ pub(super) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 			(ssh.host.as_str(), ssh.port),
 			ssh.user.as_str(),
 			auth_method.clone(),
-			ServerCheckMethod::NoCheck,
 		)
 		.await
 		{
 			Ok(c) => break c,
 			Err(e) if retries > 0 => {
+				let err_msg = e.to_string();
+				if err_msg.contains("authentication failed") || err_msg.contains("has no identities") {
+					return Err(e).wrap_err_with(|| {
+						format!("Failed to authenticate as {}@{}", ssh.user, ssh.host)
+					});
+				}
 				debug!(
 					error = %e,
 					retry_delay_ms = delay.as_millis(),
