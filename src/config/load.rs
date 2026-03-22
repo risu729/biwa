@@ -22,16 +22,16 @@ impl Config {
 	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
 		let home = homedir::my_home().ok().flatten();
-		let xdg = env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
+		let config_dir = dirs::config_dir();
 		let cwd = env::current_dir().ok();
-		debug!(home = ?home, xdg = ?xdg, cwd = ?cwd, "Loading configuration");
-		Self::load_internal(home.as_ref(), xdg.as_ref(), cwd.as_ref())
+		debug!(home = ?home, config_dir = ?config_dir, cwd = ?cwd, "Loading configuration");
+		Self::load_internal(home.as_ref(), config_dir.as_ref(), cwd.as_ref())
 	}
 
 	/// Core inner load logic separating the paths.
 	fn load_internal(
 		home: Option<&PathBuf>,
-		xdg: Option<&PathBuf>,
+		config_dir: Option<&PathBuf>,
 		cwd: Option<&PathBuf>,
 	) -> Result<Self> {
 		let mut builder = Self::builder().env();
@@ -41,7 +41,9 @@ impl Config {
 		let global_root: Option<PathBuf> = home.map(|home_path| {
 			global_candidates.push(home_path.join("biwa"));
 			global_candidates.push(home_path.join(".biwa"));
-			let config_home = xdg.cloned().unwrap_or_else(|| home_path.join(".config"));
+			let config_home = config_dir
+				.cloned()
+				.unwrap_or_else(|| home_path.join(".config"));
 			global_candidates.push(config_home.join("biwa/config"));
 			// All global configs should resolve relative paths from the home dir (~)
 			home_path.clone()
@@ -106,7 +108,7 @@ impl Config {
 
 		if let Some((config_path, format)) = find_single_config(&global_candidates)? {
 			// Global configs should resolve relative paths from the home directory (~),
-			// regardless of where the config file actually lives (e.g. XDG paths).
+			// regardless of where the config file actually lives (e.g. `dirs::config_dir()`).
 			let config_root = global_root
 				.as_deref()
 				.unwrap_or_else(|| config_path.parent().unwrap_or_else(|| Path::new("")));
@@ -396,6 +398,11 @@ mod tests {
 		  "hooks": {
 		    "pre_sync": null,
 		    "post_sync": null
+		  },
+		  "clean": {
+		    "max_age": "30days",
+		    "auto": true,
+		    "quota_thresholds": {}
 		  }
 		}
 		"#);

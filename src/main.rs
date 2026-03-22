@@ -26,10 +26,14 @@ pub type Result<T> = color_eyre::Result<T>;
 mod cli;
 /// Configuration loading and definitions.
 mod config;
+/// Duration parsing for human-readable time values.
+mod duration;
 /// Environment variable parsing and forward.
 mod env_vars;
 /// SSH execution logic.
 mod ssh;
+/// Local state for connection tracking (`dirs::state_dir` + `/biwa` by default).
+mod state;
 #[cfg(test)]
 mod testing;
 /// UI components.

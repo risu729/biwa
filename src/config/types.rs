@@ -1,4 +1,6 @@
+use crate::duration::HumanDuration;
 use crate::env_vars::{EnvForwardMethod, EnvVars};
+use alloc::collections::BTreeMap;
 use core::fmt;
 use core::str::FromStr;
 use derive_more::Deref;
@@ -119,6 +121,12 @@ mod schema_defaults {
 	pub const fn max_files_to_sync() -> usize {
 		100
 	}
+
+	/// Default for `CleanConfig::auto` in schema.
+	#[must_use]
+	pub const fn clean_auto() -> bool {
+		true
+	}
 }
 
 /// Root configuration struct for biwa.
@@ -140,6 +148,10 @@ pub struct Config {
 	#[config(nested)]
 	#[schemars(default)]
 	pub hooks: HooksConfig,
+	/// Cleanup configuration for stale remote directories.
+	#[config(nested)]
+	#[schemars(default)]
+	pub clean: CleanConfig,
 }
 
 /// Password authentication configuration.
@@ -320,6 +332,50 @@ pub struct HooksConfig {
 impl Default for HooksConfig {
 	fn default() -> Self {
 		Config::default().hooks
+	}
+}
+
+/// Cleanup configuration for stale remote directories.
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct CleanConfig {
+	/// Hard age limit: directories older than this are always removed during auto-cleanup.
+	/// Internally stored as the 0% quota threshold.
+	/// Accepts duration strings like "30d", "12h", "45m", "60s" or a plain number (= minutes).
+	#[config(default = "30d")]
+	#[schemars(default)]
+	pub max_age: HumanDuration,
+
+	/// Enable automatic background cleanup after `run`/`sync`.
+	#[config(default = true, env = "BIWA_CLEAN_AUTO")]
+	#[schemars(default = "crate::config::types::schema_defaults::clean_auto")]
+	pub auto: bool,
+
+	/// Quota-based cleanup thresholds.
+	///
+	/// Keys are disk quota usage percentages (0-100), values are maximum directory ages.
+	/// When quota usage exceeds a threshold percentage, directories older than the
+	/// corresponding age are removed. The `max_age` value is merged as the 0% threshold.
+	///
+	/// Example: `{ 80 = "5d" }` means clean dirs older than 5 days when quota ≥ 80%.
+	#[config(default = {})]
+	#[schemars(default)]
+	pub quota_thresholds: BTreeMap<u8, HumanDuration>,
+}
+
+impl CleanConfig {
+	/// Returns the effective quota thresholds with `max_age` merged as the 0% entry.
+	#[must_use]
+	pub fn effective_thresholds(&self) -> BTreeMap<u8, HumanDuration> {
+		let mut thresholds = self.quota_thresholds.clone();
+		// max_age always overwrites the 0% key.
+		thresholds.insert(0, self.max_age.clone());
+		thresholds
+	}
+}
+
+impl Default for CleanConfig {
+	fn default() -> Self {
+		Config::default().clean
 	}
 }
 

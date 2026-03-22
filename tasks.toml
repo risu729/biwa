@@ -116,6 +116,8 @@ run = [
 	"cargo run --quiet -- usage > biwa.usage.kdl",
 	"rm -rf docs/src/cli && mkdir -p docs/src/cli",
 	"usage generate markdown -m --out-dir docs/src/cli --url-prefix /cli --html-encode --file biwa.usage.kdl",
+	# usage-lib always prints `<SUBCOMMAND>` when nested cmds exist; `biwa clean` allows omitting it (see src/cli/clean.rs).
+	"perl -pi -e 's/biwa clean \\[FLAGS\\] <SUBCOMMAND>/biwa clean [FLAGS] [SUBCOMMAND]/g' docs/src/cli/clean.md docs/src/cli/index.md",
 ]
 description = "Generate usage spec and CLI reference docs."
 

@@ -42,26 +42,27 @@ pub fn biwa_cmd(args: &[&str]) -> duct::Expression {
 ///
 /// Mimics how `biwa` internally generates a unique project directory string on the
 /// remote server by taking the project directory name and appending an
-/// 8-character hex slice of the SHA-256 hash of its hostname and canonical
-/// absolute path.
+/// 8-character hex slice of both the local hostname hash and the canonical
+/// absolute path hash.
 #[allow(dead_code, reason = "May not be used in all integration tests.")]
 pub fn get_remote_project_dir(local_dir: &Path) -> Result<String> {
 	let proj_name = local_dir
 		.file_name()
 		.ok_or_else(|| color_eyre::eyre::eyre!("no file name"))?
 		.to_string_lossy();
-	let mut hasher = sha2::Sha256::new();
-	sha2::Digest::update(&mut hasher, gethostname().to_string_lossy().as_bytes());
-	sha2::Digest::update(&mut hasher, [0]);
-	sha2::Digest::update(
-		&mut hasher,
+
+	let host_hash = hex::encode(sha2::Sha256::digest(
+		gethostname().to_string_lossy().as_bytes(),
+	));
+
+	let path_hash = hex::encode(sha2::Sha256::digest(
 		local_dir.canonicalize()?.to_string_lossy().as_bytes(),
-	);
-	let hash_hex = hex::encode(sha2::Digest::finalize(hasher));
+	));
+
 	#[expect(
 		clippy::string_slice,
 		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
 	)]
-	let unique_proj_name = format!("{}-{}", proj_name, &hash_hex[..8]);
+	let unique_proj_name = format!("{}-{}-{}", proj_name, &host_hash[..8], &path_hash[..8]);
 	Ok(format!("~/.cache/biwa/projects/{unique_proj_name}"))
 }
