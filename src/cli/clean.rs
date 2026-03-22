@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::cache::{
-	is_daemon_running, kill_daemon, load_cache, remove_connections, remove_pid_file,
+	is_daemon_running, kill_daemon, load_cache, remove_connections_for_target, remove_pid_file,
 	stale_connections, write_pid_file,
 };
 use crate::config::types::{Config, PasswordConfig};
@@ -23,7 +23,7 @@ use tracing::{debug, info, warn};
 
 /// Clean stale remote project directories.
 #[derive(Args, Debug)]
-#[clap(visible_alias = "c")]
+#[command(visible_alias = "c", subcommand_required = false)]
 #[expect(
 	clippy::struct_excessive_bools,
 	reason = "Each bool maps to an independent CLI flag with distinct semantics"
@@ -170,7 +170,12 @@ async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Res
 
 	let client = connect(config, quiet).await?;
 	remove_remote_dir(&client, &remote_dir).await?;
-	remove_connections(&[remote_dir.as_str()])?;
+	remove_connections_for_target(
+		&config.ssh.host,
+		&config.ssh.user,
+		config.ssh.port,
+		&[remote_dir.as_str()],
+	)?;
 
 	if !quiet {
 		eprintln!(
@@ -220,7 +225,12 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 
 	// Only remove successfully deleted entries from cache.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
-	remove_connections(&dir_refs)?;
+	remove_connections_for_target(
+		&config.ssh.host,
+		&config.ssh.user,
+		config.ssh.port,
+		&dir_refs,
+	)?;
 
 	if !quiet {
 		eprintln!(
@@ -265,7 +275,12 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 
 	// Only remove successfully deleted entries from cache.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
-	remove_connections(&dir_refs)?;
+	remove_connections_for_target(
+		&config.ssh.host,
+		&config.ssh.user,
+		config.ssh.port,
+		&dir_refs,
+	)?;
 
 	if !quiet {
 		eprintln!(
@@ -376,7 +391,12 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 
 	// Only remove successfully deleted entries from cache.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
-	remove_connections(&dir_refs)?;
+	remove_connections_for_target(
+		&config.ssh.host,
+		&config.ssh.user,
+		config.ssh.port,
+		&dir_refs,
+	)?;
 
 	info!(
 		removed = succeeded.len(),

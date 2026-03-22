@@ -156,13 +156,25 @@ pub fn stale_connections(cache: &Cache, threshold: Duration) -> Vec<&CachedConne
 		.collect()
 }
 
-/// Removes connections matching the given remote directories from the cache.
-pub fn remove_connections(remote_dirs: &[&str]) -> Result<()> {
+/// Removes connections for `remote_dirs` that match the given SSH target.
+///
+/// `remote_dir` alone is not unique across hosts or accounts; entries for other
+/// targets are preserved.
+pub fn remove_connections_for_target(
+	host: &str,
+	user: &str,
+	port: u16,
+	remote_dirs: &[&str],
+) -> Result<()> {
 	let mut cache = load_cache()?;
 	let before = cache.connections.len();
-	cache
-		.connections
-		.retain(|c| !remote_dirs.contains(&c.remote_dir.as_str()));
+	cache.connections.retain(|c| {
+		if c.host == host && c.user == user && c.port == port {
+			!remote_dirs.contains(&c.remote_dir.as_str())
+		} else {
+			true
+		}
+	});
 	let removed = before.saturating_sub(cache.connections.len());
 	if removed > 0 {
 		debug!(removed, "Removed connections from cache");
@@ -319,7 +331,7 @@ mod tests {
 
 		record_connection("host", "user", 22, "/dir1").unwrap();
 		record_connection("host", "user", 22, "/dir2").unwrap();
-		remove_connections(&["/dir1"]).unwrap();
+		remove_connections_for_target("host", "user", 22, &["/dir1"]).unwrap();
 		let cache = load_cache().unwrap();
 		assert_eq!(cache.connections.len(), 1);
 		assert_eq!(cache.connections.first().unwrap().remote_dir, "/dir2");

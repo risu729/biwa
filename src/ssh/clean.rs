@@ -31,6 +31,19 @@ impl QuotaUsage {
 	}
 }
 
+/// Parses a `quota` block count field, allowing markers like `*` (soft limit exceeded).
+fn parse_quota_block_field(field: &str) -> Option<u64> {
+	let s = field.trim();
+	let end = s
+		.chars()
+		.position(|c| !c.is_ascii_digit())
+		.unwrap_or(s.len());
+	if end == 0 {
+		return None;
+	}
+	s.get(..end)?.parse().ok()
+}
+
 /// Parses `quota -w` output to extract usage information.
 ///
 /// Expected format (Linux `quota` command with `-w` flag):
@@ -39,6 +52,8 @@ impl QuotaUsage {
 ///      Filesystem  blocks   quota   limit   grace   files   quota   limit   grace
 /// reed:/export/reed/8 3156648  3190784 3509864          109859  319080  350988
 /// ```
+///
+/// Numeric fields may include a trailing `*` when the soft quota is exceeded.
 fn parse_quota_output(output: &str) -> Option<QuotaUsage> {
 	for line in output.lines() {
 		let line = line.trim();
@@ -61,9 +76,11 @@ fn parse_quota_output(output: &str) -> Option<QuotaUsage> {
 
 		// First field is the filesystem, followed by numeric values.
 		// Find the first numeric value which is blocks_used.
-		let numeric_start = fields.iter().position(|f| f.parse::<u64>().is_ok())?;
-		let blocks_used: u64 = fields.get(numeric_start)?.parse().ok()?;
-		let blocks_quota: u64 = fields.get(numeric_start.checked_add(1)?)?.parse().ok()?;
+		let numeric_start = fields
+			.iter()
+			.position(|f| parse_quota_block_field(f).is_some())?;
+		let blocks_used = parse_quota_block_field(fields.get(numeric_start)?)?;
+		let blocks_quota = parse_quota_block_field(fields.get(numeric_start.checked_add(1)?)?)?;
 
 		return Some(QuotaUsage {
 			blocks_used,
@@ -149,6 +166,18 @@ pub async fn remove_remote_dir(client: &Client, remote_dir: &str) -> Result<()> 
 mod tests {
 	use super::*;
 	use pretty_assertions::assert_eq;
+
+	#[test]
+	fn parse_quota_with_exceeded_marker_suffix() {
+		let output = "\
+Disk quotas for user z5642102 (uid 26573):
+     Filesystem  blocks   quota   limit   grace   files   quota   limit   grace
+reed:/export/reed/8 3190784* 3190784 3509864    6days 109859  319080  350988
+";
+		let usage = parse_quota_output(output).unwrap();
+		assert_eq!(usage.blocks_used, 3_190_784);
+		assert_eq!(usage.blocks_quota, 3_190_784);
+	}
 
 	#[test]
 	fn parse_quota_standard_format() {
