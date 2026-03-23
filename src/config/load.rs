@@ -170,6 +170,7 @@ impl Config {
 		};
 
 		resolve(&mut partial.ssh.key_path);
+		resolve(&mut partial.clean.state_dir);
 
 		if let Some(exclude_list) = &mut partial.sync.exclude {
 			let root = canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
@@ -349,6 +350,7 @@ mod tests {
 			config.sync.remote_root,
 			PathBuf::from("~/.cache/biwa/projects")
 		);
+		assert_eq!(config.clean.state_dir, None);
 	}
 
 	#[serial]
@@ -408,6 +410,7 @@ mod tests {
 		  "clean": {
 		    "max_age": "30days",
 		    "auto": true,
+		    "state_dir": null,
 		    "quota_thresholds": {}
 		  }
 		}
@@ -1105,6 +1108,72 @@ remote_root = "xdg_libs"
 			.ok_or_else(|| color_eyre::eyre::eyre!("key_path should be set"))?;
 		let expected = parent.path().join("my_key");
 		assert_eq!(resolved, expected);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn clean_state_dir_resolves_relative_to_config_root() -> Result<()> {
+		let dir = tempdir()?;
+		let config_path = dir.path().join("biwa.toml");
+		fs::write(
+			&config_path,
+			r#"
+[ssh]
+host = "host"
+user = "user"
+
+[clean]
+state_dir = "state/dir"
+"#,
+		)?;
+
+		let _cleanup = EnvCleanup::remove("BIWA_STATE_DIR");
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		assert_eq!(config.resolved_state_dir(), dir.path().join("state/dir"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn biwa_state_dir_env_overrides_clean_state_dir() -> Result<()> {
+		let dir = tempdir()?;
+		let env_state_dir = tempdir()?;
+		let config_path = dir.path().join("biwa.toml");
+		fs::write(
+			&config_path,
+			r#"
+[ssh]
+host = "host"
+user = "user"
+
+[clean]
+state_dir = "from/config"
+"#,
+		)?;
+
+		let _cleanup = EnvCleanup::set(
+			"BIWA_STATE_DIR",
+			env_state_dir
+				.path()
+				.to_str()
+				.ok_or_else(|| color_eyre::eyre::eyre!("utf8 path expected"))?,
+		);
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		assert_eq!(config.resolved_state_dir(), env_state_dir.path());
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn clean_state_dir_defaults_to_xdg_when_unset() -> Result<()> {
+		let _cleanup = EnvCleanup::remove("BIWA_STATE_DIR");
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+		let config = Config::load_internal(None, None, None)?;
+		assert_eq!(
+			config.resolved_state_dir(),
+			crate::state::default_state_dir()
+		);
 		Ok(())
 	}
 

@@ -99,15 +99,16 @@ impl Clean {
 		}
 
 		let config = Config::load()?;
+		let state_dir = config.resolved_state_dir();
 
 		let target = clean_target(self.auto, self.purge, self.all);
 		if matches!(target, CleanTarget::Auto) {
-			return run_auto_cleanup(&config).await;
+			return run_auto_cleanup(&config, &state_dir).await;
 		}
 
 		// For explicit clean commands, kill any running daemon first.
-		if is_daemon_running() {
-			kill_daemon();
+		if is_daemon_running(&state_dir) {
+			kill_daemon(&state_dir);
 			if !quiet {
 				eprintln!(
 					"{} Stopped background cleanup daemon",
@@ -128,8 +129,11 @@ impl Clean {
 
 /// Stop the background cleanup daemon.
 fn stop_daemon(quiet: bool) {
-	if is_daemon_running() {
-		kill_daemon();
+	let state_dir = Config::load()
+		.map(|config| config.resolved_state_dir())
+		.unwrap_or_else(|_| crate::state::default_state_dir());
+	if is_daemon_running(&state_dir) {
+		kill_daemon(&state_dir);
 		if !quiet {
 			eprintln!(
 				"{} Stopped background cleanup daemon",
@@ -140,7 +144,7 @@ fn stop_daemon(quiet: bool) {
 		if !quiet {
 			eprintln!("No background cleanup daemon is running");
 		}
-		remove_pid_file();
+		remove_pid_file(&state_dir);
 	}
 }
 
@@ -201,7 +205,9 @@ async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Res
 
 	let client = connect(config, quiet).await?;
 	remove_remote_dir(&client, &remote_dir).await?;
+	let state_dir = config.resolved_state_dir();
 	remove_connections_for_target(
+		&state_dir,
 		&config.ssh.host,
 		&config.ssh.user,
 		config.ssh.port,
@@ -219,7 +225,8 @@ async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Res
 
 /// Clean all this client's tracked remote directories.
 async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<()> {
-	let state = load_state()?;
+	let state_dir = config.resolved_state_dir();
+	let state = load_state(&state_dir)?;
 	let host_hash = compute_client_host_hash();
 	let remote_root = &config.sync.remote_root;
 
@@ -260,6 +267,7 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 	// Only remove successfully deleted entries from persisted state.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections_for_target(
+		&state_dir,
 		&config.ssh.host,
 		&config.ssh.user,
 		config.ssh.port,
@@ -309,7 +317,9 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 
 	// Only remove successfully deleted entries from persisted state.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
+	let state_dir = config.resolved_state_dir();
 	remove_connections_for_target(
+		&state_dir,
 		&config.ssh.host,
 		&config.ssh.user,
 		config.ssh.port,
@@ -333,18 +343,18 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 }
 
 /// Automatic background cleanup driven by quota thresholds.
-async fn run_auto_cleanup(config: &Config) -> Result<()> {
+async fn run_auto_cleanup(config: &Config, state_dir: &std::path::Path) -> Result<()> {
 	// Ensure only one daemon runs at a time.
-	let already_running = write_pid_file()?;
+	let already_running = write_pid_file(state_dir)?;
 	if already_running {
 		debug!("Another cleanup daemon is already running; exiting");
 		return Ok(());
 	}
 
 	// Clean up PID file when we're done, regardless of success or failure.
-	let _pid_guard = scopeguard::guard((), |()| remove_pid_file());
+	let _pid_guard = scopeguard::guard((), |()| remove_pid_file(state_dir));
 
-	let state = load_state()?;
+	let state = load_state(state_dir)?;
 	let host_hash = compute_client_host_hash();
 	let remote_root = &config.sync.remote_root;
 	let remote_root_str = remote_root.to_string_lossy().into_owned();
@@ -451,6 +461,7 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 	// Only remove successfully deleted entries from persisted state.
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections_for_target(
+		state_dir,
 		&config.ssh.host,
 		&config.ssh.user,
 		config.ssh.port,
@@ -477,7 +488,9 @@ pub fn spawn_background_cleanup(config: &Config) -> Result<()> {
 		return Ok(());
 	}
 
-	if is_daemon_running() {
+	let state_dir = config.resolved_state_dir();
+
+	if is_daemon_running(&state_dir) {
 		debug!("Background cleanup daemon is already running; skipping");
 		return Ok(());
 	}
@@ -498,6 +511,7 @@ pub fn spawn_background_cleanup(config: &Config) -> Result<()> {
 			cmd.env(key, val);
 		}
 	}
+	cmd.env("BIWA_STATE_DIR", &state_dir);
 
 	cmd.stdin(Stdio::null())
 		.stdout(Stdio::null())

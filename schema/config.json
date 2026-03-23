@@ -10,7 +10,8 @@
       "default": {
         "auto": true,
         "max_age": "30days",
-        "quota_thresholds": {}
+        "quota_thresholds": {},
+        "state_dir": null
       }
     },
     "env": {
@@ -86,6 +87,13 @@
               "$ref": "#/$defs/HumanDuration"
             }
           }
+        },
+        "state_dir": {
+          "description": "Local state directory for connection tracking and daemon PID files.\n\nIf unset, biwa uses an XDG/platform default path. `BIWA_STATE_DIR` always\ntakes precedence over this setting.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },

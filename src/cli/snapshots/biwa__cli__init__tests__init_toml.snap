@@ -143,6 +143,12 @@ expression: content
 # Default value: true
 #auto = true
 
+# Local state directory for connection tracking and daemon PID files.
+#
+# If unset, biwa uses an XDG/platform default path. `BIWA_STATE_DIR` always
+# takes precedence over this setting.
+#state_dir =
+
 # Quota-based cleanup thresholds.
 #
 # Keys are disk quota usage percentages (0-100), values are maximum directory ages.

@@ -103,7 +103,9 @@ impl Sync {
 			|| compute_project_remote_dir(&config, &sync_root),
 			|d| Ok(d.to_owned()),
 		)?;
+		let state_dir = config.resolved_state_dir();
 		if let Err(e) = state::record_connection(
+			&state_dir,
 			&config.ssh.host,
 			&config.ssh.user,
 			config.ssh.port,
