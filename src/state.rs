@@ -246,16 +246,36 @@ pub fn read_daemon_pid() -> Option<i32> {
 
 /// Kills the running cleanup daemon if one exists.
 pub fn kill_daemon() {
-	if let Some(pid) = read_daemon_pid() {
-		let nix_pid = Pid::from_raw(pid);
-		if signal::kill(nix_pid, None).is_ok() {
+	let Some(pid) = read_daemon_pid() else {
+		return;
+	};
+	let nix_pid = Pid::from_raw(pid);
+	match signal::kill(nix_pid, None) {
+		Ok(()) => {
 			debug!(pid, "Sending SIGTERM to cleanup daemon");
-			if let Err(e) = signal::kill(nix_pid, Signal::SIGTERM) {
-				warn!(error = %e, pid, "Failed to kill cleanup daemon");
+			match signal::kill(nix_pid, Signal::SIGTERM) {
+				Ok(()) => remove_pid_file(),
+				Err(e) => {
+					warn!(
+						error = %e,
+						pid,
+						"Failed to send SIGTERM to cleanup daemon; keeping PID file"
+					);
+				}
 			}
 		}
+		Err(Errno::ESRCH) => {
+			debug!(pid, "Stale cleanup daemon PID; removing PID file");
+			remove_pid_file();
+		}
+		Err(e) => {
+			warn!(
+				error = %e,
+				pid,
+				"Cannot probe cleanup daemon process; keeping PID file"
+			);
+		}
 	}
-	remove_pid_file();
 }
 
 #[cfg(test)]

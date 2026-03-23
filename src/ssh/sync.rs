@@ -283,6 +283,30 @@ pub fn compute_client_host_hash() -> String {
 	hash[..8].to_owned()
 }
 
+/// Returns true if `remote_dir` is exactly one directory directly under `remote_root` and its
+/// name follows biwa's default layout (contains the 8-hex `host_hash` segment).
+///
+/// Used to avoid deleting arbitrary paths from local state during `biwa clean --auto` / `--all`.
+#[must_use]
+pub fn is_default_biwa_remote_dir(remote_dir: &str, remote_root: &Path, host_hash: &str) -> bool {
+	if host_hash.len() != 8 || !host_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+		return false;
+	}
+	if !remote_dir.contains(host_hash) {
+		return false;
+	}
+	let root = remote_root.to_string_lossy();
+	let root = root.trim_end_matches('/');
+	if root.is_empty() {
+		return false;
+	}
+	let prefix = format!("{root}/");
+	let Some(rest) = remote_dir.strip_prefix(&prefix) else {
+		return false;
+	};
+	!rest.is_empty() && !rest.contains('/') && !rest.contains("..")
+}
+
 /// Computes a unique project name based on the hostname and project root's canonical path.
 ///
 /// The format is `{project_name}-{host_hash}-{path_hash}` where each hash is
@@ -1251,6 +1275,62 @@ mod tests {
 		let rel = Path::new("src/main.rs");
 		let remote = compute_remote_path(root, proj, rel);
 		assert_eq!(remote, "~/.cache/biwa/projects/test_proj/src/main.rs");
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_accepts_expected_layout() {
+		let root = Path::new("~/.cache/biwa/projects");
+		let hh = "a1b2c3d4";
+		let dir = format!(
+			"{}/myproj-{hh}-deadbeef",
+			root.to_string_lossy().trim_end_matches('/')
+		);
+		assert!(is_default_biwa_remote_dir(&dir, root, hh));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_wrong_root_prefix() {
+		let root = Path::new("libs");
+		let hh = "a1b2c3d4";
+		assert!(!is_default_biwa_remote_dir(
+			&format!("libs2/p-{hh}-x"),
+			root,
+			hh
+		));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_nested_path() {
+		let root = Path::new("~/r");
+		let hh = "a1b2c3d4";
+		let r = root.to_string_lossy();
+		assert!(!is_default_biwa_remote_dir(
+			&format!("{r}/p-{hh}-x/sub"),
+			root,
+			hh
+		));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_path_traversal() {
+		let root = Path::new("~/r");
+		let hh = "a1b2c3d4";
+		let r = root.to_string_lossy();
+		assert!(!is_default_biwa_remote_dir(
+			&format!("{r}/../other-{hh}-x"),
+			root,
+			hh
+		));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_missing_host_hash() {
+		let root = Path::new("~/r");
+		let dir = format!(
+			"{}/otherproject-nohash-here",
+			root.to_string_lossy().trim_end_matches('/')
+		);
+		assert!(!is_default_biwa_remote_dir(&dir, root, "a1b2c3d4"));
 	}
 
 	#[test]

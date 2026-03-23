@@ -131,7 +131,7 @@ impl Config {
 			rules.extend(parse_env_var_env(&value)?);
 			config.env.vars = EnvVars::from_rules(rules);
 		}
-		config.validate();
+		config.validate()?;
 
 		Ok(config)
 	}
@@ -190,13 +190,19 @@ impl Config {
 	///
 	/// This performs structural/semantic checks that go beyond what deserialization
 	/// can enforce (e.g. warning about absolute remote paths).
-	fn validate(&self) {
+	fn validate(&self) -> Result<()> {
 		if self.sync.remote_root.is_absolute() {
 			warn!(
 				"Absolute remote_root path detected: {}. It is recommended to use a relative path starting with '~'.",
 				self.sync.remote_root.display()
 			);
 		}
+		for key in self.clean.quota_thresholds.keys() {
+			if *key > 100 {
+				bail!("Invalid clean.quota_thresholds key {key}: must be between 0 and 100");
+			}
+		}
+		Ok(())
 	}
 
 	/// Returns a string template of the default configuration for the specific format.
@@ -406,6 +412,30 @@ mod tests {
 		  }
 		}
 		"#);
+	}
+
+	#[serial]
+	#[test]
+	fn rejects_invalid_quota_threshold_key() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(
+			dir.path().join("biwa.toml"),
+			r#"ssh.host = "h"
+ssh.user = "u"
+[clean.quota_thresholds]
+150 = "1d"
+"#,
+		)?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("h", "u");
+
+		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		assert!(result.is_err());
+		let msg = result.unwrap_err().to_string();
+		assert!(
+			msg.contains("100") && msg.contains("quota_thresholds"),
+			"unexpected error: {msg}"
+		);
+		Ok(())
 	}
 
 	#[serial]

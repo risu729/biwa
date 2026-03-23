@@ -4,7 +4,9 @@ use crate::duration::HumanDuration;
 use crate::ssh::clean::{QuotaUsage, check_quota, list_remote_dirs, remove_remote_dir};
 use crate::ssh::client::Client;
 use crate::ssh::exec::connect;
-use crate::ssh::sync::{compute_client_host_hash, compute_project_remote_dir};
+use crate::ssh::sync::{
+	compute_client_host_hash, compute_project_remote_dir, is_default_biwa_remote_dir,
+};
 use crate::state::{
 	is_daemon_running, kill_daemon, load_state, remove_connections_for_target, remove_pid_file,
 	stale_connections, write_pid_file,
@@ -14,6 +16,7 @@ use clap::{Args, Subcommand};
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
 use nix::unistd;
+use std::collections::HashSet;
 use std::io;
 use std::process::{Command, Stdio};
 use std::{env, fs};
@@ -189,14 +192,17 @@ async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Res
 /// Clean all this client's tracked remote directories.
 async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<()> {
 	let state = load_state()?;
+	let host_hash = compute_client_host_hash();
+	let remote_root = &config.sync.remote_root;
 
-	// Filter to connections matching current SSH config.
+	// Filter to connections matching current SSH config and biwa's default remote layout.
 	let matching: Vec<_> = state
 		.connections
 		.iter()
 		.filter(|c| {
 			c.host == config.ssh.host && c.user == config.ssh.user && c.port == config.ssh.port
 		})
+		.filter(|c| is_default_biwa_remote_dir(&c.remote_dir, remote_root, &host_hash))
 		.collect();
 
 	if matching.is_empty() {
@@ -312,19 +318,8 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 
 	let state = load_state()?;
 	let host_hash = compute_client_host_hash();
-
-	// Check if any connections match current SSH config and this client's host hash.
-	let has_matching = state.connections.iter().any(|c| {
-		c.host == config.ssh.host
-			&& c.user == config.ssh.user
-			&& c.port == config.ssh.port
-			&& c.remote_dir.contains(&host_hash)
-	});
-
-	if !has_matching {
-		debug!("No stale connections to clean");
-		return Ok(());
-	}
+	let remote_root = &config.sync.remote_root;
+	let remote_root_str = remote_root.to_string_lossy().into_owned();
 
 	let client = connect(config, true).await?;
 
@@ -363,21 +358,51 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 	};
 
 	let expired = stale_connections(&state, max_age);
-	let stale_dirs: Vec<String> = expired
+	let stale_from_state: Vec<String> = expired
 		.iter()
 		.filter(|c| {
 			c.host == config.ssh.host
 				&& c.user == config.ssh.user
 				&& c.port == config.ssh.port
-				&& c.remote_dir.contains(&host_hash)
+				&& is_default_biwa_remote_dir(&c.remote_dir, remote_root, &host_hash)
 		})
 		.map(|c| c.remote_dir.clone())
 		.collect();
 
-	if stale_dirs.is_empty() {
+	let tracked: HashSet<String> = state
+		.connections
+		.iter()
+		.filter(|c| {
+			c.host == config.ssh.host && c.user == config.ssh.user && c.port == config.ssh.port
+		})
+		.map(|c| c.remote_dir.clone())
+		.collect();
+
+	let listed = list_remote_dirs(&client, &remote_root_str).await?;
+	let mut orphan_dirs = Vec::new();
+	for name in &listed {
+		let full_path = format!("{remote_root_str}/{name}");
+		if is_default_biwa_remote_dir(&full_path, remote_root, &host_hash)
+			&& !tracked.contains(&full_path)
+		{
+			orphan_dirs.push(full_path);
+		}
+	}
+
+	let mut to_remove: HashSet<String> = HashSet::new();
+	for d in stale_from_state {
+		to_remove.insert(d);
+	}
+	for d in orphan_dirs {
+		to_remove.insert(d);
+	}
+
+	if to_remove.is_empty() {
 		debug!("No stale directories to clean");
 		return Ok(());
 	}
+
+	let stale_dirs: Vec<String> = to_remove.into_iter().collect();
 
 	info!(
 		count = stale_dirs.len(),
@@ -447,11 +472,12 @@ pub fn spawn_background_cleanup(config: &Config) -> Result<()> {
 	// Detach by creating a new session.
 	#[cfg(unix)]
 	{
+		use nix::errno::Errno;
 		use std::os::unix::process::CommandExt as _;
 		// SAFETY: setsid() is safe to call pre-exec; it only affects the child process.
 		unsafe {
 			cmd.pre_exec(|| {
-				unistd::setsid().map_err(io::Error::other)?;
+				unistd::setsid().map_err(|e: Errno| io::Error::from(e))?;
 				Ok(())
 			});
 		}
