@@ -30,12 +30,16 @@ fn init_test_env() {
 ///
 /// This is used heavily in end-to-end tests to supply valid dummy credentials
 /// and host connection strings out-of-the-box.
+///
+/// Parallel tests share the same persisted connection state file; disable automatic background
+/// cleanup so `biwa clean --auto` does not remove other tests’ remote project directories.
 pub fn biwa_cmd(args: &[&str]) -> duct::Expression {
 	duct::cmd(env!("CARGO_BIN_EXE_biwa"), args)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
 		.env("BIWA_SSH_PORT", "2222")
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
+		.env("BIWA_CLEAN_AUTO", "false")
 }
 
 /// Computes the absolute path to the remote project directory.

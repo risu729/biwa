@@ -60,6 +60,35 @@ enum CleanSubcommand {
 	Stop,
 }
 
+/// Which cleanup mode `biwa clean` runs (after handling [`CleanSubcommand::Stop`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CleanTarget {
+	/// Default: remove only the current project’s remote directory.
+	CurrentProject,
+	/// `--auto`: quota / stale connection cleanup (daemon-style).
+	Auto,
+	/// `--all`: remove all tracked default-layout remote dirs for this client.
+	All,
+	/// `--purge`: remove every directory under `remote_root` on the server.
+	Purge,
+}
+
+/// Maps mutually exclusive `clean` flags to a [`CleanTarget`].
+///
+/// Precedence: `--auto`, then `--purge`, then `--all`, then default (current project).
+#[must_use]
+pub(super) const fn clean_target(auto: bool, purge: bool, all: bool) -> CleanTarget {
+	if auto {
+		CleanTarget::Auto
+	} else if purge {
+		CleanTarget::Purge
+	} else if all {
+		CleanTarget::All
+	} else {
+		CleanTarget::CurrentProject
+	}
+}
+
 impl Clean {
 	/// Run the clean command.
 	pub async fn run(self, quiet: bool) -> Result<()> {
@@ -71,7 +100,8 @@ impl Clean {
 
 		let config = Config::load()?;
 
-		if self.auto {
+		let target = clean_target(self.auto, self.purge, self.all);
+		if matches!(target, CleanTarget::Auto) {
 			return run_auto_cleanup(&config).await;
 		}
 
@@ -86,14 +116,12 @@ impl Clean {
 			}
 		}
 
-		if self.purge {
+		if matches!(target, CleanTarget::Purge) {
 			return run_purge_cleanup(&config, self.dry_run, quiet).await;
 		}
-
-		if self.all {
+		if matches!(target, CleanTarget::All) {
 			return run_all_cleanup(&config, self.dry_run, quiet).await;
 		}
-
 		run_current_cleanup(&config, self.dry_run, quiet).await
 	}
 }
@@ -496,4 +524,39 @@ pub fn spawn_background_cleanup(config: &Config) -> Result<()> {
 
 	debug!("Spawned background cleanup process");
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{CleanTarget, clean_target};
+	use pretty_assertions::assert_eq;
+
+	#[test]
+	fn clean_target_none_is_current_project() {
+		assert_eq!(
+			clean_target(false, false, false),
+			CleanTarget::CurrentProject
+		);
+	}
+
+	#[test]
+	fn clean_target_auto() {
+		assert_eq!(clean_target(true, false, false), CleanTarget::Auto);
+		assert_eq!(clean_target(true, true, true), CleanTarget::Auto);
+	}
+
+	#[test]
+	fn clean_target_all() {
+		assert_eq!(clean_target(false, false, true), CleanTarget::All);
+	}
+
+	#[test]
+	fn clean_target_purge() {
+		assert_eq!(clean_target(false, true, false), CleanTarget::Purge);
+	}
+
+	#[test]
+	fn clean_target_purge_wins_over_all() {
+		assert_eq!(clean_target(false, true, true), CleanTarget::Purge);
+	}
 }
