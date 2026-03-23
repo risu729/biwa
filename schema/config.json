@@ -82,7 +82,7 @@
           "additionalProperties": false,
           "default": {},
           "patternProperties": {
-            "^\\d+$": {
+            "^(100|[0-9]{1,2})$": {
               "$ref": "#/$defs/HumanDuration"
             }
           }

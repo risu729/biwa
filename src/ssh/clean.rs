@@ -76,9 +76,13 @@ fn parse_quota_output(output: &str) -> Option<QuotaUsage> {
 
 		// First field is the filesystem, followed by numeric values.
 		// Find the first numeric value which is blocks_used.
-		let numeric_start = fields
+		let Some(numeric_start) = fields
 			.iter()
-			.position(|f| parse_quota_block_field(f).is_some())?;
+			.position(|f| parse_quota_block_field(f).is_some())
+		else {
+			// No numeric fields on this line; skip and keep scanning.
+			continue;
+		};
 		let blocks_used = parse_quota_block_field(fields.get(numeric_start)?)?;
 		let blocks_quota = parse_quota_block_field(fields.get(numeric_start.checked_add(1)?)?)?;
 
@@ -205,6 +209,19 @@ Disk quotas for user test (uid 1000):
      Filesystem  blocks   quota   limit   grace   files   quota   limit   grace
 ";
 		assert!(parse_quota_output(output).is_none());
+	}
+
+	#[test]
+	fn parse_quota_skips_non_data_lines_before_numeric_row() {
+		let output = "\
+Disk quotas for user z5642102 (uid 26573):
+Some warning or preamble line without numbers
+     Filesystem  blocks   quota   limit   grace   files   quota   limit   grace
+reed:/export/reed/8 3156648  3190784 3509864          109859  319080  350988
+";
+		let usage = parse_quota_output(output).unwrap();
+		assert_eq!(usage.blocks_used, 3_156_648);
+		assert_eq!(usage.blocks_quota, 3_190_784);
 	}
 
 	#[test]

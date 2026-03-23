@@ -378,11 +378,17 @@ async fn run_auto_cleanup(config: &Config) -> Result<()> {
 		.map(|c| c.remote_dir.clone())
 		.collect();
 
+	// Only treat "orphan" remote dirs (present on server but not in local state) as candidates
+	// when we have at least one tracked path for this target. If local state is empty or broken,
+	// orphan detection is unsafe (could remove active projects).
+	let has_tracked_dirs = !tracked.is_empty();
+
 	let listed = list_remote_dirs(&client, &remote_root_str).await?;
 	let mut orphan_dirs = Vec::new();
 	for name in &listed {
 		let full_path = format!("{remote_root_str}/{name}");
-		if is_default_biwa_remote_dir(&full_path, remote_root, &host_hash)
+		if has_tracked_dirs
+			&& is_default_biwa_remote_dir(&full_path, remote_root, &host_hash)
 			&& !tracked.contains(&full_path)
 		{
 			orphan_dirs.push(full_path);

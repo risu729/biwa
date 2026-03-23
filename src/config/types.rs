@@ -127,6 +127,25 @@ mod schema_defaults {
 	pub const fn clean_auto() -> bool {
 		true
 	}
+
+	/// JSON Schema for [`CleanConfig::quota_thresholds`]: keys are quota percentages 0–100 only.
+	#[must_use]
+	pub fn clean_quota_thresholds_schema(
+		generator: &mut schemars::SchemaGenerator,
+	) -> schemars::Schema {
+		use super::HumanDuration;
+		let value_schema = generator.subschema_for::<HumanDuration>();
+		let mut pattern_props = serde_json::Map::new();
+		pattern_props.insert("^(100|[0-9]{1,2})$".to_owned(), value_schema.to_value());
+		serde_json::json!({
+			"type": "object",
+			"additionalProperties": false,
+			"default": {},
+			"patternProperties": pattern_props,
+		})
+		.try_into()
+		.expect("valid quota_thresholds subschema")
+	}
 }
 
 /// Root configuration struct for biwa.
@@ -359,6 +378,7 @@ pub struct CleanConfig {
 	/// Example: `{ 80 = "5d" }` means clean dirs older than 5 days when quota ≥ 80%.
 	#[config(default = {})]
 	#[schemars(default)]
+	#[schemars(schema_with = "schema_defaults::clean_quota_thresholds_schema")]
 	pub quota_thresholds: BTreeMap<u8, HumanDuration>,
 }
 
