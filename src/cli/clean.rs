@@ -129,9 +129,7 @@ impl Clean {
 
 /// Stop the background cleanup daemon.
 fn stop_daemon(quiet: bool) {
-	let state_dir = Config::load()
-		.map(|config| config.resolved_state_dir())
-		.unwrap_or_else(|_| crate::state::default_state_dir());
+	let state_dir = Config::load().map_or_else(|_| crate::state::default_state_dir(), |config| config.resolved_state_dir());
 	if is_daemon_running(&state_dir) {
 		kill_daemon(&state_dir);
 		if !quiet {
