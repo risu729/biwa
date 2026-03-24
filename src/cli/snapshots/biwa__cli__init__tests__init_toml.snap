@@ -6,6 +6,12 @@ expression: content
 
 # Root configuration struct for biwa.
 
+# Local state directory for connection tracking and daemon PID files.
+#
+# If unset, biwa uses an XDG/platform default path. `BIWA_STATE_DIR` always
+# takes precedence over this setting.
+#state_dir =
+
 # SSH connection configuration.
 [ssh]
 # Hostname or IP address of the remote host.
@@ -142,12 +148,6 @@ expression: content
 #
 # Default value: true
 #auto = true
-
-# Local state directory for connection tracking and daemon PID files.
-#
-# If unset, biwa uses an XDG/platform default path. `BIWA_STATE_DIR` always
-# takes precedence over this setting.
-#state_dir =
 
 # Quota-based cleanup thresholds.
 #

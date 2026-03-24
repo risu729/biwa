@@ -170,7 +170,7 @@ impl Config {
 		};
 
 		resolve(&mut partial.ssh.key_path);
-		resolve(&mut partial.clean.state_dir);
+		resolve(&mut partial.state_dir);
 
 		if let Some(exclude_list) = &mut partial.sync.exclude {
 			let root = canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
@@ -350,7 +350,7 @@ mod tests {
 			config.sync.remote_root,
 			PathBuf::from("~/.cache/biwa/projects")
 		);
-		assert_eq!(config.clean.state_dir, None);
+		assert_eq!(config.state_dir, None);
 	}
 
 	#[serial]
@@ -407,10 +407,10 @@ mod tests {
 		    "pre_sync": null,
 		    "post_sync": null
 		  },
+		  "state_dir": null,
 		  "clean": {
 		    "max_age": "30days",
 		    "auto": true,
-		    "state_dir": null,
 		    "quota_thresholds": {}
 		  }
 		}
@@ -1113,18 +1113,17 @@ remote_root = "xdg_libs"
 
 	#[serial]
 	#[test]
-	fn clean_state_dir_resolves_relative_to_config_root() -> Result<()> {
+	fn state_dir_resolves_relative_to_config_root() -> Result<()> {
 		let dir = tempdir()?;
 		let config_path = dir.path().join("biwa.toml");
 		fs::write(
 			&config_path,
 			r#"
+state_dir = "state/dir"
+
 [ssh]
 host = "host"
 user = "user"
-
-[clean]
-state_dir = "state/dir"
 "#,
 		)?;
 
@@ -1136,19 +1135,18 @@ state_dir = "state/dir"
 
 	#[serial]
 	#[test]
-	fn biwa_state_dir_env_overrides_clean_state_dir() -> Result<()> {
+	fn biwa_state_dir_env_overrides_config_state_dir() -> Result<()> {
 		let dir = tempdir()?;
 		let env_state_dir = tempdir()?;
 		let config_path = dir.path().join("biwa.toml");
 		fs::write(
 			&config_path,
 			r#"
+state_dir = "from/config"
+
 [ssh]
 host = "host"
 user = "user"
-
-[clean]
-state_dir = "from/config"
 "#,
 		)?;
 
@@ -1166,7 +1164,7 @@ state_dir = "from/config"
 
 	#[serial]
 	#[test]
-	fn clean_state_dir_defaults_to_xdg_when_unset() -> Result<()> {
+	fn state_dir_defaults_to_xdg_when_unset() -> Result<()> {
 		let _cleanup = EnvCleanup::remove("BIWA_STATE_DIR");
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
 		let config = Config::load_internal(None, None, None)?;

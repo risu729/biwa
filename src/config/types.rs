@@ -167,6 +167,11 @@ pub struct Config {
 	#[config(nested)]
 	#[schemars(default)]
 	pub hooks: HooksConfig,
+	/// Local state directory for connection tracking and daemon PID files.
+	///
+	/// If unset, biwa uses an XDG/platform default path. `BIWA_STATE_DIR` always
+	/// takes precedence over this setting.
+	pub state_dir: Option<PathBuf>,
 	/// Cleanup configuration for stale remote directories.
 	#[config(nested)]
 	#[schemars(default)]
@@ -204,14 +209,13 @@ impl Default for Config {
 impl Config {
 	/// Resolves the local state directory path.
 	///
-	/// Priority: `BIWA_STATE_DIR` > `[clean].state_dir` > platform default.
+	/// Priority: `BIWA_STATE_DIR` > `state_dir` > platform default.
 	#[must_use]
 	pub fn resolved_state_dir(&self) -> PathBuf {
 		if let Ok(path) = std::env::var("BIWA_STATE_DIR") {
 			return PathBuf::from(path);
 		}
-		self.clean
-			.state_dir
+		self.state_dir
 			.clone()
 			.unwrap_or_else(crate::state::default_state_dir)
 	}
@@ -384,12 +388,6 @@ pub struct CleanConfig {
 	#[config(default = true, env = "BIWA_CLEAN_AUTO")]
 	#[schemars(default = "crate::config::types::schema_defaults::clean_auto")]
 	pub auto: bool,
-
-	/// Local state directory for connection tracking and daemon PID files.
-	///
-	/// If unset, biwa uses an XDG/platform default path. `BIWA_STATE_DIR` always
-	/// takes precedence over this setting.
-	pub state_dir: Option<PathBuf>,
 
 	/// Quota-based cleanup thresholds.
 	///

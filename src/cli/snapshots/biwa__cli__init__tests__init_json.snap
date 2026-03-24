@@ -7,8 +7,7 @@ expression: content
   "clean": {
     "auto": true,
     "max_age": "30days",
-    "quota_thresholds": {},
-    "state_dir": null
+    "quota_thresholds": {}
   },
   "env": {
     "forward_method": "export",
@@ -26,6 +25,7 @@ expression: content
     "umask": "077",
     "user": "z1234567"
   },
+  "state_dir": null,
   "sync": {
     "auto": true,
     "engine": "sftp",
