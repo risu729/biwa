@@ -21,7 +21,7 @@ oxfmt = "0.41.0"
 pitchfork = "2.1.0"
 tombi = "0.9.4"
 "npm:ajv-cli" = "5.0.0"
-yq = "4.52.4"
+yq = "4.52.5"
 
 [settings]
 experimental = true
