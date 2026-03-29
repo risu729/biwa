@@ -50,7 +50,7 @@ usage-lib = { version = "=3.2.0", features = ["clap", "docs"] }
 
 [dev-dependencies]
 ctor = "=0.8.0"
-insta = { version = "=1.47.0", features = ["json"] }
+insta = { version = "=1.47.1", features = ["json"] }
 pretty_assertions = { version = "=1.4.1", features = ["unstable"] }
 rstest = "=0.26.1"
 serial_test = "=3.4.0"
