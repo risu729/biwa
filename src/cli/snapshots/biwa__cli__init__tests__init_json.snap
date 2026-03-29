@@ -4,6 +4,11 @@ expression: content
 ---
 {
   "$schema": "https://biwa.takuk.me/schema/config.json",
+  "clean": {
+    "auto": true,
+    "max_age": "30days",
+    "quota_thresholds": {}
+  },
   "env": {
     "forward_method": "export",
     "vars": []
@@ -20,6 +25,7 @@ expression: content
     "umask": "077",
     "user": "z1234567"
   },
+  "state_dir": null,
   "sync": {
     "auto": true,
     "engine": "sftp",

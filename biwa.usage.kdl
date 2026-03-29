@@ -48,6 +48,14 @@ cmd sync help="Synchronize files to remote host" {
         arg <INCLUDE>
     }
 }
+cmd clean help="Clean stale remote project directories" {
+    alias c
+    flag --all help="Remove all this client's tracked remote directories"
+    flag --purge help="Remove ALL biwa directories under `remote_root` (including other clients)"
+    flag --dry-run help="Preview what would be removed without deleting"
+    flag --auto help="Background auto-cleanup mode (used internally by the daemon)" hide=#true
+    cmd stop help="Stop the running background cleanup daemon"
+}
 cmd init help="Initialize a biwa configuration file" {
     flag "-f --force" help="Force overwrite if file exists"
     flag --format help="Format to generate (toml, json, jsonc, json5, yaml, yml)" default=toml {

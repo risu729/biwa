@@ -59,3 +59,39 @@ biwa run -d /tmp/my-project --sync ls
 
 When used with `biwa sync`, `--remote-dir` replaces the automatically computed `remote_root + project_name` path.
 To prevent accidental data overwrites when executing standard commands across different remote paths, **using `-d` with `biwa run` automatically disables project synchronization (`--skip-sync`)**. If you want to sync your project to a custom directory and run a command there in one step, you must explicitly pass the `--sync` flag.
+
+## Remote directory cleanup
+
+Biwa stores each successful `biwa sync` and `biwa run` (after sync, when applicable) in local state under your [XDG state directory](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) (for example `~/.local/state/biwa/connections.json` on Linux). That lets the tool know which remote project directories belong to this machine and when they were last used.
+
+### Automatic cleanup after sync and run
+
+When **`clean.auto`** is `true` (the default), biwa may start a **background** `biwa clean --auto` process after a successful `biwa sync` or `biwa run`, as long as password authentication is not interactive-only (non-interactive auth such as env password, key, or agent is required). You can turn this off globally with **`BIWA_CLEAN_AUTO=false`** or in config:
+
+```toml
+[clean]
+auto = false
+```
+
+Automatic cleanup connects over SSH, reads disk **quota** usage when the server reports it, and applies **`[clean]`** rules:
+
+- **`max_age`** — Maximum age for remote directories under the default layout (`remote_root` + per-project folder names). Expressed as a duration (`"30d"`, `"12h"`, a plain number for minutes, and so on). This acts as the baseline “0% quota” threshold.
+- **`quota_thresholds`** — Optional map of quota usage **percentages** (0–100) to maximum directory ages. When reported quota usage is at or above a threshold, directories older than that threshold’s age can be removed. If quota data is unavailable, only the baseline age from `max_age` applies.
+
+Candidates for removal are **tracked** connection entries that are older than the effective age limit, plus **orphan** directories on the server that look like default biwa project folders under `remote_root` but are no longer listed in local state—**only** when local state already has at least one tracked path for that SSH target (so orphan detection is not run on an empty or broken state file).
+
+Background cleanup does not run if another cleanup process already holds the PID lock, or if interactive password auth would be required.
+
+### Manual `biwa clean`
+
+Use the dedicated command for explicit control; see the [CLI reference for `biwa clean`](/cli/clean.md).
+
+- **Default (no extra flags)** — Remove the **current project’s** remote directory (from the computed `remote_root` + unique project name for the current working directory).
+- **`--all`** — Remove every **tracked** remote directory for this SSH host/user/port that matches the default biwa layout under `remote_root`.
+- **`--purge`** — Remove **all** directory entries listed under `remote_root` on the server (including projects from other clients). Use with care.
+- **`--dry-run`** — Print what would be removed without deleting.
+- **`biwa clean stop`** — Stop a running background cleanup daemon (if any).
+
+Flags are resolved in a fixed order when combined: **`--auto`** (daemon-style quota cleanup) takes precedence over **`--purge`**, then **`--all`**, then the default current-project clean.
+
+For explicit clean invocations, biwa stops any running background cleanup daemon first so manual and automatic cleanup do not run at the same time.

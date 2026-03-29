@@ -1,5 +1,7 @@
 /// SSH authentication processing.
 pub mod auth;
+/// Remote cleanup operations.
+pub mod clean;
 /// SSH Client wrapper.
 pub mod client;
 
