@@ -34,36 +34,9 @@ unused-allowed-license = "deny"
 unused-license-exception = "deny"
 
 [bans]
-# sha2 and other transitive updates can temporarily introduce duplicate crates.
-# Keep visibility, but don't fail CI on those until the graph converges again.
 multiple-versions = "warn"
 multiple-versions-include-dev = true
 wildcards = "deny"
-skip = [
-	{ name = "block-buffer", version = "*" },
-	{ name = "const-oid", version = "*" },
-	{ name = "crypto-bigint", version = "*" },
-	{ name = "crypto-common", version = "*" },
-	{ name = "der", version = "*" },
-	{ name = "digest", version = "*" },
-	{ name = "generic-array", version = "*" },
-	{ name = "getrandom", version = "*" },
-	{ name = "json5", version = "*" },
-	{ name = "nix", version = "*" },
-	{ name = "pem-rfc7468", version = "*" },
-	{ name = "pkcs8", version = "*" },
-	{ name = "rand", version = "*" },
-	{ name = "rand_chacha", version = "*" },
-	{ name = "rand_core", version = "*" },
-	{ name = "sha1", version = "*" },
-	{ name = "sha2", version = "*" },
-	{ name = "signature", version = "*" },
-	{ name = "spki", version = "*" },
-	{ name = "toml", version = "*" },
-	{ name = "toml_datetime", version = "*" },
-	{ name = "unicode-width", version = "*" },
-	{ name = "winnow", version = "*" },
-]
 
 [sources]
 unknown-registry = "deny"
