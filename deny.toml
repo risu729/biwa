@@ -14,10 +14,6 @@ ignore = [
 	# rsa crate timing sidechannel (Marvin Attack) — no fix available upstream.
 	# Transitive dependency from russh via async-ssh2-tokio.
 	"RUSTSEC-2023-0071",
-	# Incorrect Output of Incremental Portable SHAKE API
-	# Only impacts users that rely on this XOF API to squeeze more than RATE bytes.
-	# It does not impact the use of libcrux-sha3 in libcrux-ml-kem, which we use via russh.
-	"RUSTSEC-2026-0074",
 ]
 unused-ignored-advisory = "deny"
 
