@@ -4,7 +4,7 @@ use color_eyre::eyre::{Context as _, Report};
 use core::error::Error as StdError;
 use core::fmt;
 use russh::client::{Handle, Handler};
-use russh::keys::agent::client::AgentClient;
+use russh::keys::agent::{AgentIdentity, client::AgentClient};
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key};
 use std::path::{Path, PathBuf};
 
@@ -128,9 +128,23 @@ pub(super) async fn authenticate<H: Handler>(
 			let mut authenticated = false;
 			let hash_alg = handle.best_supported_rsa_hash().await?.flatten();
 			for identity in identities {
-				let is_auth = handle
-					.authenticate_publickey_with(username, identity, hash_alg, &mut agent)
-					.await;
+				let is_auth = match identity {
+					AgentIdentity::PublicKey { key, .. } => {
+						handle
+							.authenticate_publickey_with(username, key, hash_alg, &mut agent)
+							.await
+					}
+					AgentIdentity::Certificate { certificate, .. } => {
+						handle
+							.authenticate_certificate_with(
+								username,
+								certificate,
+								hash_alg,
+								&mut agent,
+							)
+							.await
+					}
+				};
 				if is_auth.is_ok_and(|res| res.success()) {
 					authenticated = true;
 					break;
