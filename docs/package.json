@@ -18,6 +18,6 @@
 		"wrangler": "4.81.0"
 	},
 	"overrides": {
-		"vite": "8.0.7"
+		"vite": "8.0.8"
 	}
 }
