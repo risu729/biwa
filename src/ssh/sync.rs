@@ -638,14 +638,11 @@ async fn upload_file(
 	}
 
 	if matches!(permissions, SftpPermissions::Recreate) {
-		let should_remove = sftp
-			.metadata(sftp_path)
-			.await
-			.map_or(true, |attrs| {
-				attrs
-					.permissions
-					.map_or_else(|| true, |p| (p & 0o777) != secure_mode)
-			}); // Default to true if metadata fails
+		let should_remove = sftp.metadata(sftp_path).await.map_or(true, |attrs| {
+			attrs
+				.permissions
+				.map_or_else(|| true, |p| (p & 0o777) != secure_mode)
+		}); // Default to true if metadata fails
 		if should_remove && let Err(e) = sftp.remove_file(sftp_path).await {
 			debug!(error = %e, path = sftp_path, "Failed to remove pre-existing file or file did not exist");
 		}
