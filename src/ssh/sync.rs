@@ -641,12 +641,11 @@ async fn upload_file(
 		let should_remove = sftp
 			.metadata(sftp_path)
 			.await
-			.map(|attrs| {
+			.map_or(true, |attrs| {
 				attrs
 					.permissions
 					.map_or_else(|| true, |p| (p & 0o777) != secure_mode)
-			})
-			.unwrap_or(true); // Default to true if metadata fails
+			}); // Default to true if metadata fails
 		if should_remove && let Err(e) = sftp.remove_file(sftp_path).await {
 			debug!(error = %e, path = sftp_path, "Failed to remove pre-existing file or file did not exist");
 		}

@@ -83,11 +83,10 @@ pub(super) async fn execute(
 			ChannelMsg::Data { data } => {
 				stdout_buffer.extend_from_slice(&data);
 			}
-			ChannelMsg::ExtendedData { data, ext } => {
-				if ext == 1 {
+			ChannelMsg::ExtendedData { data, ext }
+				if ext == 1 => {
 					stderr_buffer.extend_from_slice(&data);
 				}
-			}
 			ChannelMsg::ExitStatus {
 				exit_status: status,
 			} => {

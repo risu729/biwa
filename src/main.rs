@@ -99,13 +99,12 @@ fn print_error(error: &Report, debug_error_report: bool) {
 /// Returns true when an environment variable is set to a truthy value.
 fn env_flag_is_truthy(name: &str) -> bool {
 	env::var(name)
-		.map(|value| {
+		.is_ok_and(|value| {
 			matches!(
 				value.trim().to_ascii_lowercase().as_str(),
 				"1" | "true" | "yes" | "on"
 			)
 		})
-		.unwrap_or(false)
 }
 
 #[cfg(test)]
