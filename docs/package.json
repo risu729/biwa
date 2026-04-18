@@ -15,7 +15,7 @@
 		"vitepress": "2.0.0-alpha.17",
 		"vitepress-plugin-mermaid": "2.0.17",
 		"vue-tsc": "3.2.6",
-		"wrangler": "4.82.2"
+		"wrangler": "4.83.0"
 	},
 	"overrides": {
 		"vite": "8.0.8"
