@@ -72,7 +72,7 @@ jobs:
 
     services:
       ssh-server:
-        image: lscr.io/linuxserver/openssh-server@sha256:969edac1221e0f211d86dc5a94ee9337340c9c585527f73e5fabf2dae7bb8de3
+        image: lscr.io/linuxserver/openssh-server@sha256:792bb9969a6751f9be2dcecdebd166f75c51187628f1be48ac9c9b3776561c16
         ports:
           - 2222:2222
         env:
