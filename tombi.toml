@@ -7,4 +7,4 @@ exclude = ["schema/fixtures/toml/**/*.toml"]
 indent-style = "tab"
 
 [schema]
-strict = false
+strict = true
