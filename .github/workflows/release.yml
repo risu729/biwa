@@ -7,6 +7,10 @@ on:
     tags:
       - v*
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions: {}
 
 defaults:
@@ -338,7 +342,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      actions: read
+      actions: read # for actions-timeline
 
     steps:
       - name: actions-timeline

@@ -10,6 +10,10 @@ on:
       - reopened
       - synchronize
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions: {}
 
 defaults:
@@ -22,7 +26,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      pull-requests: read
+      pull-requests: read # for semantic PR title linting
     steps:
       - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
         env:
@@ -53,7 +57,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      actions: read
+      actions: read # for actions-timeline
 
     steps:
       - name: actions-timeline
