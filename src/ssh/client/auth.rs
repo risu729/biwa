@@ -50,7 +50,7 @@ impl Method {
 	pub fn with_key_file<T: AsRef<Path>>(key_file_path: T, passphrase: Option<&str>) -> Self {
 		Self::PrivateKeyFile {
 			key_file_path: key_file_path.as_ref().to_path_buf(),
-			key_pass: passphrase.map(str::to_string),
+			key_pass: passphrase.map(str::to_owned),
 		}
 	}
 

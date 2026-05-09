@@ -2,7 +2,7 @@
 name = "biwa"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.93.1"
+rust-version = "1.95.0"
 description = "CLI to execute commands on UNSW CSE servers from local"
 repository = "https://github.com/risu729/biwa"
 license = "MIT"
@@ -60,8 +60,6 @@ tempfile = "=3.27.0"
 # We prefer disabling rules than enabling them
 blanket_clippy_restriction_lints = "allow"
 cargo = { level = "warn", priority = -1 }
-# Rust 1.95 added new style suggestions; keep source churn out of tool bumps
-collapsible_match = "allow"
 default_numeric_fallback = "allow"
 default_union_representation = "allow"
 # We don't need to care about breaking changes in non-public APIs
@@ -75,8 +73,6 @@ float_arithmetic = "allow"
 get_unwrap = "allow"
 # We prefer idiomatic Rust code
 implicit_return = "allow"
-# Rust 1.95 added new style suggestions; keep source churn out of tool bumps
-map_unwrap_or = "allow"
 # We allow single char identifiers for brevity
 min_ident_chars = "allow"
 # We shouldn't enable globally
@@ -110,8 +106,6 @@ shadow_reuse = "allow"
 single_call_fn = "allow"
 # Single char lifetime names are more idiomatic
 single_char_lifetime_names = "allow"
-# Rust 1.95 added new style suggestions; keep source churn out of tool bumps
-str_to_string = "allow"
 # mut String is worse than String + "..."
 string_add = "allow"
 # We have some unimplemented features
