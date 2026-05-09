@@ -36,10 +36,11 @@ jobs:
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.3
+          install_args: --locked
 
       - name: Re-install Rust
         # cache doesn't work well with rust
-        run: mise install rust --force
+        run: mise install --locked rust --force
 
       - name: Create biwa-bot GitHub App token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -76,10 +77,11 @@ jobs:
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.3
+          install_args: --locked
 
       - name: Re-install Rust
         # cache doesn't work well with rust
-        run: mise install rust --force
+        run: mise install --locked rust --force
 
       - name: Create biwa-bot GitHub App token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
