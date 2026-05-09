@@ -1,9 +1,9 @@
 use crate::Result;
 use crate::cli::sync::SyncArgs;
 use crate::config::types::Config;
+use crate::env_flag;
 use clap::{ArgAction, Parser, Subcommand};
 use color_eyre::eyre::eyre;
-use std::env;
 use tracing::Level;
 use tracing_subscriber::{
 	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
@@ -151,20 +151,10 @@ struct OutputMode {
 impl OutputMode {
 	/// Resolves output flags using CLI precedence over environment defaults.
 	fn resolve(cli: &Cli) -> Self {
-		let silent = cli.silent || env_flag_is_truthy("BIWA_LOG_SILENT");
-		let quiet = silent || cli.quiet || env_flag_is_truthy("BIWA_LOG_QUIET");
+		let silent = cli.silent || env_flag::is_truthy("BIWA_LOG_SILENT");
+		let quiet = silent || cli.quiet || env_flag::is_truthy("BIWA_LOG_QUIET");
 		Self { quiet, silent }
 	}
-}
-
-/// Returns true when an environment variable is set to a truthy value.
-fn env_flag_is_truthy(name: &str) -> bool {
-	env::var(name).is_ok_and(|value| {
-		matches!(
-			value.trim().to_ascii_lowercase().as_str(),
-			"1" | "true" | "yes" | "on"
-		)
-	})
 }
 
 #[cfg(test)]

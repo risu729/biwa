@@ -5,7 +5,7 @@ use crate::ssh::sync::{Options, sync_project};
 use clap::Args;
 use std::env;
 use std::fs::canonicalize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Arguments for synchronization.
 #[derive(Args, Debug, Default, Clone)]
@@ -46,27 +46,43 @@ impl SyncArgs {
 
 	/// Resolve the sync options.
 	pub fn resolve_options(&self) -> Options {
-		let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-		let cwd = canonicalize(&cwd).unwrap_or(cwd);
-		let cwd_str = cwd.to_string_lossy().into_owned();
-		let cwd_str = cwd_str.trim_end_matches('/');
-
-		let make_absolute = |p: &String| {
-			if p.starts_with('/') {
-				p.clone()
-			} else {
-				format!("{cwd_str}/{}", p.trim_start_matches('/'))
-			}
-		};
-		let exclude = self.exclude.iter().map(make_absolute).collect::<Vec<_>>();
-		let include = self.include.iter().map(make_absolute).collect::<Vec<_>>();
+		let cwd = canonical_current_dir();
 
 		Options {
 			force: self.force,
-			exclude,
-			include,
+			exclude: absolutize_patterns(&self.exclude, &cwd),
+			include: absolutize_patterns(&self.include, &cwd),
 		}
 	}
+}
+
+/// Returns the canonical current directory, falling back to `.` if needed.
+fn canonical_current_dir() -> PathBuf {
+	let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+	canonicalize(&cwd).unwrap_or(cwd)
+}
+
+/// Converts relative include/exclude patterns into absolute paths.
+fn absolutize_patterns(patterns: &[String], base_dir: &Path) -> Vec<String> {
+	let base_dir = trim_trailing_slash(base_dir);
+	patterns
+		.iter()
+		.map(|pattern| absolutize_pattern(pattern, &base_dir))
+		.collect()
+}
+
+/// Converts one sync pattern into an absolute path if it is relative.
+fn absolutize_pattern(pattern: &str, base_dir: &str) -> String {
+	if pattern.starts_with('/') {
+		pattern.to_owned()
+	} else {
+		format!("{base_dir}/{}", pattern.trim_start_matches('/'))
+	}
+}
+
+/// Returns a displayable path without a trailing slash.
+fn trim_trailing_slash(path: &Path) -> String {
+	path.to_string_lossy().trim_end_matches('/').to_owned()
 }
 
 /// Synchronize local project files to the remote server.
@@ -125,6 +141,17 @@ mod tests {
 		assert_eq!(
 			options.include,
 			vec!["/abs/include".to_owned(), format!("{cwd_str}/rel/include")]
+		);
+	}
+
+	#[test]
+	fn absolutize_patterns_preserves_absolute_entries() {
+		assert_eq!(
+			absolutize_patterns(
+				&["/abs/path".to_owned(), "relative/path".to_owned()],
+				Path::new("/project"),
+			),
+			vec!["/abs/path".to_owned(), "/project/relative/path".to_owned()]
 		);
 	}
 }
