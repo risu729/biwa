@@ -5,3 +5,6 @@ exclude = ["schema/fixtures/toml/**/*.toml"]
 
 [format.rules]
 indent-style = "tab"
+
+[schema]
+strict = false

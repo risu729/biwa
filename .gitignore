@@ -210,6 +210,7 @@ cobertura.xml
 
 # biwa
 biwa.toml
+.mise/
 
 # schema fixtures: JSON generated from TOML by tasks/schema/ajv
 schema/fixtures/json/generated/

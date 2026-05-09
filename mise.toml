@@ -32,9 +32,8 @@ experimental = true
 [task_config]
 includes = ["tasks.toml", "tasks/"]
 
-[prepare.bun_docs]
+[deps.bun_docs]
 auto = true
-dir = "docs"
 sources = ["docs/bun.lock", "docs/package.json"]
 outputs = ["docs/node_modules"]
-run = "bun install --frozen-lockfile"
+run = "cd docs && bun install --frozen-lockfile"
