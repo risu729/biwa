@@ -5,6 +5,7 @@ use crate::ui::create_spinner;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
 use console::style;
 use core::mem::take;
+use core::result::Result as CoreResult;
 use gethostname::gethostname;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
@@ -638,15 +639,7 @@ async fn upload_file(
 	}
 
 	if matches!(permissions, SftpPermissions::Recreate) {
-		let should_remove = sftp
-			.metadata(sftp_path)
-			.await
-			.map(|attrs| {
-				attrs
-					.permissions
-					.map_or_else(|| true, |p| (p & 0o777) != secure_mode)
-			})
-			.unwrap_or(true); // Default to true if metadata fails
+		let should_remove = should_remove_for_recreate(sftp.metadata(sftp_path).await, secure_mode);
 		if should_remove && let Err(e) = sftp.remove_file(sftp_path).await {
 			debug!(error = %e, path = sftp_path, "Failed to remove pre-existing file or file did not exist");
 		}
@@ -674,6 +667,18 @@ async fn upload_file(
 		.wrap_err("Failed to write to remote file")?;
 
 	Ok(())
+}
+
+/// Returns true when an existing remote file must be removed before upload.
+fn should_remove_for_recreate<E>(
+	metadata: CoreResult<FileAttributes, E>,
+	secure_mode: u32,
+) -> bool {
+	metadata.map_or(true, |attrs| {
+		attrs
+			.permissions
+			.map_or_else(|| true, |p| (p & 0o777) != secure_mode)
+	})
 }
 
 /// Target and actions for a synchronization operation.
@@ -953,6 +958,32 @@ mod tests {
 	use pretty_assertions::assert_eq;
 	use std::fs;
 	use tempfile::tempdir;
+
+	#[test]
+	fn should_recreate_file_when_permissions_are_missing_or_different() {
+		assert!(should_remove_for_recreate(Err(()), 0o600));
+		assert!(should_remove_for_recreate(
+			Ok::<FileAttributes, ()>(FileAttributes {
+				permissions: None,
+				..Default::default()
+			}),
+			0o600
+		));
+		assert!(should_remove_for_recreate(
+			Ok::<FileAttributes, ()>(FileAttributes {
+				permissions: Some(0o100_644),
+				..Default::default()
+			}),
+			0o600
+		));
+		assert!(!should_remove_for_recreate(
+			Ok::<FileAttributes, ()>(FileAttributes {
+				permissions: Some(0o100_600),
+				..Default::default()
+			}),
+			0o600
+		));
+	}
 
 	#[test]
 	fn collect_local_files_basic() {

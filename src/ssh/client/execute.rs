@@ -75,29 +75,10 @@ pub(super) async fn execute(
 	let mut exit_status = None;
 
 	while let Some(msg) = channel.wait().await {
-		#[expect(
-			clippy::wildcard_enum_match_arm,
-			reason = "We only care about stdout, stderr, exit status, and exit signal"
-		)]
-		match msg {
-			ChannelMsg::Data { data } => {
-				stdout_buffer.extend_from_slice(&data);
-			}
-			ChannelMsg::ExtendedData { data, ext } => {
-				if ext == 1 {
-					stderr_buffer.extend_from_slice(&data);
-				}
-			}
-			ChannelMsg::ExitStatus {
-				exit_status: status,
-			} => {
-				exit_status = Some(status);
-			}
-			ChannelMsg::ExitSignal { signal_name, .. } => {
-				exit_status = Some(exit_status_from_signal(&signal_name));
-			}
-			_ => {}
-		}
+		collect_message(
+			msg,
+			(&mut stdout_buffer, &mut stderr_buffer, &mut exit_status),
+		);
 	}
 
 	if let Some(status) = exit_status {
@@ -108,5 +89,87 @@ pub(super) async fn execute(
 		})
 	} else {
 		bail!("Command did not return exit status")
+	}
+}
+
+/// Collects output and exit status from a channel message.
+fn collect_message(msg: ChannelMsg, output: (&mut Vec<u8>, &mut Vec<u8>, &mut Option<u32>)) {
+	let (stdout_buffer, stderr_buffer, exit_status) = output;
+
+	#[expect(
+		clippy::wildcard_enum_match_arm,
+		reason = "We only care about stdout, stderr, exit status, and exit signal"
+	)]
+	match msg {
+		ChannelMsg::Data { data } => {
+			stdout_buffer.extend_from_slice(&data);
+		}
+		ChannelMsg::ExtendedData { data, ext: 1 } => {
+			stderr_buffer.extend_from_slice(&data);
+		}
+		ChannelMsg::ExitStatus {
+			exit_status: status,
+		} => {
+			*exit_status = Some(status);
+		}
+		ChannelMsg::ExitSignal { signal_name, .. } => {
+			*exit_status = Some(exit_status_from_signal(&signal_name));
+		}
+		_ => {}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use bytes::Bytes;
+	use pretty_assertions::assert_eq;
+
+	#[test]
+	fn collect_message_routes_output_and_exit_status() {
+		let mut stdout_buffer = Vec::new();
+		let mut stderr_buffer = Vec::new();
+		let mut exit_status = None;
+
+		collect_message(
+			ChannelMsg::Data {
+				data: Bytes::from_static(b"out"),
+			},
+			(&mut stdout_buffer, &mut stderr_buffer, &mut exit_status),
+		);
+		collect_message(
+			ChannelMsg::ExtendedData {
+				data: Bytes::from_static(b"err"),
+				ext: 1,
+			},
+			(&mut stdout_buffer, &mut stderr_buffer, &mut exit_status),
+		);
+		collect_message(
+			ChannelMsg::ExtendedData {
+				data: Bytes::from_static(b"ignored"),
+				ext: 2,
+			},
+			(&mut stdout_buffer, &mut stderr_buffer, &mut exit_status),
+		);
+		collect_message(
+			ChannelMsg::ExitStatus { exit_status: 7 },
+			(&mut stdout_buffer, &mut stderr_buffer, &mut exit_status),
+		);
+
+		assert_eq!(stdout_buffer, b"out");
+		assert_eq!(stderr_buffer, b"err");
+		assert_eq!(exit_status, Some(7));
+
+		collect_message(
+			ChannelMsg::ExitSignal {
+				signal_name: Sig::TERM,
+				core_dumped: false,
+				error_message: String::new(),
+				lang_tag: String::new(),
+			},
+			(&mut stdout_buffer, &mut stderr_buffer, &mut exit_status),
+		);
+
+		assert_eq!(exit_status, Some(143));
 	}
 }
