@@ -8,6 +8,10 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions: {}
 
 defaults:
@@ -31,11 +35,17 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: 2026.5.3
+          version: 2026.5.4
+          install_args: --locked
 
       - name: Re-install Rust
         # cache doesn't work well with rust
-        run: mise install rust --force
+        run: mise install --locked rust --force
+
+      - name: Update mise lockfile
+        if: github.event.pull_request.user.login == 'renovate[bot]'
+        run: mise lock
+        continue-on-error: true
 
       - name: Run autofix
         run: |
@@ -61,7 +71,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      actions: read
+      actions: read # for actions-timeline
 
     steps:
       - name: actions-timeline
