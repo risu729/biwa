@@ -161,7 +161,7 @@ fn state_dir_from_env_or_default() -> PathBuf {
 }
 
 /// Upper bound on concurrent SSH sessions used for bulk `rm -rf`.
-const MAX_CONCURRENT_REMOTE_REMOVALS: usize = 8;
+const MAX_CONCURRENT_REMOTE_REMOVALS: usize = 3;
 
 /// Removes multiple remote directories with bounded parallelism.
 async fn remove_remote_dirs_bounded(

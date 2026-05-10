@@ -37,6 +37,9 @@ pub struct State {
 /// Connections list filename under the state directory.
 const CONNECTIONS_FILE: &str = "connections.json";
 
+/// Lock filename for connection state read-modify-write updates.
+const CONNECTIONS_LOCK_FILE: &str = "connections.lock";
+
 /// PID filename for the background cleanup daemon.
 pub const PID_FILE: &str = "clean.pid";
 
@@ -62,6 +65,11 @@ pub fn default_state_dir() -> PathBuf {
 /// Returns the path to the connections file.
 fn connections_file_path(state_dir: &Path) -> PathBuf {
 	state_dir.join(CONNECTIONS_FILE)
+}
+
+/// Returns the path to the connection state lock file.
+fn connections_lock_file_path(state_dir: &Path) -> PathBuf {
+	state_dir.join(CONNECTIONS_LOCK_FILE)
 }
 
 /// Returns the path to the PID file for the cleanup daemon.
@@ -104,6 +112,27 @@ pub fn save_state(state_dir: &Path, state: &State) -> Result<()> {
 	Ok(())
 }
 
+/// Runs a state mutation while holding the connection state lock.
+fn with_state_lock<T>(state_dir: &Path, f: impl FnOnce() -> Result<T>) -> Result<T> {
+	let path = connections_lock_file_path(state_dir);
+	if let Some(parent) = path.parent() {
+		fs::create_dir_all(parent)
+			.wrap_err_with(|| format!("Failed to create state directory: {}", parent.display()))?;
+	}
+
+	let lock_file = fs::OpenOptions::new()
+		.write(true)
+		.create(true)
+		.truncate(false)
+		.open(&path)
+		.wrap_err_with(|| format!("Failed to open state lock: {}", path.display()))?;
+	lock_file
+		.lock()
+		.wrap_err_with(|| format!("Failed to lock state: {}", path.display()))?;
+
+	f()
+}
+
 /// Records a connection, upserting by `(host, user, port, remote_dir)`.
 pub fn record_connection(
 	state_dir: &Path,
@@ -112,34 +141,34 @@ pub fn record_connection(
 	port: u16,
 	remote_dir: &str,
 ) -> Result<()> {
-	let mut state = load_state(state_dir)?;
-	let now = Utc::now();
+	with_state_lock(state_dir, || {
+		let mut state = load_state(state_dir)?;
+		let now = Utc::now();
 
-	if let Some(existing) = state
-		.connections
-		.iter_mut()
-		.find(|c| c.host == host && c.user == user && c.port == port && c.remote_dir == remote_dir)
-	{
-		existing.last_used = now;
-		debug!(
-			host,
-			user, port, remote_dir, "Updated existing connection in state"
-		);
-	} else {
-		state.connections.push(Connection {
-			host: host.to_owned(),
-			user: user.to_owned(),
-			port,
-			remote_dir: remote_dir.to_owned(),
-			last_used: now,
-		});
-		debug!(
-			host,
-			user, port, remote_dir, "Added new connection to state"
-		);
-	}
+		if let Some(existing) = state.connections.iter_mut().find(|c| {
+			c.host == host && c.user == user && c.port == port && c.remote_dir == remote_dir
+		}) {
+			existing.last_used = now;
+			debug!(
+				host,
+				user, port, remote_dir, "Updated existing connection in state"
+			);
+		} else {
+			state.connections.push(Connection {
+				host: host.to_owned(),
+				user: user.to_owned(),
+				port,
+				remote_dir: remote_dir.to_owned(),
+				last_used: now,
+			});
+			debug!(
+				host,
+				user, port, remote_dir, "Added new connection to state"
+			);
+		}
 
-	save_state(state_dir, &state)
+		save_state(state_dir, &state)
+	})
 }
 
 /// Returns connections that have not been used within the given threshold.
@@ -168,21 +197,23 @@ pub fn remove_connections_for_target(
 	port: u16,
 	remote_dirs: &[&str],
 ) -> Result<()> {
-	let mut state = load_state(state_dir)?;
-	let before = state.connections.len();
-	state.connections.retain(|c| {
-		if c.host == host && c.user == user && c.port == port {
-			!remote_dirs.contains(&c.remote_dir.as_str())
-		} else {
-			true
+	with_state_lock(state_dir, || {
+		let mut state = load_state(state_dir)?;
+		let before = state.connections.len();
+		state.connections.retain(|c| {
+			if c.host == host && c.user == user && c.port == port {
+				!remote_dirs.contains(&c.remote_dir.as_str())
+			} else {
+				true
+			}
+		});
+		let removed = before.saturating_sub(state.connections.len());
+		if removed > 0 {
+			debug!(removed, "Removed connections from state");
+			save_state(state_dir, &state)?;
 		}
-	});
-	let removed = before.saturating_sub(state.connections.len());
-	if removed > 0 {
-		debug!(removed, "Removed connections from state");
-		save_state(state_dir, &state)?;
-	}
-	Ok(())
+		Ok(())
+	})
 }
 
 /// Writes the current process PID to the PID file.
