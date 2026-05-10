@@ -107,7 +107,7 @@ fn env_flag_is_truthy(name: &str) -> bool {
 }
 
 #[cfg(test)]
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_test_env() {
 	#[expect(
 		clippy::unused_result_ok,
