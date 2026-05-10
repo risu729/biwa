@@ -1,6 +1,6 @@
 services:
   ssh-server:
-    image: lscr.io/linuxserver/openssh-server@sha256:792bb9969a6751f9be2dcecdebd166f75c51187628f1be48ac9c9b3776561c16
+    image: lscr.io/linuxserver/openssh-server@sha256:29d4e3f887596c4c2fc609f4e07040b08890a238178da400ffa2a602b55245bc
     container_name: ssh_test_server
     ports:
       - "2222:2222"
