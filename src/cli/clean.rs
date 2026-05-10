@@ -1,7 +1,10 @@
 use crate::Result;
 use crate::config::types::{Config, PasswordConfig};
 use crate::duration::HumanDuration;
-use crate::ssh::clean::{QuotaUsage, check_quota, list_remote_dirs, remove_remote_dir};
+use crate::ssh::clean::{
+	QuotaUsage, RemoteDirEntry, check_quota, list_remote_dir_entries, list_remote_dirs,
+	remove_remote_dir,
+};
 use crate::ssh::client::Client;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::{
@@ -12,6 +15,7 @@ use crate::state::{
 	remove_connections_for_target, remove_pid_file, stale_connections, write_pid_file,
 };
 use alloc::sync::Arc;
+use chrono::{DateTime, Utc};
 use clap::{Args, Subcommand};
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
@@ -132,7 +136,7 @@ impl Clean {
 /// Stop the background cleanup daemon.
 fn stop_daemon(quiet: bool) {
 	let state_dir = Config::load().map_or_else(
-		|_| default_state_dir(),
+		|_| state_dir_from_env_or_default(),
 		|config| config.resolved_state_dir(),
 	);
 	if is_daemon_running(&state_dir) {
@@ -149,6 +153,11 @@ fn stop_daemon(quiet: bool) {
 		}
 		remove_pid_file(&state_dir);
 	}
+}
+
+/// Resolves state directory without requiring a valid config file.
+fn state_dir_from_env_or_default() -> PathBuf {
+	env::var_os("BIWA_STATE_DIR").map_or_else(default_state_dir, PathBuf::from)
 }
 
 /// Upper bound on concurrent SSH sessions used for bulk `rm -rf`.
@@ -471,17 +480,30 @@ async fn auto_cleanup_candidates(
 	}
 
 	let remote_root_str = remote_root.to_string_lossy().into_owned();
-	let listed = list_remote_dirs(client, &remote_root_str).await?;
-	for name in &listed {
-		let full_path = join_remote_child(&remote_root_str, name);
+	let now = Utc::now();
+	let listed = list_remote_dir_entries(client, &remote_root_str).await?;
+	for entry in &listed {
+		let full_path = join_remote_child(&remote_root_str, &entry.name);
 		if is_default_biwa_remote_dir(&full_path, remote_root, host_hash)
 			&& !tracked_default_dirs.contains(&full_path)
+			&& remote_dir_is_older_than(entry, max_age, now)
 		{
 			to_remove.insert(full_path);
 		}
 	}
 
 	Ok(to_remove)
+}
+
+/// Returns whether a remote directory mtime is older than the cleanup threshold.
+fn remote_dir_is_older_than(
+	entry: &RemoteDirEntry,
+	threshold: Duration,
+	now: DateTime<Utc>,
+) -> bool {
+	now.signed_duration_since(entry.modified_at)
+		.to_std()
+		.is_ok_and(|age| age > threshold)
 }
 
 /// Returns tracked default-layout dirs for the current SSH target.
@@ -600,10 +622,14 @@ fn configure_daemon_env(cmd: &mut Command, config: &Config, state_dir: &Path) {
 mod tests {
 	use super::{
 		CleanTarget, clean_target, configure_daemon_env, join_remote_child,
-		resolve_current_project_root,
+		remote_dir_is_older_than, resolve_current_project_root, state_dir_from_env_or_default,
 	};
 	use crate::config::types::{Config, PasswordConfig};
+	use crate::ssh::clean::RemoteDirEntry;
+	use crate::testing::EnvCleanup;
 	use alloc::collections::BTreeMap;
+	use chrono::Utc;
+	use core::time::Duration;
 	use pretty_assertions::assert_eq;
 	use std::path::{Path, PathBuf};
 	use std::process::Command;
@@ -641,6 +667,47 @@ mod tests {
 	fn join_remote_child_does_not_duplicate_separator() {
 		assert_eq!(join_remote_child("~/root", "child"), "~/root/child");
 		assert_eq!(join_remote_child("~/root/", "child"), "~/root/child");
+	}
+
+	#[test]
+	#[serial_test::serial]
+	fn state_dir_from_env_or_default_respects_env_without_config() {
+		let _cleanup = EnvCleanup::set("BIWA_STATE_DIR", "/tmp/biwa-state-test");
+
+		assert_eq!(
+			state_dir_from_env_or_default(),
+			PathBuf::from("/tmp/biwa-state-test")
+		);
+	}
+
+	#[test]
+	fn remote_dir_mtime_must_exceed_threshold() {
+		let now = Utc::now();
+		let entry = RemoteDirEntry {
+			name: "project-abcd1234-deadbeef".to_owned(),
+			modified_at: now - chrono::Duration::days(31),
+		};
+
+		assert!(remote_dir_is_older_than(
+			&entry,
+			Duration::from_hours(30 * 24),
+			now
+		));
+	}
+
+	#[test]
+	fn future_remote_dir_mtime_is_not_stale() {
+		let now = Utc::now();
+		let entry = RemoteDirEntry {
+			name: "project-abcd1234-deadbeef".to_owned(),
+			modified_at: now + chrono::Duration::minutes(1),
+		};
+
+		assert!(!remote_dir_is_older_than(
+			&entry,
+			Duration::from_secs(0),
+			now
+		));
 	}
 
 	#[test]

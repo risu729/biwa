@@ -7,7 +7,7 @@ use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io;
+use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::{env, process};
 use tracing::{debug, warn};
@@ -189,10 +189,6 @@ pub fn remove_connections_for_target(
 ///
 /// Returns `true` if a daemon was already running (does not write the PID file in that case).
 pub fn write_pid_file(state_dir: &Path) -> Result<bool> {
-	if is_daemon_running(state_dir) {
-		return Ok(true);
-	}
-
 	let path = pid_file_path(state_dir);
 
 	if let Some(parent) = path.parent() {
@@ -201,11 +197,49 @@ pub fn write_pid_file(state_dir: &Path) -> Result<bool> {
 	}
 
 	let pid = process::id();
-	fs::write(&path, pid.to_string())
-		.wrap_err_with(|| format!("Failed to write PID file: {}", path.display()))?;
-	debug!(pid, path = %path.display(), "Wrote PID file");
+	let mut removed_stale_pid = false;
+	loop {
+		match create_pid_file(&path, pid) {
+			Ok(()) => {
+				debug!(pid, path = %path.display(), "Wrote PID file");
+				return Ok(false);
+			}
+			Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+				if is_daemon_running(state_dir) {
+					return Ok(true);
+				}
+				if removed_stale_pid {
+					return Ok(true);
+				}
+				remove_stale_pid_file(&path)?;
+				removed_stale_pid = true;
+			}
+			Err(e) => {
+				return Err(e)
+					.wrap_err_with(|| format!("Failed to write PID file: {}", path.display()));
+			}
+		}
+	}
+}
 
-	Ok(false)
+/// Creates a PID file only if it does not already exist.
+fn create_pid_file(path: &Path, pid: u32) -> io::Result<()> {
+	let mut file = fs::OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.open(path)?;
+	file.write_all(pid.to_string().as_bytes())
+}
+
+/// Removes a stale PID file so a fresh daemon can take ownership.
+fn remove_stale_pid_file(path: &Path) -> Result<()> {
+	match fs::remove_file(path) {
+		Ok(()) => Ok(()),
+		Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+		Err(e) => {
+			Err(e).wrap_err_with(|| format!("Failed to remove stale PID file: {}", path.display()))
+		}
+	}
 }
 
 /// Removes the PID file.
@@ -352,5 +386,27 @@ mod tests {
 		let state = load_state(dir.path()).unwrap();
 		assert_eq!(state.connections.len(), 1);
 		assert_eq!(state.connections.first().unwrap().remote_dir, "/dir2");
+	}
+
+	#[test]
+	#[serial]
+	fn write_pid_file_reports_running_pid() {
+		let dir = tempfile::tempdir().unwrap();
+		fs::create_dir_all(dir.path()).unwrap();
+		fs::write(pid_file_path(dir.path()), process::id().to_string()).unwrap();
+
+		assert!(write_pid_file(dir.path()).unwrap());
+	}
+
+	#[test]
+	#[serial]
+	fn write_pid_file_replaces_stale_pid() {
+		let dir = tempfile::tempdir().unwrap();
+		fs::create_dir_all(dir.path()).unwrap();
+		fs::write(pid_file_path(dir.path()), i32::MAX.to_string()).unwrap();
+
+		assert!(!write_pid_file(dir.path()).unwrap());
+		let pid = fs::read_to_string(pid_file_path(dir.path())).unwrap();
+		assert_eq!(pid, process::id().to_string());
 	}
 }

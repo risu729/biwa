@@ -1,6 +1,7 @@
 use crate::Result;
 use crate::ssh::client::Client;
 use crate::ssh::sync::shell_quote_path;
+use chrono::{DateTime, Utc};
 use color_eyre::eyre::{Context as _, bail};
 use tracing::{debug, info, warn};
 
@@ -11,6 +12,15 @@ pub struct QuotaUsage {
 	pub blocks_used: u64,
 	/// Soft quota limit in blocks.
 	pub blocks_quota: u64,
+}
+
+/// A directory directly under the configured remote root.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteDirEntry {
+	/// Directory basename.
+	pub name: String,
+	/// Remote filesystem modification time.
+	pub modified_at: DateTime<Utc>,
 }
 
 impl QuotaUsage {
@@ -144,6 +154,74 @@ pub async fn list_remote_dirs(client: &Client, remote_root: &str) -> Result<Vec<
 	Ok(dirs)
 }
 
+/// Lists directories directly under the given remote root, including mtimes.
+pub async fn list_remote_dir_entries(
+	client: &Client,
+	remote_root: &str,
+) -> Result<Vec<RemoteDirEntry>> {
+	let quoted_root = shell_quote_path(remote_root);
+	let script = format!(
+		"if [ -d {quoted_root} ]; then find -- {quoted_root} -mindepth 1 -maxdepth 1 -type d -printf '%T@\\t%f\\n' 2>/dev/null; fi"
+	);
+
+	let result = client
+		.execute(&script)
+		.await
+		.wrap_err("Failed to list remote directories with modification times")?;
+
+	if result.exit_status != 0 {
+		warn!(
+			exit_status = result.exit_status,
+			stderr = result.stderr.trim(),
+			"Failed to list remote directories with modification times"
+		);
+		return Ok(Vec::new());
+	}
+
+	let entries = result
+		.stdout
+		.lines()
+		.filter_map(parse_remote_dir_entry)
+		.collect();
+
+	Ok(entries)
+}
+
+/// Parses one `find -printf '%T@\t%f\n'` output row.
+fn parse_remote_dir_entry(line: &str) -> Option<RemoteDirEntry> {
+	let (timestamp, name) = line.split_once('\t')?;
+	if name.is_empty() {
+		return None;
+	}
+	Some(RemoteDirEntry {
+		name: name.to_owned(),
+		modified_at: parse_find_timestamp(timestamp)?,
+	})
+}
+
+/// Parses GNU find's `%T@` timestamp without using floating-point time.
+fn parse_find_timestamp(raw: &str) -> Option<DateTime<Utc>> {
+	let (secs, fractional) = raw.split_once('.').unwrap_or((raw, ""));
+	let secs = secs.parse().ok()?;
+	let nanos = parse_fractional_nanos(fractional)?;
+	DateTime::from_timestamp(secs, nanos)
+}
+
+/// Parses a decimal fractional second string into nanoseconds.
+fn parse_fractional_nanos(raw: &str) -> Option<u32> {
+	let mut nanos = 0_u32;
+	let mut digits = 0_u32;
+	for digit in raw.chars().take(9) {
+		let value = digit.to_digit(10)?;
+		nanos = nanos.saturating_mul(10).saturating_add(value);
+		digits = digits.saturating_add(1);
+	}
+	for _ in digits..9 {
+		nanos = nanos.saturating_mul(10);
+	}
+	Some(nanos)
+}
+
 /// Removes a remote directory via SSH `rm -rf`.
 pub async fn remove_remote_dir(client: &Client, remote_dir: &str) -> Result<()> {
 	let quoted = shell_quote_path(remote_dir);
@@ -252,5 +330,31 @@ reed:/export/reed/8 3156648  3190784 3509864          109859  319080  350988
 		};
 		let pct = usage.usage_percent();
 		assert!((pct - 50.0).abs() < 1e-6, "got {pct}");
+	}
+
+	#[test]
+	fn parse_remote_dir_entry_with_fractional_mtime() {
+		let entry =
+			parse_remote_dir_entry("1711234567.1234567890\tproject-abcd1234-deadbeef").unwrap();
+		assert_eq!(entry.name, "project-abcd1234-deadbeef");
+		assert_eq!(
+			entry.modified_at,
+			DateTime::from_timestamp(1_711_234_567, 123_456_789).unwrap()
+		);
+	}
+
+	#[test]
+	fn parse_remote_dir_entry_rejects_malformed_rows() {
+		assert!(parse_remote_dir_entry("1711234567.123 no-tab").is_none());
+		assert!(parse_remote_dir_entry("not-a-time\tname").is_none());
+		assert!(parse_remote_dir_entry("1711234567.123\t").is_none());
+	}
+
+	#[test]
+	fn parse_find_timestamp_pads_fractional_seconds() {
+		assert_eq!(
+			parse_find_timestamp("1711234567.5").unwrap(),
+			DateTime::from_timestamp(1_711_234_567, 500_000_000).unwrap()
+		);
 	}
 }

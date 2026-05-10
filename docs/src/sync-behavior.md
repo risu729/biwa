@@ -84,7 +84,7 @@ Automatic cleanup connects over SSH, reads disk **quota** usage when the server 
 - **`max_age`** — Maximum age for remote directories under the default layout (`remote_root` + per-project folder names). Expressed as a duration string (`"30d"`, `"12h"`, `"30"` for 30 minutes, and so on). This acts as the baseline “0% quota” threshold.
 - **`quota_thresholds`** — Optional map of quota usage **percentages** (0–100) to maximum directory ages. When reported quota usage is at or above a threshold, directories older than that threshold’s age can be removed. If quota data is unavailable, only the baseline age from `max_age` applies.
 
-Candidates for removal are **tracked** connection entries that are older than the effective age limit, plus **orphan** directories on the server that look like default biwa project folders under `remote_root` but are no longer listed in local state—**only** when local state already has at least one tracked path for that SSH target (so orphan detection is not run on an empty or broken state file).
+Candidates for removal are **tracked** connection entries that are older than the effective age limit, plus **orphan** directories on the server that look like default biwa project folders under `remote_root`, are no longer listed in local state, and have a remote filesystem modification time older than the effective age limit. Orphan detection only runs when local state already has at least one tracked path for that SSH target, so it is not run on an empty or broken state file.
 
 Background cleanup does not run if another cleanup process already holds the PID lock, or if interactive password auth would be required.
 
