@@ -35,7 +35,7 @@ pub struct SyncArgs {
 impl SyncArgs {
 	/// Resolve the sync root directory.
 	///
-	/// Priority: CLI flag > config file > nearest VCS root > current working directory.
+	/// Priority: CLI flag > config file > nearest Git root > current working directory.
 	pub fn resolve_sync_root(&self, config: &Config) -> Result<PathBuf> {
 		self.resolve_sync_root_with(config, default_sync_root)
 	}
