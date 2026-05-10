@@ -92,14 +92,11 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
         with:
           version: 2026.5.5
           install_args: --locked
-
-      - name: Re-install Rust
-        # cache doesn't work well with rust
-        run: mise install --locked rust --force
+          cache_rust: true
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -128,14 +125,11 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
         with:
           version: 2026.5.5
           install_args: --locked
-
-      - name: Re-install Rust
-        # cache doesn't work well with rust
-        run: mise install --locked rust --force
+          cache_rust: true
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -166,10 +160,11 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
         with:
           version: 2026.5.5
           install_args: --locked
+          cache_rust: true
 
       - name: Validate schema
         run: mise run schema
