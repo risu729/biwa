@@ -33,7 +33,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # risu/cache-rust-toolchains
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
         with:
           version: 2026.5.5
           install_args: --locked
