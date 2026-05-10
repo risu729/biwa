@@ -26,6 +26,8 @@ pub type Result<T> = color_eyre::Result<T>;
 mod cli;
 /// Configuration loading and definitions.
 mod config;
+/// Environment flag parsing.
+mod env_flag;
 /// Environment variable parsing and forward.
 mod env_vars;
 /// SSH execution logic.
@@ -36,11 +38,11 @@ mod testing;
 mod ui;
 
 use color_eyre::{Report, config::HookBuilder};
-use std::{env, process::ExitCode};
+use std::process::ExitCode;
 
 #[tokio::main]
 async fn main() -> ExitCode {
-	let debug_error_report = env_flag_is_truthy("BIWA_DEBUG_ERROR_REPORT");
+	let debug_error_report = env_flag::is_truthy("BIWA_DEBUG_ERROR_REPORT");
 
 	if let Err(error) = install_error_hooks(debug_error_report) {
 		eprintln!("{error}");
@@ -96,43 +98,12 @@ fn print_error(error: &Report, debug_error_report: bool) {
 	}
 }
 
-/// Returns true when an environment variable is set to a truthy value.
-fn env_flag_is_truthy(name: &str) -> bool {
-	env::var(name).is_ok_and(|value| {
-		matches!(
-			value.trim().to_ascii_lowercase().as_str(),
-			"1" | "true" | "yes" | "on"
-		)
-	})
-}
-
 #[cfg(test)]
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_test_env() {
 	#[expect(
 		clippy::unused_result_ok,
 		reason = "Multiple tests may attempt to initialize the global error handler."
 	)]
 	color_eyre::install().ok();
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-	use crate::testing::EnvCleanup;
-	use serial_test::serial;
-
-	#[test]
-	#[serial]
-	fn env_flag_is_truthy_reads_truthy_values() {
-		let _cleanup = EnvCleanup::set("BIWA_DEBUG_ERROR_REPORT", " yes ");
-		assert!(env_flag_is_truthy("BIWA_DEBUG_ERROR_REPORT"));
-	}
-
-	#[test]
-	#[serial]
-	fn env_flag_is_truthy_defaults_to_false_when_missing() {
-		let _cleanup = EnvCleanup::remove("BIWA_DEBUG_ERROR_REPORT");
-		assert!(!env_flag_is_truthy("BIWA_DEBUG_ERROR_REPORT"));
-	}
 }

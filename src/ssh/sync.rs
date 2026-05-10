@@ -1,12 +1,15 @@
+#[cfg(test)]
+use super::sync_paths::{MAX_REMOTE_MKDIR_COMMAND_LEN, compute_remote_path};
+use super::sync_paths::{
+	build_mkdir_commands, collect_leaf_directories, parse_remote_path, resolve_sftp_path,
+};
 use crate::Result;
 use crate::config::types::{Config, SftpPermissions, SyncEngine};
 use crate::ssh::client::Client;
 use crate::ui::create_spinner;
-use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
+use color_eyre::eyre::{Context as _, bail};
 use console::style;
-use core::mem::take;
 use core::result::Result as CoreResult;
-use gethostname::gethostname;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
 use indicatif::ProgressBar;
@@ -26,8 +29,18 @@ use tracing::{debug, info, warn};
 
 /// Separator emitted by the remote sync-state script before file hash lines.
 const REMOTE_FILE_MARKER: &str = "__BIWA_FILE_HASHES__";
-/// Conservative upper bound for a batched remote `mkdir -p` command.
-const MAX_REMOTE_MKDIR_COMMAND_LEN: usize = 4096;
+
+/// Computes the remote directory path for a given project.
+///
+/// This is the directory where synced files are stored on the remote server.
+pub fn compute_project_remote_dir(config: &Config, project_root: &Path) -> Result<String> {
+	super::sync_paths::compute_project_remote_dir(config, project_root)
+}
+
+/// Shell-quotes a remote path while preserving home directory expansion.
+pub(super) fn shell_quote_path(path: &str) -> String {
+	super::sync_paths::shell_quote_path(path)
+}
 
 /// Statistics for a synchronization operation.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -104,24 +117,6 @@ fn path_matches_globset(globset: &GlobSet, path: &Path, is_dir: bool) -> bool {
 	}
 
 	is_dir && globset.is_match(format!("{path}/"))
-}
-
-/// Shell-quotes a remote path while preserving home directory expansion.
-///
-/// If the path starts with `~/`, the `~` is replaced with `$HOME` and placed
-/// outside the quotes so the shell can expand it. Otherwise, the entire path
-/// is quoted with `shell_words::quote`.
-pub(super) fn shell_quote_path(path: &str) -> String {
-	if path == "~" || path == "$HOME" {
-		return "\"$HOME\"".to_owned();
-	}
-	if let Some(rest) = path
-		.strip_prefix("~/")
-		.or_else(|| path.strip_prefix("$HOME/"))
-	{
-		return format!("\"$HOME\"/{}", shell_words::quote(rest));
-	}
-	shell_words::quote(path).into_owned()
 }
 
 /// A wrapper around a hasher that implements `std::io::Write`.
@@ -247,68 +242,6 @@ fn collect_local_state(
 	}
 
 	Ok(state)
-}
-
-/// Computes the absolute remote path for a given local file.
-pub(super) fn compute_remote_path(
-	remote_root: &Path,
-	project_name: &str,
-	relative: &Path,
-) -> String {
-	let mut path = remote_root.to_string_lossy().into_owned();
-	if !path.ends_with('/') {
-		path.push('/');
-	}
-	path.push_str(project_name);
-
-	let rel_str = relative.to_string_lossy();
-	if !rel_str.is_empty() {
-		if !path.ends_with('/') && !rel_str.starts_with('/') {
-			path.push('/');
-		}
-		path.push_str(&rel_str);
-	}
-	path
-}
-
-/// Computes a unique project name based on the hostname and project root's canonical path.
-fn compute_unique_project_name(project_root: &Path) -> Result<String> {
-	let project_name = project_root
-		.file_name()
-		.wrap_err("Invalid project root directory")?
-		.to_string_lossy()
-		.into_owned();
-
-	// Create a unique hash based on the hostname and absolute path to prevent
-	// collisions between projects with the same name across machines.
-	let mut hasher = Sha256::new();
-	hasher.update(gethostname().to_string_lossy().as_bytes());
-	hasher.update([0]);
-	hasher.update(
-		project_root
-			.canonicalize()
-			.wrap_err("Failed to canonicalize project root")?
-			.to_string_lossy()
-			.as_bytes(),
-	);
-	let hash_hex = hex::encode(hasher.finalize());
-	#[expect(
-		clippy::string_slice,
-		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
-	)]
-	Ok(format!("{}-{}", project_name, &hash_hex[..8]))
-}
-
-/// Computes the remote directory path for a given project.
-///
-/// This is the directory where synced files are stored on the remote server.
-pub fn compute_project_remote_dir(config: &Config, project_root: &Path) -> Result<String> {
-	let unique_project_name = compute_unique_project_name(project_root)?;
-	Ok(compute_remote_path(
-		&config.sync.remote_root,
-		&unique_project_name,
-		Path::new(""),
-	))
 }
 
 /// Extends a directory set with parent directories implied by local files.
@@ -458,51 +391,6 @@ fn ensure_sync_file_limit(file_count: usize, max_files_to_sync: usize) -> Result
 	Ok(())
 }
 
-/// SFTP naturally resolves paths not starting with `/` relative to the user's home directory.
-/// It does NOT expand `~/` or `$HOME/` like a shell would. Therefore, we strip them so SFTP
-/// looks in the home directory instead of looking for literal `~` or `$HOME` folders.
-fn resolve_sftp_path(remote_path: &str) -> &str {
-	remote_path
-		.strip_prefix("~/")
-		.or_else(|| remote_path.strip_prefix("$HOME/"))
-		.unwrap_or_else(|| {
-			if remote_path == "~" || remote_path == "$HOME" {
-				"."
-			} else {
-				remote_path
-			}
-		})
-}
-
-/// Returns whether `candidate` is nested beneath `ancestor`.
-fn is_nested_directory(candidate: &str, ancestor: &str) -> bool {
-	candidate != ancestor && Path::new(candidate).starts_with(ancestor)
-}
-
-/// Reduces a directory set to its deepest leaf paths.
-fn collect_leaf_directories(paths: &[String]) -> Vec<String> {
-	let mut sorted = paths.to_vec();
-	sorted.sort_unstable_by(|left, right| {
-		let left_depth = left.bytes().filter(|byte| *byte == b'/').count();
-		let right_depth = right.bytes().filter(|byte| *byte == b'/').count();
-		right_depth.cmp(&left_depth).then_with(|| left.cmp(right))
-	});
-
-	let mut leaves = Vec::new();
-	for path in sorted {
-		if leaves
-			.iter()
-			.any(|existing: &String| is_nested_directory(existing, &path))
-		{
-			continue;
-		}
-		leaves.push(path);
-	}
-
-	leaves.sort_unstable();
-	leaves
-}
-
 /// Deletes remote directories one-by-one over the existing SFTP session.
 async fn delete_remote_directories(
 	sftp: &SftpSession,
@@ -545,41 +433,6 @@ fn collect_directories_to_create(actions: &SyncActions) -> Vec<String> {
 	let mut directories = directories.into_iter().collect::<Vec<_>>();
 	directories.sort_unstable();
 	collect_leaf_directories(&directories)
-}
-
-/// Splits directory creation into bounded `mkdir -p` batches.
-fn build_mkdir_commands(umask: &str, remote_dir: &str, relative_paths: &[String]) -> Vec<String> {
-	if relative_paths.is_empty() {
-		return Vec::new();
-	}
-
-	let prefix = format!("umask {umask} && mkdir -p --");
-	let mut commands = Vec::new();
-	let mut current = prefix.clone();
-
-	for quoted_path in relative_paths
-		.iter()
-		.map(|path| format!("{remote_dir}/{path}"))
-		.map(|path| shell_quote_path(&path))
-	{
-		let projected_len = current
-			.len()
-			.saturating_add(1)
-			.saturating_add(quoted_path.len());
-		if current.len() > prefix.len() && projected_len > MAX_REMOTE_MKDIR_COMMAND_LEN {
-			commands.push(take(&mut current));
-			current.clone_from(&prefix);
-		}
-
-		current.push(' ');
-		current.push_str(&quoted_path);
-	}
-
-	if current.len() > prefix.len() {
-		commands.push(current);
-	}
-
-	commands
 }
 
 /// Creates remote directories with the configured umask.
@@ -805,8 +658,6 @@ pub async fn sync_project(
 			"Starting project synchronization"
 	);
 
-	let unique_project_name = compute_unique_project_name(project_root)?;
-
 	let local_state = {
 		let project_root = project_root.to_path_buf();
 		let exclude = config.sync.exclude.clone();
@@ -828,17 +679,10 @@ pub async fn sync_project(
 		Some(create_spinner("Synchronizing files...".to_owned()))
 	};
 
-	// Compute remote directory base
-	let remote_dir = remote_dir_override.map_or_else(
-		|| {
-			compute_remote_path(
-				&config.sync.remote_root,
-				&unique_project_name,
-				Path::new(""),
-			)
-		},
-		String::from,
-	);
+	let remote_dir = match remote_dir_override {
+		Some(remote_dir) => remote_dir.to_owned(),
+		None => compute_project_remote_dir(config, project_root)?,
+	};
 
 	let remote_state = fetch_remote_state(client, config, &remote_dir).await?;
 	debug!(
@@ -891,37 +735,6 @@ pub async fn sync_project(
 	}
 
 	Ok(stats)
-}
-
-/// Normalizes a remote relative path and rejects absolute or traversal paths.
-fn parse_remote_path(raw_path: &str, entry_kind: &str) -> Option<String> {
-	let path = raw_path.strip_prefix("./").unwrap_or(raw_path);
-	if path.is_empty() || path == "." {
-		return None;
-	}
-
-	if path.starts_with('/')
-		|| path == "~"
-		|| path.starts_with("~/")
-		|| path == "$HOME"
-		|| path.starts_with("$HOME/")
-	{
-		warn!(
-			"Skipping remote {entry_kind} with invalid absolute path: {}",
-			path
-		);
-		return None;
-	}
-
-	if path.split('/').any(|comp| comp == "..") {
-		warn!(
-			"Skipping remote {entry_kind} with invalid path traversal components: {}",
-			path
-		);
-		return None;
-	}
-
-	Some(path.to_owned())
 }
 
 /// Parses the output of the remote sync-state script into a directory set and file hash map.
@@ -1220,6 +1033,22 @@ mod tests {
 		assert_eq!(
 			leaves,
 			vec!["a/b/c".to_owned(), "a/d".to_owned(), "e".to_owned()]
+		);
+	}
+
+	#[test]
+	fn collect_leaf_directories_handles_string_prefix_siblings() {
+		let leaves = collect_leaf_directories(&[
+			"a".to_owned(),
+			"a-b".to_owned(),
+			"a/b".to_owned(),
+			"a/b-c".to_owned(),
+			"a/b/c".to_owned(),
+		]);
+
+		assert_eq!(
+			leaves,
+			vec!["a/b/c".to_owned(), "a/b-c".to_owned(), "a-b".to_owned()]
 		);
 	}
 

@@ -16,8 +16,8 @@ use std::path::Path;
 /// Initializes the global testing environment.
 ///
 /// This installs `color_eyre` for better panic reporting. It runs automatically
-/// before any tests thanks to the `#[ctor::ctor]` attribute.
-#[ctor::ctor]
+/// before any tests thanks to the `#[ctor::ctor(unsafe)]` attribute.
+#[ctor::ctor(unsafe)]
 fn init_test_env() {
 	#[expect(
 		clippy::unused_result_ok,
