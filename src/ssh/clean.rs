@@ -68,11 +68,7 @@ fn parse_quota_output(output: &str) -> Option<QuotaUsage> {
 	for line in output.lines() {
 		let line = line.trim();
 		// Skip header and empty lines.
-		if line.is_empty()
-			|| line.starts_with("Disk quotas")
-			|| line.starts_with("Filesystem")
-			|| line.contains("blocks")
-		{
+		if line.is_empty() || line.starts_with("Disk quotas") || line.starts_with("Filesystem") {
 			continue;
 		}
 
@@ -296,6 +292,18 @@ Disk quotas for user z5642102 (uid 26573):
 Some warning or preamble line without numbers
      Filesystem  blocks   quota   limit   grace   files   quota   limit   grace
 reed:/export/reed/8 3156648  3190784 3509864          109859  319080  350988
+";
+		let usage = parse_quota_output(output).unwrap();
+		assert_eq!(usage.blocks_used, 3_156_648);
+		assert_eq!(usage.blocks_quota, 3_190_784);
+	}
+
+	#[test]
+	fn parse_quota_allows_blocks_in_filesystem_name() {
+		let output = "\
+Disk quotas for user z5642102 (uid 26573):
+     Filesystem  blocks   quota   limit   grace   files   quota   limit   grace
+reed:/export/blocks/reed/8 3156648  3190784 3509864          109859  319080  350988
 ";
 		let usage = parse_quota_output(output).unwrap();
 		assert_eq!(usage.blocks_used, 3_156_648);
