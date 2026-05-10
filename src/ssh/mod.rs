@@ -7,3 +7,5 @@ pub mod client;
 pub mod exec;
 /// SSH file synchronization.
 pub mod sync;
+/// Helpers shared by SSH synchronization modules.
+mod sync_paths;

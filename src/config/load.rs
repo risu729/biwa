@@ -600,10 +600,26 @@ mod tests {
 
 	#[rstest]
 	#[serial]
-	#[case::toml("ssh.host = 'toml'\nssh.user = 'user'", "toml", "toml")]
-	#[case::json(r#"{ "ssh": { "host": "json", "user": "user" } }"#, "json", "json")]
-	#[case::json5("{ ssh: { host: 'json5', user: 'user' } }", "json5", "json5")]
-	#[case::yaml("ssh:\n  host: yaml\n  user: user", "yaml", "yaml")]
+	#[case::toml(
+		"ssh.host = 'toml'\nssh.user = 'user'\nhooks.pre_sync = 'toml'",
+		"toml",
+		"toml"
+	)]
+	#[case::json(
+		r#"{ "ssh": { "host": "json", "user": "user" }, "hooks": { "pre_sync": "json" } }"#,
+		"json",
+		"json"
+	)]
+	#[case::json5(
+		"{ ssh: { host: 'json5', user: 'user' }, hooks: { pre_sync: 'json5' } }",
+		"json5",
+		"json5"
+	)]
+	#[case::yaml(
+		"ssh:\n  host: yaml\n  user: user\nhooks:\n  pre_sync: yaml",
+		"yaml",
+		"yaml"
+	)]
 	fn format_extensions(
 		#[case] content: &str,
 		#[case] ext: &str,
@@ -614,7 +630,7 @@ mod tests {
 		fs::write(&file_path, content)?;
 
 		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
-		assert_eq!(config.ssh.host, expected);
+		assert_eq!(config.hooks.pre_sync.as_deref(), Some(expected));
 		Ok(())
 	}
 
