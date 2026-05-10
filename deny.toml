@@ -33,6 +33,42 @@ unused-license-exception = "deny"
 multiple-versions = "warn"
 multiple-versions-include-dev = true
 wildcards = "deny"
+skip = [
+	# Transitive parser and SSH/RustCrypto stacks intentionally carry multiple
+	# versions until their upstream dependency trees converge.
+	{ name = "aead" },
+	{ name = "aes" },
+	{ name = "aes-gcm" },
+	{ name = "block-buffer" },
+	{ name = "block-padding" },
+	{ name = "cbc" },
+	{ name = "chacha20" },
+	{ name = "cipher" },
+	{ name = "const-oid" },
+	{ name = "cpufeatures" },
+	{ name = "crypto-common" },
+	{ name = "ctr" },
+	{ name = "digest" },
+	{ name = "generic-array" },
+	{ name = "getrandom" },
+	{ name = "ghash" },
+	{ name = "hmac" },
+	{ name = "inout" },
+	{ name = "json5" },
+	{ name = "nix" },
+	{ name = "pbkdf2" },
+	{ name = "pem-rfc7468" },
+	{ name = "polyval" },
+	{ name = "rand" },
+	{ name = "rand_core" },
+	{ name = "sha1" },
+	{ name = "sha2" },
+	{ name = "toml" },
+	{ name = "toml_datetime" },
+	{ name = "unicode-width" },
+	{ name = "universal-hash" },
+	{ name = "winnow" },
+]
 
 [sources]
 unknown-registry = "deny"
