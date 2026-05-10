@@ -14,7 +14,7 @@ pub struct CommandExecutedResult {
 }
 
 /// Maps a remote [`Sig`] to a synthetic non-zero exit code (POSIX-style `128 + signal`).
-const fn exit_status_from_signal(sig: &Sig) -> u32 {
+pub(in crate::ssh) const fn exit_status_from_signal(sig: &Sig) -> u32 {
 	match sig {
 		Sig::HUP => 129,
 		Sig::INT => 130,

@@ -33,6 +33,107 @@ fn biwa_process(args: &[&str]) -> Command {
 	command
 }
 
+const SIGINT_REMOTE_SCRIPT: &str =
+	"trap 'printf interrupted; exit 130' INT; printf 'ready\\n'; while true; do sleep 1; done";
+
+fn run_sigint_forwarding_case(use_pty: bool) -> Result<()> {
+	let timeout_secs = e2e_timeout_secs();
+	let use_pty = if use_pty { "True" } else { "False" };
+	let python = format!(
+		r#"import os, pty, select, signal, subprocess, sys
+use_pty = {use_pty}
+master = None
+slave = None
+stdin = subprocess.DEVNULL
+
+if use_pty:
+    master, slave = pty.openpty()
+    stdin = slave
+
+try:
+    proc = subprocess.Popen(
+        [{biwa_path:?}, "--quiet", "run", "--skip-sync", "--", "bash", "-c", {remote_script:?}],
+        stdin=stdin,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=os.environ.copy(),
+    )
+finally:
+    if slave is not None:
+        os.close(slave)
+
+def close_master():
+    global master
+    if master is not None:
+        os.close(master)
+        master = None
+
+def kill_and_fail(message, code, prefix=b""):
+    proc.kill()
+    out, err = proc.communicate()
+    close_master()
+    sys.stderr.write(message + "\n")
+    sys.stderr.buffer.write(prefix)
+    sys.stderr.buffer.write(out)
+    sys.stderr.buffer.write(err)
+    sys.exit(code)
+
+ready, _, _ = select.select([proc.stdout], [], [], {timeout_secs})
+mode = "remote PTY" if use_pty else "remote"
+if not ready:
+    kill_and_fail(f"timed out while waiting for {{mode}} command readiness", 124)
+
+line = proc.stdout.readline()
+if b"ready" not in line:
+    kill_and_fail(f"unexpected readiness line: {{line!r}}", 1)
+
+os.kill(proc.pid, signal.SIGINT)
+try:
+    out, err = proc.communicate(timeout={timeout_secs})
+except subprocess.TimeoutExpired:
+    kill_and_fail(f"timed out waiting for biwa to forward SIGINT into the {{mode}} command", 124, line)
+
+close_master()
+combined = line + out
+sys.stdout.buffer.write(combined)
+sys.stderr.buffer.write(err)
+if b"interrupted" not in combined:
+    sys.stderr.write(f"{{mode}} command was not interrupted\n")
+    sys.exit(1)
+if proc.returncode == 0:
+    sys.stderr.write(f"biwa exited successfully after {{mode}} SIGINT\n")
+    sys.exit(1)
+sys.exit(0)
+"#,
+		biwa_path = env!("CARGO_BIN_EXE_biwa"),
+		remote_script = SIGINT_REMOTE_SCRIPT,
+		timeout_secs = timeout_secs,
+		use_pty = use_pty,
+	);
+
+	let output = Command::new("python3")
+		.arg("-c")
+		.arg(&python)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_PASSWORD", "password123")
+		.output()?;
+
+	assert!(
+		output.status.success(),
+		"stdout: {}\nstderr: {}",
+		String::from_utf8_lossy(&output.stdout),
+		String::from_utf8_lossy(&output.stderr)
+	);
+	assert!(
+		String::from_utf8_lossy(&output.stdout).contains("interrupted"),
+		"stdout: {}",
+		String::from_utf8_lossy(&output.stdout)
+	);
+	Ok(())
+}
+
 #[test]
 fn e2e_run_command() -> Result<()> {
 	let output = biwa_cmd(&["run", "--skip-sync", "echo", "hello e2e from biwa"])
@@ -47,6 +148,16 @@ fn e2e_run_command() -> Result<()> {
 	assert!(output.status.success());
 	assert!(stdout.contains("hello e2e from biwa"));
 	Ok(())
+}
+
+#[test]
+fn e2e_run_forwards_sigint_without_pty() -> Result<()> {
+	run_sigint_forwarding_case(false)
+}
+
+#[test]
+fn e2e_run_forwards_sigint_with_pty() -> Result<()> {
+	run_sigint_forwarding_case(true)
 }
 
 #[test]
