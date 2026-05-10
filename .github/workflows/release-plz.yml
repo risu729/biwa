@@ -33,14 +33,11 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # risu/cache-rust-toolchains
         with:
           version: 2026.5.5
           install_args: --locked
-
-      - name: Re-install Rust
-        # cache doesn't work well with rust
-        run: mise install --locked rust --force
+          cache_rust: true
 
       - name: Create biwa-bot GitHub App token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -74,14 +71,11 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # risu/cache-rust-toolchains
         with:
           version: 2026.5.5
           install_args: --locked
-
-      - name: Re-install Rust
-        # cache doesn't work well with rust
-        run: mise install --locked rust --force
+          cache_rust: true
 
       - name: Create biwa-bot GitHub App token
         uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1

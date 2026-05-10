@@ -58,19 +58,15 @@ jobs:
 
       - name: Install mise
         id: install-mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # risu/cache-rust-toolchains
         with:
           version: 2026.5.5
           install_args: --locked
           cache: ${{ steps.mode.outputs.publishing == 'false' }}
           cache_key: "{{default}}-release"
+          cache_rust: true
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
-
-      - name: Re-install Rust
-        if: steps.install-mise.outputs.cache-hit == 'true'
-        # cache doesn't work well with rust
-        run: mise install --locked rust --force
 
       - name: Plan Release
         id: plan
@@ -112,19 +108,15 @@ jobs:
 
       - name: Install mise
         id: install-mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # risu/cache-rust-toolchains
         with:
           version: 2026.5.5
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
           cache_key: "{{default}}-release"
+          cache_rust: true
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
-
-      - name: Re-install Rust
-        if: steps.install-mise.outputs.cache-hit == 'true'
-        # cache doesn't work well with rust
-        run: mise install --locked rust --force
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -209,19 +201,15 @@ jobs:
 
       - name: Install mise
         id: install-mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # risu/cache-rust-toolchains
         with:
           version: 2026.5.5
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
           cache_key: "{{default}}-release"
+          cache_rust: true
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
-
-      - name: Re-install Rust
-        if: steps.install-mise.outputs.cache-hit == 'true'
-        # cache doesn't work well with rust
-        run: mise install --locked rust --force
 
       - name: Download local artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -280,7 +268,7 @@ jobs:
           persist-credentials: false
 
       - name: Install mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # risu/cache-rust-toolchains
         with:
           version: 2026.5.5
           install_args: --locked
