@@ -50,7 +50,7 @@ impl Method {
 	pub fn with_key_file<T: AsRef<Path>>(key_file_path: T, passphrase: Option<&str>) -> Self {
 		Self::PrivateKeyFile {
 			key_file_path: key_file_path.as_ref().to_path_buf(),
-			key_pass: passphrase.map(str::to_string),
+			key_pass: passphrase.map(str::to_owned),
 		}
 	}
 
@@ -158,4 +158,32 @@ pub(super) async fn authenticate<H: Handler>(
 		}
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use pretty_assertions::assert_eq;
+
+	#[test]
+	fn key_file_method_preserves_passphrase() {
+		assert_eq!(
+			Method::with_key_file("id_ed25519", Some("secret")),
+			Method::PrivateKeyFile {
+				key_file_path: PathBuf::from("id_ed25519"),
+				key_pass: Some(String::from("secret")),
+			}
+		);
+	}
+
+	#[test]
+	fn key_file_method_allows_missing_passphrase() {
+		assert_eq!(
+			Method::with_key_file("id_ed25519", None),
+			Method::PrivateKeyFile {
+				key_file_path: PathBuf::from("id_ed25519"),
+				key_pass: None,
+			}
+		);
+	}
 }

@@ -7,6 +7,10 @@ on:
     tags:
       - v*
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions: {}
 
 defaults:
@@ -56,7 +60,8 @@ jobs:
         id: install-mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: 2026.4.17
+          version: 2026.5.4
+          install_args: --locked
           cache: ${{ steps.mode.outputs.publishing == 'false' }}
           cache_key: "{{default}}-release"
         env:
@@ -65,7 +70,7 @@ jobs:
       - name: Re-install Rust
         if: steps.install-mise.outputs.cache-hit == 'true'
         # cache doesn't work well with rust
-        run: mise install rust --force
+        run: mise install --locked rust --force
 
       - name: Plan Release
         id: plan
@@ -109,7 +114,8 @@ jobs:
         id: install-mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: 2026.4.17
+          version: 2026.5.4
+          install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
           cache_key: "{{default}}-release"
         env:
@@ -118,7 +124,7 @@ jobs:
       - name: Re-install Rust
         if: steps.install-mise.outputs.cache-hit == 'true'
         # cache doesn't work well with rust
-        run: mise install rust --force
+        run: mise install --locked rust --force
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -205,7 +211,8 @@ jobs:
         id: install-mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: 2026.4.17
+          version: 2026.5.4
+          install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
           cache_key: "{{default}}-release"
         env:
@@ -214,7 +221,7 @@ jobs:
       - name: Re-install Rust
         if: steps.install-mise.outputs.cache-hit == 'true'
         # cache doesn't work well with rust
-        run: mise install rust --force
+        run: mise install --locked rust --force
 
       - name: Download local artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -275,7 +282,8 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: 2026.4.17
+          version: 2026.5.4
+          install_args: --locked
           cache: false
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
@@ -338,7 +346,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      actions: read
+      actions: read # for actions-timeline
 
     steps:
       - name: actions-timeline

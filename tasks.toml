@@ -1,5 +1,5 @@
-# ref: https://mise.jdx.dev/tasks/
 #:schema https://mise.jdx.dev/schema/mise-task.json
+# ref: https://mise.jdx.dev/tasks/
 
 [build]
 run = "cargo build"

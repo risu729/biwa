@@ -12,6 +12,7 @@
 	},
 	"rules": {
 		"eslint/no-ternary": "allow",
+		"eslint/sort-imports": "allow",
 		"import/unambiguous": "allow"
 	}
 }
