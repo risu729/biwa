@@ -51,6 +51,7 @@ skip = [
 	{ name = "generic-array" },
 	{ name = "getrandom" },
 	{ name = "ghash" },
+	{ name = "hashbrown" },
 	{ name = "hmac" },
 	{ name = "inout" },
 	{ name = "json5" },
