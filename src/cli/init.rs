@@ -60,7 +60,7 @@ impl Init {
 			ConfigFormat::Json5 => {
 				// Start from the JSON5 template (with comments)
 				let template = Config::template(format);
-				let body = template.lines().skip(1).collect::<Vec<_>>().join("\n");
+				let body = template_body_without_opening_brace(&template);
 
 				if self.format.eq_ignore_ascii_case("jsonc") {
 					// For JSONC, keep comments but ensure keys are quoted and $schema uses JSON syntax.
@@ -75,6 +75,17 @@ impl Init {
 
 		Ok((filename, content))
 	}
+}
+
+/// Returns a config template body without the opening object brace.
+fn template_body_without_opening_brace(template: &str) -> String {
+	let mut lines = template.lines();
+	for line in lines.by_ref() {
+		if line.trim() == "{" {
+			break;
+		}
+	}
+	lines.collect::<Vec<_>>().join("\n")
 }
 
 /// Helper to quote keys for JSONC format, preserving comments.
