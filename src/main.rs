@@ -99,7 +99,7 @@ fn print_error(error: &Report, debug_error_report: bool) {
 }
 
 #[cfg(test)]
-#[ctor::ctor]
+#[ctor::ctor(unsafe)]
 fn init_test_env() {
 	#[expect(
 		clippy::unused_result_ok,
