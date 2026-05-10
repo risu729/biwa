@@ -279,28 +279,28 @@ checksum = "sha256:94427b1ce42709003f9db48d14b073bde807f41bfa034b54ccca7067b5234
 url = "https://github.com/endevco/pitchfork/releases/download/v2.10.0/pitchfork-aarch64-apple-darwin.tar.gz"
 
 [[tools.release-plz]]
-version = "0.3.157"
+version = "0.3.158"
 backend = "aqua:release-plz/release-plz"
 
 [tools.release-plz."platforms.linux-arm64"]
-checksum = "sha256:5192ffa6562175b35054cd6c80fc04acc37fde82e523bf897000fed259021b83"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.157/release-plz-aarch64-unknown-linux-musl.tar.gz"
+checksum = "sha256:9358c419819665e89e82e3222d733b8d45cae7bcb2c3644e1ac4ca867dacb7d0"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-aarch64-unknown-linux-musl.tar.gz"
 
 [tools.release-plz."platforms.linux-arm64-musl"]
-checksum = "sha256:5192ffa6562175b35054cd6c80fc04acc37fde82e523bf897000fed259021b83"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.157/release-plz-aarch64-unknown-linux-musl.tar.gz"
+checksum = "sha256:9358c419819665e89e82e3222d733b8d45cae7bcb2c3644e1ac4ca867dacb7d0"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-aarch64-unknown-linux-musl.tar.gz"
 
 [tools.release-plz."platforms.linux-x64"]
-checksum = "sha256:2fc44a3c68e6bf4eaf761926c6c3b2971d6eaef8ffd2420640ac2f2f22e12c51"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.157/release-plz-x86_64-unknown-linux-musl.tar.gz"
+checksum = "sha256:a98a3e53396ee6ba094ab8e51f20b39a84d4e69ff6a23601940b6a4238438705"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-x86_64-unknown-linux-musl.tar.gz"
 
 [tools.release-plz."platforms.linux-x64-musl"]
-checksum = "sha256:2fc44a3c68e6bf4eaf761926c6c3b2971d6eaef8ffd2420640ac2f2f22e12c51"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.157/release-plz-x86_64-unknown-linux-musl.tar.gz"
+checksum = "sha256:a98a3e53396ee6ba094ab8e51f20b39a84d4e69ff6a23601940b6a4238438705"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-x86_64-unknown-linux-musl.tar.gz"
 
 [tools.release-plz."platforms.macos-arm64"]
-checksum = "sha256:0006b843fd25e11b4aec073a6feb5e9b1be27702863504bef1432c39b795b52c"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.157/release-plz-aarch64-apple-darwin.tar.gz"
+checksum = "sha256:6f56ddaf3c6c2d658348af4a08b3cfc7b732e1f6cc11d32ba08a35cde70155ca"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-aarch64-apple-darwin.tar.gz"
 
 [[tools.rust]]
 version = "1.95.0"
