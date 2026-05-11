@@ -8,19 +8,23 @@ use crate::env_vars::{
 };
 use crate::ssh::client::Client;
 use crate::ssh::client::auth::AuthenticationFailed;
-use crate::ssh::client::execute::await_channel_confirmation;
+use crate::ssh::client::execute::{await_channel_confirmation, exit_status_from_signal};
 use crate::ui::create_spinner;
 use bytes::Bytes;
 use color_eyre::eyre::{Context as _, Report, bail};
 use console::style;
 use core::time::Duration;
 use indicatif::ProgressBar;
-use russh::{Channel, ChannelMsg, Pty, client::Msg};
+use russh::{Channel, ChannelMsg, Pty, Sig, client::Msg};
 use std::env;
-use std::io::{Error as IoError, IsTerminal as _, Read as _, stdin as std_stdin};
+use std::io::{
+	Error as IoError, ErrorKind as IoErrorKind, IsTerminal as _, Read as _, Result as IoResult,
+	stdin as std_stdin,
+};
 use std::thread;
 use tokio::io::{copy, sink, stderr, stdout};
-use tokio::sync::mpsc;
+use tokio::signal::ctrl_c;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tokio_stream::StreamExt as _;
 use tokio_stream::wrappers::ReceiverStream;
@@ -55,6 +59,9 @@ struct ResolvedEnvVar {
 
 /// Receiver carrying stdin chunks or an EOF marker for a remote command.
 type StdinReceiver = mpsc::Receiver<Option<Vec<u8>>>;
+
+/// Terminal interrupt character sent when forwarding Ctrl+C into a remote PTY.
+const PTY_INTERRUPT: &[u8] = b"\x03";
 
 /// Static execution settings reused across remote command helpers.
 struct RunCommandOptions<'a> {
@@ -214,6 +221,9 @@ fn spawn_stdin_forwarder() -> StdinReceiver {
 						break;
 					}
 				}
+				Err(error) if error.kind() == IoErrorKind::Interrupted => {
+					debug!("Retrying local stdin read interrupted by signal");
+				}
 				result => {
 					if let Err(error) = result {
 						debug!(%error, "Failed to read local stdin for remote command");
@@ -283,6 +293,59 @@ struct ExecuteCommandStreams {
 	stdin_rx: Option<StdinReceiver>,
 	/// Whether local stdin is attached to a terminal.
 	stdin_is_terminal: bool,
+}
+
+/// Local Ctrl+C notifications for a single remote command.
+struct CtrlCForwarder {
+	/// Receiver notified whenever local Ctrl+C is observed.
+	interrupt_rx: mpsc::Receiver<IoResult<()>>,
+	/// Stops the background listener when command streaming ends.
+	shutdown_tx: Option<oneshot::Sender<()>>,
+}
+
+impl CtrlCForwarder {
+	/// Spawns a listener that converts local Ctrl+C signals into channel notifications.
+	fn spawn() -> Self {
+		let (interrupt_tx, interrupt_rx) = mpsc::channel(8);
+		let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+
+		tokio::spawn(async move {
+			#[expect(
+				clippy::integer_division_remainder_used,
+				reason = "tokio::select! macro expansion triggers this lint spuriously"
+			)]
+			loop {
+				tokio::select! {
+					result = ctrl_c() => {
+						if interrupt_tx.send(result).await.is_err() {
+							break;
+						}
+					}
+					_ = &mut shutdown_rx => break,
+				}
+			}
+		});
+
+		Self {
+			interrupt_rx,
+			shutdown_tx: Some(shutdown_tx),
+		}
+	}
+
+	/// Receives the next local Ctrl+C notification.
+	async fn recv(&mut self) -> Option<IoResult<()>> {
+		self.interrupt_rx.recv().await
+	}
+}
+
+impl Drop for CtrlCForwarder {
+	fn drop(&mut self) {
+		if let Some(shutdown_tx) = self.shutdown_tx.take()
+			&& shutdown_tx.send(()).is_err()
+		{
+			debug!("Ctrl+C listener already stopped");
+		}
+	}
 }
 
 /// Run a pre-built command string on an already-connected SSH client.
@@ -466,13 +529,6 @@ async fn execute_with_forward_method(
 	forward_method: &EnvForwardMethod,
 	streams: ExecuteCommandStreams,
 ) -> Result<u32> {
-	let ExecuteCommandStreams {
-		stdout_tx,
-		stderr_tx,
-		stdin_rx,
-		stdin_is_terminal,
-	} = streams;
-
 	match forward_method {
 		EnvForwardMethod::Export => {
 			let mut channel = client
@@ -480,7 +536,7 @@ async fn execute_with_forward_method(
 				.await
 				.wrap_err("Failed to open SSH session channel")?;
 
-			if stdin_is_terminal {
+			if streams.stdin_is_terminal {
 				request_terminal_pty(&mut channel).await?;
 			}
 
@@ -490,7 +546,7 @@ async fn execute_with_forward_method(
 				.wrap_err("Failed to execute remote command")?;
 			await_channel_confirmation(&mut channel, "remote command exec request").await?;
 
-			stream_channel_output(channel, stdout_tx, stderr_tx, stdin_rx).await
+			stream_channel_output(channel, streams).await
 		}
 		EnvForwardMethod::Setenv => {
 			let mut channel = client
@@ -498,7 +554,7 @@ async fn execute_with_forward_method(
 				.await
 				.wrap_err("Failed to open SSH session channel")?;
 
-			if stdin_is_terminal {
+			if streams.stdin_is_terminal {
 				request_terminal_pty(&mut channel).await?;
 			}
 
@@ -536,19 +592,62 @@ async fn execute_with_forward_method(
 				.wrap_err("Failed to execute remote command")?;
 			await_channel_confirmation(&mut channel, "remote command exec request").await?;
 
-			stream_channel_output(channel, stdout_tx, stderr_tx, stdin_rx).await
+			stream_channel_output(channel, streams).await
 		}
 	}
+}
+
+/// Stops forwarding stdin once the remote side has reported process termination.
+async fn stop_forwarding_stdin_after_remote_exit(
+	channel: &Channel<Msg>,
+	stdin_rx: &mut Option<StdinReceiver>,
+) {
+	if stdin_rx.is_some() {
+		if let Err(error) = channel.eof().await {
+			debug!(
+				%error,
+				"Ignoring stdin EOF send failure after remote command exit"
+			);
+		}
+		*stdin_rx = None;
+	}
+}
+
+/// Forwards a local Ctrl+C into the remote session.
+async fn forward_local_sigint(channel: &Channel<Msg>, stdin_is_terminal: bool) -> Result<()> {
+	if stdin_is_terminal {
+		channel
+			.data(PTY_INTERRUPT)
+			.await
+			.wrap_err("Failed to forward Ctrl+C to remote PTY")?;
+	} else {
+		channel
+			.signal(Sig::INT)
+			.await
+			.wrap_err("Failed to send SIGINT to remote command")?;
+	}
+
+	debug!(
+		remote_pty = stdin_is_terminal,
+		"Forwarded local Ctrl+C to remote command"
+	);
+
+	Ok(())
 }
 
 /// Streams SSH channel stdout/stderr into local output buffers until exit.
 async fn stream_channel_output(
 	mut channel: Channel<Msg>,
-	stdout_tx: mpsc::Sender<Vec<u8>>,
-	stderr_tx: mpsc::Sender<Vec<u8>>,
-	mut stdin_rx: Option<mpsc::Receiver<Option<Vec<u8>>>>,
+	streams: ExecuteCommandStreams,
 ) -> Result<u32> {
+	let ExecuteCommandStreams {
+		stdout_tx,
+		stderr_tx,
+		mut stdin_rx,
+		stdin_is_terminal,
+	} = streams;
 	let mut exit_status = None;
+	let mut ctrl_c_forwarder = CtrlCForwarder::spawn();
 
 	#[expect(
 		clippy::integer_division_remainder_used,
@@ -578,7 +677,7 @@ async fn stream_channel_output(
 					}
 					None => stdin_rx = None,
 				}
-			}
+			},
 			msg = channel.wait() => match msg {
 				Some(ChannelMsg::Data { data }) => {
 					stdout_tx
@@ -596,19 +695,22 @@ async fn stream_channel_output(
 					exit_status: status,
 				}) => {
 					exit_status = Some(status);
-					if stdin_rx.is_some() {
-						if let Err(error) = channel.eof().await {
-							debug!(
-								%error,
-								"Ignoring stdin EOF send failure after remote command exit"
-							);
-						}
-						stdin_rx = None;
-					}
+					stop_forwarding_stdin_after_remote_exit(&channel, &mut stdin_rx).await;
+				}
+				Some(ChannelMsg::ExitSignal { signal_name, .. }) => {
+					exit_status = Some(exit_status_from_signal(&signal_name));
+					stop_forwarding_stdin_after_remote_exit(&channel, &mut stdin_rx).await;
 				}
 				Some(_) => {}
 				None => break,
-			}
+			},
+			interrupt = ctrl_c_forwarder.recv(), if exit_status.is_none() => match interrupt {
+				Some(result) => {
+					result.wrap_err("Failed to listen for local Ctrl+C")?;
+					forward_local_sigint(&channel, stdin_is_terminal).await?;
+				}
+				None => bail!("Local Ctrl+C listener stopped before remote command completed"),
+			},
 		}
 	}
 
