@@ -35,32 +35,32 @@ url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_
 provenance = "github-attestations"
 
 [[tools."aqua:EmbarkStudios/cargo-deny"]]
-version = "0.19.5"
+version = "0.19.6"
 backend = "aqua:EmbarkStudios/cargo-deny"
 
 [tools."aqua:EmbarkStudios/cargo-deny"."platforms.linux-arm64"]
-checksum = "sha256:f23d2b4e343a54af3d925b557294c8c9d00dacb7bb98663f995a4427efebe1db"
-url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.5/cargo-deny-0.19.5-aarch64-unknown-linux-musl.tar.gz"
+checksum = "sha256:d27bdcc361099068db61652761633e338372d4fa318d38944f09af3b1639d52a"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.6/cargo-deny-0.19.6-aarch64-unknown-linux-musl.tar.gz"
 
 [tools."aqua:EmbarkStudios/cargo-deny"."platforms.linux-arm64-musl"]
-checksum = "sha256:f23d2b4e343a54af3d925b557294c8c9d00dacb7bb98663f995a4427efebe1db"
-url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.5/cargo-deny-0.19.5-aarch64-unknown-linux-musl.tar.gz"
+checksum = "sha256:d27bdcc361099068db61652761633e338372d4fa318d38944f09af3b1639d52a"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.6/cargo-deny-0.19.6-aarch64-unknown-linux-musl.tar.gz"
 
 [tools."aqua:EmbarkStudios/cargo-deny"."platforms.linux-x64"]
-checksum = "sha256:5ea64ae09959b5fe1072d898f95caaa89b374678ba6728d5e9ed1366745479b0"
-url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.5/cargo-deny-0.19.5-x86_64-unknown-linux-musl.tar.gz"
+checksum = "sha256:0021d321c781f0159a150ca308859ad93ccce64a887b22ad2e129f096a8a2c07"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.6/cargo-deny-0.19.6-x86_64-unknown-linux-musl.tar.gz"
 
 [tools."aqua:EmbarkStudios/cargo-deny"."platforms.linux-x64-musl"]
-checksum = "sha256:5ea64ae09959b5fe1072d898f95caaa89b374678ba6728d5e9ed1366745479b0"
-url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.5/cargo-deny-0.19.5-x86_64-unknown-linux-musl.tar.gz"
+checksum = "sha256:0021d321c781f0159a150ca308859ad93ccce64a887b22ad2e129f096a8a2c07"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.6/cargo-deny-0.19.6-x86_64-unknown-linux-musl.tar.gz"
 
 [tools."aqua:EmbarkStudios/cargo-deny"."platforms.macos-arm64"]
-checksum = "sha256:0cf28e019edb3708ba9755b8c822864ee6d6175d6fc167956972e78ea9ff0be3"
-url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.5/cargo-deny-0.19.5-aarch64-apple-darwin.tar.gz"
+checksum = "sha256:1eca0934ec7bf12d8b9a8303335e1fff8bcc0767476947a50d3357858eded222"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.6/cargo-deny-0.19.6-aarch64-apple-darwin.tar.gz"
 
 [tools."aqua:EmbarkStudios/cargo-deny"."platforms.macos-x64"]
-checksum = "sha256:36102b6ab83a546036ada57526227317a7827e1788ce39ac6df1c9102b86fa10"
-url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.5/cargo-deny-0.19.5-x86_64-apple-darwin.tar.gz"
+checksum = "sha256:2526753e4f10ce8a0c9c45ba634e59d7c07e4aace9a21304a0fa86fb089b7039"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.19.6/cargo-deny-0.19.6-x86_64-apple-darwin.tar.gz"
 
 [[tools.bun]]
 version = "1.3.13"
