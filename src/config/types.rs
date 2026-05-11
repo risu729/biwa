@@ -114,6 +114,12 @@ mod schema_defaults {
 		true
 	}
 
+	/// Default for `SyncConfig::default_to_git_root` in schema.
+	#[must_use]
+	pub const fn sync_default_to_git_root() -> bool {
+		true
+	}
+
 	/// Default for `SyncSftpConfig::max_files_to_sync` in schema.
 	#[must_use]
 	pub const fn max_files_to_sync() -> usize {
@@ -258,9 +264,13 @@ pub struct SyncConfig {
 	#[config(default = true, env = "BIWA_SYNC_AUTO")]
 	#[schemars(default = "crate::config::types::schema_defaults::sync_auto")]
 	pub auto: bool,
-	/// Base directory to start the synchronization from. If not specified, uses the current working directory.
+	/// Base directory to start the synchronization from. If not specified, uses the nearest Git root by default, falling back to the current directory.
 	#[config(env = "BIWA_SYNC_ROOT")]
 	pub sync_root: Option<PathBuf>,
+	/// Use the nearest Git root as the default sync root when `sync_root` is not set.
+	#[config(default = true, env = "BIWA_SYNC_DEFAULT_TO_GIT_ROOT")]
+	#[schemars(default = "crate::config::types::schema_defaults::sync_default_to_git_root")]
+	pub default_to_git_root: bool,
 	/// Remote directory to sync the project to.
 	#[config(default = "~/.cache/biwa/projects", env = "BIWA_SYNC_REMOTE_ROOT")]
 	#[schemars(default = "crate::config::types::schema_defaults::sync_remote_root")]

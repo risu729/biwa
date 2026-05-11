@@ -77,13 +77,14 @@ Storing your password in a configuration file is **not recommended** for securit
 
 ### `[sync]` — Synchronization Settings
 
-| Key           | Type    | Default                                                | Description                                                                                 |
-| ------------- | ------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| `auto`        | boolean | `true`                                                 | Automatically synchronize the project before running remote commands                        |
-| `sync_root`   | string? | `null`                                                 | Base directory to start the synchronization from. If not specified, uses current directory. |
-| `engine`      | string  | `"sftp"`                                               | The synchronization engine to use (`"sftp"` or `"mutagen"`)                                 |
-| `remote_root` | string  | `"~/.cache/biwa/projects"`                             | Remote directory to sync the project to                                                     |
-| `exclude`     | array   | `["**/.git/**", "**/target/**", "**/node_modules/**"]` | List of target strings (using globset) to exclude during synchronization                    |
+| Key                   | Type    | Default                                                | Description                                                                   |
+| --------------------- | ------- | ------------------------------------------------------ | ----------------------------------------------------------------------------- |
+| `auto`                | boolean | `true`                                                 | Automatically synchronize the project before running remote commands          |
+| `sync_root`           | string? | `null`                                                 | Base directory to start the synchronization from                              |
+| `default_to_git_root` | boolean | `true`                                                 | Use the nearest Git root as the default sync root when `sync_root` is not set |
+| `engine`              | string  | `"sftp"`                                               | The synchronization engine to use (`"sftp"` or `"mutagen"`)                   |
+| `remote_root`         | string  | `"~/.cache/biwa/projects"`                             | Remote directory to sync the project to                                       |
+| `exclude`             | array   | `["**/.git/**", "**/target/**", "**/node_modules/**"]` | List of target strings (using globset) to exclude during synchronization      |
 
 #### `[sync.sftp]` — SFTP Engine Settings
 

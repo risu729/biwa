@@ -13,9 +13,10 @@ cmd run help="Run commands on remote host" {
     alias r
     flag --skip-sync help="Skip automatic synchronization before running the command (automatically set if --remote-dir is used)"
     flag --sync help="Force automatic synchronization before running the command"
-    flag --sync-root help="Base directory to start the synchronization from. Overrides the current working directory" {
+    flag --sync-root help="Base directory to start the synchronization from. Overrides the default sync root" {
         arg <SYNC_ROOT>
     }
+    flag --sync-cwd help="Use the current working directory as the default sync root instead of the nearest Git root"
     flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
         arg <REMOTE_DIR>
     }
@@ -34,9 +35,10 @@ cmd run help="Run commands on remote host" {
 }
 cmd sync help="Synchronize files to remote host" {
     alias s
-    flag --sync-root help="Base directory to start the synchronization from. Overrides the current working directory" {
+    flag --sync-root help="Base directory to start the synchronization from. Overrides the default sync root" {
         arg <SYNC_ROOT>
     }
+    flag --sync-cwd help="Use the current working directory as the default sync root instead of the nearest Git root"
     flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
         arg <REMOTE_DIR>
     }

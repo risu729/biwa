@@ -10,7 +10,11 @@ Synchronize files to remote host
 
 ### `--sync-root <SYNC_ROOT>`
 
-Base directory to start the synchronization from. Overrides the current working directory
+Base directory to start the synchronization from. Overrides the default sync root
+
+### `--sync-cwd`
+
+Use the current working directory as the default sync root instead of the nearest Git root
 
 ### `-d --remote-dir <REMOTE_DIR>`
 

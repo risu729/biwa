@@ -37,6 +37,7 @@
       "$ref": "#/$defs/SyncConfig",
       "default": {
         "auto": true,
+        "default_to_git_root": true,
         "engine": "sftp",
         "exclude": [
           "**/.git/**",
@@ -229,6 +230,11 @@
           "type": "boolean",
           "default": true
         },
+        "default_to_git_root": {
+          "description": "Use the nearest Git root as the default sync root when `sync_root` is not set.",
+          "type": "boolean",
+          "default": true
+        },
         "engine": {
           "description": "The synchronization engine to use.",
           "$ref": "#/$defs/SyncEngine",
@@ -260,7 +266,7 @@
           }
         },
         "sync_root": {
-          "description": "Base directory to start the synchronization from. If not specified, uses the current working directory.",
+          "description": "Base directory to start the synchronization from. If not specified, uses the nearest Git root by default, falling back to the current directory.",
           "type": [
             "string",
             "null"
