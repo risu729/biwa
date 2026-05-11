@@ -14,6 +14,12 @@ By default, `biwa run` automatically runs `biwa sync` before executing your comm
 
 If a directory still exists locally after its last file is removed, `biwa sync` will keep it on the remote side as an empty directory instead of deleting it.
 
+## Sync Root
+
+When `sync.sync_root` and `--sync-root` are not set, biwa uses the nearest Git root as the default sync root. This keeps `biwa run` and `biwa sync` aligned to the same remote project directory when you invoke them from subdirectories of the same repository.
+
+Set `sync.default_to_git_root = false` or pass `--sync-cwd` to use the current working directory as the default sync root instead.
+
 ## Target Filtering & Path Resolution
 
 Biwa utilizes `globset` for specifying target exclusions and inclusions, supporting standard Unix-style glob matching syntax. The `exclude` array configuration is additive to the CLI `--exclude` flag.

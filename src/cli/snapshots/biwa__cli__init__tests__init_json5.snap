@@ -61,10 +61,17 @@ expression: content
     // Default value: true
     //auto: true,
 
-    // Base directory to start the synchronization from. If not specified, uses the current working directory.
+    // Base directory to start the synchronization from. If not specified, uses the nearest Git root by default, falling back to the current directory.
     //
     // Can also be specified via environment variable `BIWA_SYNC_ROOT`.
     //sync_root: ,
+
+    // Use the nearest Git root as the default sync root when `sync_root` is not set.
+    //
+    // Can also be specified via environment variable `BIWA_SYNC_DEFAULT_TO_GIT_ROOT`.
+    //
+    // Default value: true
+    //default_to_git_root: true,
 
     // Remote directory to sync the project to.
     //

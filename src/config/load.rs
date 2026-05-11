@@ -377,6 +377,7 @@ mod tests {
 		  "sync": {
 		    "auto": true,
 		    "sync_root": null,
+		    "default_to_git_root": true,
 		    "remote_root": "~/.cache/biwa/projects",
 		    "exclude": [
 		      "**/.git/**",

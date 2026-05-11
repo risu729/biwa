@@ -22,6 +22,7 @@ expression: content
   },
   "sync": {
     "auto": true,
+    "default_to_git_root": true,
     "engine": "sftp",
     "exclude": [
       "**/.git/**",

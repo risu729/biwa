@@ -11,9 +11,13 @@ use std::path::{Path, PathBuf};
 /// Arguments for synchronization.
 #[derive(Args, Debug, Default, Clone)]
 pub struct SyncArgs {
-	/// Base directory to start the synchronization from. Overrides the current working directory.
+	/// Base directory to start the synchronization from. Overrides the default sync root.
 	#[arg(long)]
 	pub sync_root: Option<PathBuf>,
+
+	/// Use the current working directory as the default sync root instead of the nearest Git root.
+	#[arg(long)]
+	pub sync_cwd: bool,
 
 	/// Override the remote project directory path. Bypasses the default `remote_root` + project name.
 	#[arg(long, short = 'd')]
@@ -35,9 +39,10 @@ pub struct SyncArgs {
 impl SyncArgs {
 	/// Resolve the sync root directory.
 	///
-	/// Priority: CLI flag > config file > nearest Git root > current working directory.
+	/// Priority: CLI `--sync-root` > config `sync_root` > nearest Git root unless disabled > current working directory.
 	pub fn resolve_sync_root(&self, config: &Config) -> Result<PathBuf> {
-		self.resolve_sync_root_with(config, default_sync_root)
+		let default_to_git_root = self.default_to_git_root(config);
+		self.resolve_sync_root_with(config, || default_sync_root(default_to_git_root))
 	}
 
 	/// Resolve the sync root directory using a supplied implicit default.
@@ -54,6 +59,11 @@ impl SyncArgs {
 		Ok(canonicalize(&root).unwrap_or(root))
 	}
 
+	/// Returns whether the implicit sync root should prefer the nearest Git root.
+	const fn default_to_git_root(&self, config: &Config) -> bool {
+		config.sync.default_to_git_root && !self.sync_cwd
+	}
+
 	/// Resolve the sync options.
 	pub fn resolve_options(&self) -> Options {
 		let cwd = canonical_current_dir();
@@ -67,14 +77,18 @@ impl SyncArgs {
 }
 
 /// Returns the default sync root for the current directory.
-fn default_sync_root() -> io::Result<PathBuf> {
+fn default_sync_root(default_to_git_root: bool) -> io::Result<PathBuf> {
 	let cwd = env::current_dir()?;
-	Ok(default_sync_root_from(&cwd))
+	Ok(default_sync_root_from(&cwd, default_to_git_root))
 }
 
 /// Returns the default sync root for `cwd`.
-fn default_sync_root_from(cwd: &Path) -> PathBuf {
-	find_git_root(cwd).unwrap_or_else(|| cwd.to_path_buf())
+fn default_sync_root_from(cwd: &Path, default_to_git_root: bool) -> PathBuf {
+	if default_to_git_root {
+		find_git_root(cwd).unwrap_or_else(|| cwd.to_path_buf())
+	} else {
+		cwd.to_path_buf()
+	}
 }
 
 /// Finds the nearest Git worktree root at or above `start`.
@@ -163,7 +177,10 @@ mod tests {
 
 		assert_eq!(
 			args.resolve_sync_root_with(&Config::default(), || {
-				Ok(default_sync_root_from(&nested))
+				Ok(default_sync_root_from(
+					&nested,
+					args.default_to_git_root(&Config::default()),
+				))
 			})?,
 			root
 		);
@@ -181,8 +198,59 @@ mod tests {
 
 		assert_eq!(
 			args.resolve_sync_root_with(&Config::default(), || {
-				Ok(default_sync_root_from(&nested))
+				Ok(default_sync_root_from(
+					&nested,
+					args.default_to_git_root(&Config::default()),
+				))
 			})?,
+			nested
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn resolve_sync_root_uses_current_directory_when_config_disables_git_root() -> Result<()> {
+		let dir = tempdir()?;
+		let root = dir.path().join("project");
+		let nested = root.join("src");
+		fs::create_dir_all(&nested)?;
+		fs::create_dir_all(root.join(".git"))?;
+
+		let nested = canonicalize(&nested).unwrap_or(nested);
+		let mut config = Config::default();
+		config.sync.default_to_git_root = false;
+		let args = SyncArgs::default();
+
+		assert_eq!(
+			args.resolve_sync_root_with(&config, || Ok(default_sync_root_from(
+				&nested,
+				args.default_to_git_root(&config),
+			)))?,
+			nested
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn resolve_sync_root_uses_current_directory_when_cli_disables_git_root() -> Result<()> {
+		let dir = tempdir()?;
+		let root = dir.path().join("project");
+		let nested = root.join("src");
+		fs::create_dir_all(&nested)?;
+		fs::create_dir_all(root.join(".git"))?;
+
+		let nested = canonicalize(&nested).unwrap_or(nested);
+		let config = Config::default();
+		let args = SyncArgs {
+			sync_cwd: true,
+			..Default::default()
+		};
+
+		assert_eq!(
+			args.resolve_sync_root_with(&config, || Ok(default_sync_root_from(
+				&nested,
+				args.default_to_git_root(&config),
+			)))?,
 			nested
 		);
 		Ok(())
