@@ -108,6 +108,34 @@ fn e2e_clean_dry_run_purge() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("purge.txt"), "y")?;
 
+	let sync_out = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		sync_out.status.success(),
+		"sync failed: {}",
+		String::from_utf8_lossy(&sync_out.stderr)
+	);
+
+	let setup_dir = tempfile::tempdir()?;
+	let ordinary_dir = "~/.cache/biwa/projects/not-biwa-clean-test";
+	let setup_out = biwa_cmd_tilde(
+		&["run", "sh", "-c", &format!("mkdir -p {ordinary_dir}")],
+		setup_dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_out.status.success(),
+		"setup failed: {}",
+		String::from_utf8_lossy(&setup_out.stderr)
+	);
+
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
 	let out = biwa_cmd_tilde(&["clean", "--dry-run", "--purge"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
@@ -119,8 +147,30 @@ fn e2e_clean_dry_run_purge() -> Result<()> {
 		"clean --dry-run --purge failed: stderr: {stderr}"
 	);
 	assert!(
-		stderr.contains("Would remove") || stderr.contains("No directories found"),
+		stderr.contains("Would remove"),
 		"unexpected stderr: {stderr}"
+	);
+	assert!(
+		stderr.contains(remote_dir.trim_start_matches('~')),
+		"expected biwa path in stderr: {stderr}"
+	);
+	assert!(
+		!stderr.contains("not-biwa-clean-test"),
+		"ordinary sibling should not be purged: {stderr}"
+	);
+
+	let cleanup_out = biwa_cmd_tilde(
+		&["run", "sh", "-c", &format!("rm -rf {ordinary_dir}")],
+		setup_dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		cleanup_out.status.success(),
+		"cleanup failed: {}",
+		String::from_utf8_lossy(&cleanup_out.stderr)
 	);
 	Ok(())
 }

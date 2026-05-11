@@ -67,6 +67,14 @@ impl SyncArgs {
 		config.sync.default_to_git_root && !self.sync_cwd
 	}
 
+	/// Resolve the remote directory used for this synchronization.
+	pub(super) fn resolve_remote_dir(&self, config: &Config, sync_root: &Path) -> Result<String> {
+		self.remote_dir.as_deref().map_or_else(
+			|| compute_project_remote_dir(config, sync_root),
+			|dir| Ok(dir.to_owned()),
+		)
+	}
+
 	/// Resolve the sync options.
 	pub fn resolve_options(&self) -> Options {
 		let cwd = canonical_current_dir();
@@ -131,6 +139,20 @@ fn trim_trailing_slash(path: &Path) -> String {
 	path.to_string_lossy().trim_end_matches('/').to_owned()
 }
 
+/// Records a remote directory use in local persisted state.
+pub(super) fn record_connection_use(config: &Config, remote_dir: &str) {
+	let state_dir = config.resolved_state_dir();
+	if let Err(e) = state::record_connection(
+		&state_dir,
+		&config.ssh.host,
+		&config.ssh.user,
+		config.ssh.port,
+		remote_dir,
+	) {
+		warn!(error = %e, "Failed to record connection in local state");
+	}
+}
+
 /// Synchronize local project files to the remote server.
 #[derive(Args, Debug)]
 #[clap(visible_alias = "s")]
@@ -146,7 +168,13 @@ impl Sync {
 		let config = Config::load()?;
 		let sync_root = self.sync_args.resolve_sync_root(&config)?;
 		let options = self.sync_args.resolve_options();
+		let remote_dir = self.sync_args.resolve_remote_dir(&config, &sync_root)?;
 		let client = connect(&config, quiet).await?;
+
+		// Mark the directory as in use before remote work starts so background cleanup
+		// does not treat an active old project as stale.
+		record_connection_use(&config, &remote_dir);
+
 		sync_project(
 			&client,
 			&config,
@@ -157,21 +185,7 @@ impl Sync {
 		)
 		.await?;
 
-		// Record the connection in local persisted state.
-		let remote_dir = self.sync_args.remote_dir.as_deref().map_or_else(
-			|| compute_project_remote_dir(&config, &sync_root),
-			|d| Ok(d.to_owned()),
-		)?;
-		let state_dir = config.resolved_state_dir();
-		if let Err(e) = state::record_connection(
-			&state_dir,
-			&config.ssh.host,
-			&config.ssh.user,
-			config.ssh.port,
-			&remote_dir,
-		) {
-			warn!(error = %e, "Failed to record connection in local state");
-		}
+		record_connection_use(&config, &remote_dir);
 
 		// Spawn background cleanup daemon if enabled.
 		if config.clean.auto

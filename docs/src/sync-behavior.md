@@ -94,10 +94,10 @@ Use the dedicated command for explicit control; see the [CLI reference for `biwa
 
 - **Default (no extra flags)** — Remove the **current project’s** remote directory (from the computed `remote_root` + unique project name for the current working directory).
 - **`--all`** — Remove every **tracked** remote directory for this SSH host/user/port that matches the default biwa layout under `remote_root`.
-- **`--purge`** — Remove **all** directory entries listed under `remote_root` on the server (including projects from other clients). Use with care.
+- **`--purge`** — Remove every biwa-layout directory listed under `remote_root` on the server, including projects from other clients and legacy default-layout dirs. Use with care.
 - **`--dry-run`** — Print what would be removed without deleting.
 - **`biwa clean stop`** — Stop a running background cleanup daemon (if any).
 
 Flags are resolved in a fixed order when combined: **`--auto`** (daemon-style quota cleanup) takes precedence over **`--purge`**, then **`--all`**, then the default current-project clean.
 
-For explicit clean invocations, biwa stops any running background cleanup daemon first so manual and automatic cleanup do not run at the same time.
+For destructive explicit clean invocations, biwa stops any running background cleanup daemon first so manual and automatic cleanup do not run at the same time.

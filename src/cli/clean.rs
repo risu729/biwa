@@ -8,7 +8,8 @@ use crate::ssh::clean::{
 use crate::ssh::client::Client;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::{
-	compute_client_host_hash, compute_project_remote_dir, is_default_biwa_remote_dir,
+	compute_client_host_hash, compute_project_remote_dir, is_biwa_remote_dir,
+	is_default_biwa_remote_dir,
 };
 use crate::state::{
 	Connection, State, default_state_dir, is_daemon_running, kill_daemon, load_state,
@@ -112,8 +113,8 @@ impl Clean {
 			return run_auto_cleanup(&config, &state_dir).await;
 		}
 
-		// For explicit clean commands, kill any running daemon first.
-		if is_daemon_running(&state_dir) {
+		// For destructive explicit clean commands, kill any running daemon first.
+		if !self.dry_run && is_daemon_running(&state_dir) {
 			kill_daemon(&state_dir);
 			if !quiet {
 				eprintln!(
@@ -316,25 +317,22 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 	let client = connect(config, quiet).await?;
 	let remote_root = config.sync.remote_root.to_string_lossy().into_owned();
 	let dirs = list_remote_dirs(&client, &remote_root).await?;
+	let full_paths = purge_cleanup_paths(&config.sync.remote_root, &dirs);
 
-	if dirs.is_empty() {
+	if full_paths.is_empty() {
 		if !quiet {
-			eprintln!("No directories found under {remote_root}");
+			eprintln!("No biwa directories found under {remote_root}");
 		}
 		return Ok(());
 	}
 
 	if dry_run {
-		for dir in &dirs {
-			eprintln!("Would remove: {}", join_remote_child(&remote_root, dir));
+		for path in &full_paths {
+			eprintln!("Would remove: {path}");
 		}
 		return Ok(());
 	}
 
-	let full_paths: Vec<String> = dirs
-		.iter()
-		.map(|dir| join_remote_child(&remote_root, dir))
-		.collect();
 	let (succeeded, errors) =
 		remove_remote_dirs_bounded(&client, &full_paths, "Failed to remove a remote directory")
 			.await?;
@@ -364,6 +362,16 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 	}
 
 	Ok(())
+}
+
+/// Returns purge candidates from direct child names listed under `remote_root`.
+fn purge_cleanup_paths(remote_root: &Path, dirs: &[String]) -> Vec<String> {
+	let remote_root_str = remote_root.to_string_lossy();
+	let remote_root_str = remote_root_str.as_ref();
+	dirs.iter()
+		.map(|dir| join_remote_child(remote_root_str, dir))
+		.filter(|path| is_biwa_remote_dir(path, remote_root))
+		.collect()
 }
 
 /// Automatic background cleanup driven by quota thresholds.
@@ -621,7 +629,7 @@ fn configure_daemon_env(cmd: &mut Command, config: &Config, state_dir: &Path) {
 #[cfg(test)]
 mod tests {
 	use super::{
-		CleanTarget, clean_target, configure_daemon_env, join_remote_child,
+		CleanTarget, clean_target, configure_daemon_env, join_remote_child, purge_cleanup_paths,
 		remote_dir_is_older_than, resolve_current_project_root, state_dir_from_env_or_default,
 	};
 	use crate::config::types::{Config, PasswordConfig};
@@ -667,6 +675,27 @@ mod tests {
 	fn join_remote_child_does_not_duplicate_separator() {
 		assert_eq!(join_remote_child("~/root", "child"), "~/root/child");
 		assert_eq!(join_remote_child("~/root/", "child"), "~/root/child");
+	}
+
+	#[test]
+	fn purge_cleanup_paths_keep_only_biwa_layout_dirs() {
+		let paths = purge_cleanup_paths(
+			Path::new("~/root"),
+			&[
+				"project-a1b2c3d4-deadbeef".to_owned(),
+				"legacy-deadbeef".to_owned(),
+				"ordinary-directory".to_owned(),
+				"nested/project-deadbeef".to_owned(),
+			],
+		);
+
+		assert_eq!(
+			paths,
+			vec![
+				"~/root/project-a1b2c3d4-deadbeef".to_owned(),
+				"~/root/legacy-deadbeef".to_owned()
+			]
+		);
 	}
 
 	#[test]

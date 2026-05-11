@@ -122,22 +122,9 @@ pub(super) fn is_default_biwa_remote_dir(
 		return false;
 	}
 
-	let root = remote_root.to_string_lossy();
-	let root = root.trim_end_matches('/');
-	if root.is_empty() {
-		return false;
-	}
-	let prefix = format!("{root}/");
-	let Some(directory_name) = remote_dir.strip_prefix(&prefix) else {
+	let Some(directory_name) = direct_remote_child_name(remote_dir, remote_root) else {
 		return false;
 	};
-	if directory_name.is_empty()
-		|| directory_name == "."
-		|| directory_name == ".."
-		|| directory_name.contains('/')
-	{
-		return false;
-	}
 
 	let Some((project_and_host, path_hash)) = directory_name.rsplit_once('-') else {
 		return false;
@@ -150,6 +137,45 @@ pub(super) fn is_default_biwa_remote_dir(
 	};
 
 	!project_name.is_empty() && actual_host_hash.eq_ignore_ascii_case(host_hash)
+}
+
+/// Returns true if `remote_dir` is directly under `remote_root` and looks like a biwa project dir.
+///
+/// Accepts both the current `{project_name}-{host_hash}-{path_hash}` layout and the legacy
+/// `{project_name}-{combined_hash}` layout so `biwa clean --purge` can remove old default dirs
+/// without deleting arbitrary siblings under `remote_root`.
+#[must_use]
+pub(super) fn is_biwa_remote_dir(remote_dir: &str, remote_root: &Path) -> bool {
+	let Some(directory_name) = direct_remote_child_name(remote_dir, remote_root) else {
+		return false;
+	};
+
+	let Some((project_name, path_hash)) = directory_name.rsplit_once('-') else {
+		return false;
+	};
+
+	!project_name.is_empty() && is_hex_hash(path_hash)
+}
+
+/// Returns the direct child component of a remote path under `remote_root`.
+fn direct_remote_child_name<'a>(remote_dir: &'a str, remote_root: &Path) -> Option<&'a str> {
+	let root = remote_root.to_string_lossy();
+	let root = root.trim_end_matches('/');
+	if root.is_empty() {
+		return None;
+	}
+
+	let prefix = format!("{root}/");
+	let directory_name = remote_dir.strip_prefix(&prefix)?;
+	if directory_name.is_empty()
+		|| directory_name == "."
+		|| directory_name == ".."
+		|| directory_name.contains('/')
+	{
+		return None;
+	}
+
+	Some(directory_name)
 }
 
 /// Returns whether a string is exactly 8 ASCII hex characters.

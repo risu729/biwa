@@ -1,12 +1,11 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
-use crate::cli::sync::SyncArgs;
+use crate::cli::sync::{SyncArgs, record_connection_use};
 use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
-use crate::state;
 use crate::{
 	ssh::exec::{ExecuteCommandOptions, connect, execute_command},
-	ssh::sync::{compute_project_remote_dir, sync_project},
+	ssh::sync::sync_project,
 };
 use clap::Args;
 use tracing::warn;
@@ -64,8 +63,12 @@ pub(super) async fn run_remote(
 	silent: bool,
 ) -> Result<()> {
 	let sync_root = sync_args.resolve_sync_root(config)?;
-
+	let working_dir = sync_args.resolve_remote_dir(config, &sync_root)?;
 	let client = connect(config, quiet || silent).await?;
+
+	// Mark the directory as in use before remote work starts so background cleanup
+	// does not treat an active old project as stale.
+	record_connection_use(config, &working_dir);
 
 	if should_sync {
 		let options = sync_args.resolve_options();
@@ -80,15 +83,6 @@ pub(super) async fn run_remote(
 		.await?;
 	}
 
-	// Determine working directory: explicit --remote-dir > computed synced dir
-	let computed_working_dir;
-	let working_dir: &str = if let Some(dir) = &sync_args.remote_dir {
-		dir.as_str()
-	} else {
-		computed_working_dir = compute_project_remote_dir(config, &sync_root)?;
-		&computed_working_dir
-	};
-
 	let cli_env_vars = parse_cli_env_vars(remote_command.cli_env_vars)?;
 	execute_command(
 		&client,
@@ -97,24 +91,14 @@ pub(super) async fn run_remote(
 			command: remote_command.command,
 			args: remote_command.command_args,
 			cli_env_vars: &cli_env_vars,
-			working_dir: Some(working_dir),
+			working_dir: Some(&working_dir),
 			quiet,
 			silent,
 		},
 	)
 	.await?;
 
-	// Record the connection in local persisted state.
-	let state_dir = config.resolved_state_dir();
-	if let Err(e) = state::record_connection(
-		&state_dir,
-		&config.ssh.host,
-		&config.ssh.user,
-		config.ssh.port,
-		working_dir,
-	) {
-		warn!(error = %e, "Failed to record connection in local state");
-	}
+	record_connection_use(config, &working_dir);
 
 	// Spawn background cleanup daemon if enabled.
 	if config.clean.auto

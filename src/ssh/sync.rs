@@ -49,6 +49,12 @@ pub fn is_default_biwa_remote_dir(remote_dir: &str, remote_root: &Path, host_has
 	super::sync_paths::is_default_biwa_remote_dir(remote_dir, remote_root, host_hash)
 }
 
+/// Returns whether a remote directory matches any known biwa project directory layout.
+#[must_use]
+pub fn is_biwa_remote_dir(remote_dir: &str, remote_root: &Path) -> bool {
+	super::sync_paths::is_biwa_remote_dir(remote_dir, remote_root)
+}
+
 /// Shell-quotes a remote path while preserving home directory expansion.
 pub(super) fn shell_quote_path(path: &str) -> String {
 	super::sync_paths::shell_quote_path(path)
@@ -1177,6 +1183,22 @@ mod tests {
 		let hh = "a1b2c3d4";
 		let dir = format!("{}/project-{hh}-nothexzz", root.to_string_lossy());
 		assert!(!is_default_biwa_remote_dir(&dir, root, hh));
+	}
+
+	#[test]
+	fn is_biwa_remote_dir_accepts_current_and_legacy_layouts() {
+		let root = Path::new("~/r");
+		assert!(is_biwa_remote_dir("~/r/project-a1b2c3d4-deadbeef", root));
+		assert!(is_biwa_remote_dir("~/r/project-deadbeef", root));
+	}
+
+	#[test]
+	fn is_biwa_remote_dir_rejects_non_biwa_siblings() {
+		let root = Path::new("~/r");
+		assert!(!is_biwa_remote_dir("~/r/project", root));
+		assert!(!is_biwa_remote_dir("~/r/project-nothexzz", root));
+		assert!(!is_biwa_remote_dir("~/r/project-deadbeef/nested", root));
+		assert!(!is_biwa_remote_dir("~/r2/project-deadbeef", root));
 	}
 
 	#[test]
