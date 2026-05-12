@@ -56,7 +56,9 @@ cmd clean help="Clean stale remote project directories" {
     flag --purge help="Remove ALL biwa directories under `remote_root` (including other clients)"
     flag --dry-run help="Preview what would be removed without deleting"
     flag --auto help="Background auto-cleanup mode (used internally by the daemon)" hide=#true
-    cmd stop help="Stop the running background cleanup daemon"
+    arg "[ACTION]" help="Optional clean action (`stop` stops the background cleanup daemon)" required=#false {
+        choices stop
+    }
 }
 cmd init help="Initialize a biwa configuration file" {
     flag "-f --force" help="Force overwrite if file exists"

@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::cli::sync::SyncArgs;
 use crate::config::types::{Config, PasswordConfig};
 use crate::duration::HumanDuration;
 use crate::ssh::clean::{
@@ -17,31 +18,31 @@ use crate::state::{
 };
 use alloc::sync::Arc;
 use chrono::{DateTime, Utc};
-use clap::{Args, Subcommand};
+use clap::{Args, ValueEnum};
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
 use core::time::Duration;
 use nix::unistd;
 use std::collections::HashSet;
+use std::env;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::{env, fs};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
 /// Clean stale remote project directories.
 #[derive(Args, Debug)]
-#[command(visible_alias = "c", subcommand_required = false)]
+#[command(visible_alias = "c")]
 #[expect(
 	clippy::struct_excessive_bools,
 	reason = "Each bool maps to an independent CLI flag with distinct semantics"
 )]
 pub(super) struct Clean {
-	/// Subcommand (e.g. `stop`).
-	#[command(subcommand)]
-	subcommand: Option<CleanSubcommand>,
+	/// Optional clean action (`stop` stops the background cleanup daemon).
+	#[arg(value_enum)]
+	action: Option<CleanAction>,
 
 	/// Remove all this client's tracked remote directories.
 	#[arg(long)]
@@ -60,14 +61,14 @@ pub(super) struct Clean {
 	auto: bool,
 }
 
-/// Subcommands for `biwa clean`.
-#[derive(Subcommand, Debug)]
-enum CleanSubcommand {
+/// Optional action for `biwa clean`.
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+enum CleanAction {
 	/// Stop the running background cleanup daemon.
 	Stop,
 }
 
-/// Which cleanup mode `biwa clean` runs (after handling [`CleanSubcommand::Stop`]).
+/// Which cleanup mode `biwa clean` runs (after handling [`CleanAction::Stop`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CleanTarget {
 	/// Default: remove only the current project’s remote directory.
@@ -99,8 +100,8 @@ pub(super) const fn clean_target(auto: bool, purge: bool, all: bool) -> CleanTar
 impl Clean {
 	/// Run the clean command.
 	pub async fn run(self, quiet: bool) -> Result<()> {
-		// Handle `biwa clean stop` subcommand.
-		if matches!(self.subcommand, Some(CleanSubcommand::Stop)) {
+		// Handle `biwa clean stop`.
+		if matches!(self.action, Some(CleanAction::Stop)) {
 			stop_daemon(quiet);
 			return Ok(());
 		}
@@ -237,12 +238,7 @@ async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Res
 
 /// Resolves the project root used by the default clean target.
 fn resolve_current_project_root(config: &Config) -> Result<PathBuf> {
-	let root = config
-		.sync
-		.sync_root
-		.clone()
-		.map_or_else(env::current_dir, Ok)?;
-	Ok(fs::canonicalize(&root).unwrap_or(root))
+	SyncArgs::default().resolve_sync_root(config)
 }
 
 /// Clean all this client's tracked remote directories.
@@ -641,6 +637,23 @@ mod tests {
 	use pretty_assertions::assert_eq;
 	use std::path::{Path, PathBuf};
 	use std::process::Command;
+	use std::{env, fs};
+
+	struct CurrentDirGuard(PathBuf);
+
+	impl CurrentDirGuard {
+		fn set(path: &Path) -> Self {
+			let previous = env::current_dir().expect("current dir is available");
+			env::set_current_dir(path).expect("set current dir");
+			Self(previous)
+		}
+	}
+
+	impl Drop for CurrentDirGuard {
+		fn drop(&mut self) {
+			env::set_current_dir(&self.0).expect("restore current dir");
+		}
+	}
 
 	#[test]
 	fn clean_target_none_is_current_project() {
@@ -748,6 +761,24 @@ mod tests {
 		assert_eq!(
 			resolve_current_project_root(&config).unwrap(),
 			dir.path().canonicalize().unwrap()
+		);
+	}
+
+	#[test]
+	#[serial_test::serial]
+	fn resolve_current_project_root_uses_git_root_by_default() {
+		let dir = tempfile::tempdir().unwrap();
+		let root = dir.path().join("project");
+		let nested = root.join("src/bin");
+		fs::create_dir_all(&nested).unwrap();
+		fs::create_dir_all(root.join(".git")).unwrap();
+		let _cwd = CurrentDirGuard::set(&nested);
+
+		let config = Config::default();
+
+		assert_eq!(
+			resolve_current_project_root(&config).unwrap(),
+			root.canonicalize().unwrap()
 		);
 	}
 

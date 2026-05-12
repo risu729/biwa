@@ -285,19 +285,56 @@ pub fn remove_pid_file(state_dir: &Path) {
 	}
 }
 
+/// Returns whether a live process matches the cleanup daemon command line.
+#[cfg(target_os = "linux")]
+fn process_matches_cleanup_daemon(pid: i32) -> bool {
+	let Ok(cmdline) = fs::read(format!("/proc/{pid}/cmdline")) else {
+		return false;
+	};
+	let args: Vec<String> = cmdline
+		.split(|b| *b == b'\0')
+		.filter(|arg| !arg.is_empty())
+		.map(|arg| String::from_utf8_lossy(arg).into_owned())
+		.collect();
+	cleanup_daemon_args_match(&args)
+}
+
+/// Returns whether a live process matches the cleanup daemon command line.
+#[cfg(not(target_os = "linux"))]
+const fn process_matches_cleanup_daemon(_pid: i32) -> bool {
+	// Non-Linux platforms do not have `/proc/<pid>/cmdline`; preserve the
+	// previous PID-file behavior there rather than disabling daemon detection.
+	true
+}
+
+/// Returns whether command-line arguments look like the detached cleanup daemon.
+fn cleanup_daemon_args_match(args: &[String]) -> bool {
+	let mut args = args.iter();
+	args.any(|arg| arg == "clean") && args.any(|arg| arg == "--auto")
+}
+
 /// Returns `true` if a cleanup daemon is currently running.
 ///
 /// Uses `kill(pid, 0)` to probe the process. `ESRCH` means the process does
-/// not exist; any other error (including `EPERM`) is treated as "still running"
-/// to avoid accidentally spawning a second daemon.
+/// not exist. On Linux, a live PID must also have the expected `biwa clean
+/// --auto` command line so a stale PID file cannot point at an unrelated
+/// process after PID reuse.
 #[must_use]
 pub fn is_daemon_running(state_dir: &Path) -> bool {
 	read_daemon_pid(state_dir).is_some_and(|pid| {
 		match signal::kill(Pid::from_raw(pid), None) {
 			// ESRCH: no such process — definitely not running.
 			Err(Errno::ESRCH) => false,
-			// Ok or any other error (e.g. EPERM): process exists.
-			Ok(()) | Err(_) => true,
+			// Ok or EPERM means a process exists; verify it is the cleanup daemon.
+			Ok(()) | Err(Errno::EPERM) => process_matches_cleanup_daemon(pid),
+			Err(e) => {
+				warn!(
+					error = %e,
+					pid,
+					"Cannot probe cleanup daemon process; treating PID file as stale"
+				);
+				false
+			}
 		}
 	})
 }
@@ -320,6 +357,14 @@ pub fn kill_daemon(state_dir: &Path) {
 	let nix_pid = Pid::from_raw(pid);
 	match signal::kill(nix_pid, None) {
 		Ok(()) => {
+			if !process_matches_cleanup_daemon(pid) {
+				warn!(
+					pid,
+					"Cleanup daemon PID points at a different process; removing stale PID file"
+				);
+				remove_pid_file(state_dir);
+				return;
+			}
 			debug!(pid, "Sending SIGTERM to cleanup daemon");
 			match signal::kill(nix_pid, Signal::SIGTERM) {
 				Ok(()) => remove_pid_file(state_dir),
@@ -334,6 +379,13 @@ pub fn kill_daemon(state_dir: &Path) {
 		}
 		Err(Errno::ESRCH) => {
 			debug!(pid, "Stale cleanup daemon PID; removing PID file");
+			remove_pid_file(state_dir);
+		}
+		Err(Errno::EPERM) => {
+			warn!(
+				pid,
+				"Cleanup daemon PID cannot be signaled; removing stale PID file"
+			);
 			remove_pid_file(state_dir);
 		}
 		Err(e) => {
@@ -421,12 +473,49 @@ mod tests {
 
 	#[test]
 	#[serial]
-	fn write_pid_file_reports_running_pid() {
+	fn cleanup_daemon_args_match_accepts_daemon_cmdline() {
+		assert!(cleanup_daemon_args_match(&[
+			"/tmp/biwa".to_owned(),
+			"clean".to_owned(),
+			"--auto".to_owned(),
+			"--quiet".to_owned()
+		]));
+	}
+
+	#[test]
+	#[serial]
+	fn cleanup_daemon_args_match_rejects_other_commands() {
+		assert!(!cleanup_daemon_args_match(&[
+			"/tmp/biwa".to_owned(),
+			"sync".to_owned()
+		]));
+		assert!(!cleanup_daemon_args_match(&[
+			"/tmp/biwa".to_owned(),
+			"--auto".to_owned(),
+			"clean".to_owned()
+		]));
+	}
+
+	#[cfg(target_os = "linux")]
+	#[test]
+	#[serial]
+	fn is_daemon_running_ignores_unrelated_live_pid() {
 		let dir = tempfile::tempdir().unwrap();
 		fs::create_dir_all(dir.path()).unwrap();
 		fs::write(pid_file_path(dir.path()), process::id().to_string()).unwrap();
 
-		assert!(write_pid_file(dir.path()).unwrap());
+		assert!(!is_daemon_running(dir.path()));
+	}
+
+	#[cfg(target_os = "linux")]
+	#[test]
+	#[serial]
+	fn write_pid_file_replaces_unrelated_live_pid() {
+		let dir = tempfile::tempdir().unwrap();
+		fs::create_dir_all(dir.path()).unwrap();
+		fs::write(pid_file_path(dir.path()), process::id().to_string()).unwrap();
+
+		assert!(!write_pid_file(dir.path()).unwrap());
 	}
 
 	#[test]
