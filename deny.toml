@@ -24,6 +24,7 @@ allow = [
 	"Unicode-3.0",
 	"BSD-3-Clause",
 	"ISC",
+	"MPL-2.0",
 ]
 unused-allowed-license = "deny"
 unused-license-exception = "deny"

@@ -2,6 +2,7 @@ use super::format::ConfigFormat;
 use super::types::Config;
 use crate::Result;
 use crate::env_vars::{EnvVars, parse_env_var_env};
+use crate::state::default_state_dir;
 use color_eyre::eyre::{WrapErr as _, bail};
 use confique::Config as _;
 use std::fs::canonicalize;
@@ -22,16 +23,27 @@ impl Config {
 	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
 		let home = homedir::my_home().ok().flatten();
-		let xdg = env::var("XDG_CONFIG_HOME").ok().map(PathBuf::from);
+		let config_dir = dirs::config_dir();
 		let cwd = env::current_dir().ok();
-		debug!(home = ?home, xdg = ?xdg, cwd = ?cwd, "Loading configuration");
-		Self::load_internal(home.as_ref(), xdg.as_ref(), cwd.as_ref())
+		debug!(home = ?home, config_dir = ?config_dir, cwd = ?cwd, "Loading configuration");
+		Self::load_internal(home.as_ref(), config_dir.as_ref(), cwd.as_ref())
+	}
+
+	/// Resolves the local state directory path.
+	///
+	/// Priority: `BIWA_STATE_DIR` > `state_dir` > platform default.
+	#[must_use]
+	pub fn resolved_state_dir(&self) -> PathBuf {
+		if let Ok(path) = env::var("BIWA_STATE_DIR") {
+			return PathBuf::from(path);
+		}
+		self.state_dir.clone().unwrap_or_else(default_state_dir)
 	}
 
 	/// Core inner load logic separating the paths.
 	fn load_internal(
 		home: Option<&PathBuf>,
-		xdg: Option<&PathBuf>,
+		config_dir: Option<&PathBuf>,
 		cwd: Option<&PathBuf>,
 	) -> Result<Self> {
 		let mut builder = Self::builder().env();
@@ -41,7 +53,9 @@ impl Config {
 		let global_root: Option<PathBuf> = home.map(|home_path| {
 			global_candidates.push(home_path.join("biwa"));
 			global_candidates.push(home_path.join(".biwa"));
-			let config_home = xdg.cloned().unwrap_or_else(|| home_path.join(".config"));
+			let config_home = config_dir
+				.cloned()
+				.unwrap_or_else(|| home_path.join(".config"));
 			global_candidates.push(config_home.join("biwa/config"));
 			// All global configs should resolve relative paths from the home dir (~)
 			home_path.clone()
@@ -106,7 +120,7 @@ impl Config {
 
 		if let Some((config_path, format)) = find_single_config(&global_candidates)? {
 			// Global configs should resolve relative paths from the home directory (~),
-			// regardless of where the config file actually lives (e.g. XDG paths).
+			// regardless of where the config file actually lives (e.g. `dirs::config_dir()`).
 			let config_root = global_root
 				.as_deref()
 				.unwrap_or_else(|| config_path.parent().unwrap_or_else(|| Path::new("")));
@@ -129,7 +143,7 @@ impl Config {
 			rules.extend(parse_env_var_env(&value)?);
 			config.env.vars = EnvVars::from_rules(rules);
 		}
-		config.validate();
+		config.validate()?;
 
 		Ok(config)
 	}
@@ -168,6 +182,7 @@ impl Config {
 		};
 
 		resolve(&mut partial.ssh.key_path);
+		resolve(&mut partial.state_dir);
 
 		if let Some(exclude_list) = &mut partial.sync.exclude {
 			let root = canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
@@ -188,13 +203,19 @@ impl Config {
 	///
 	/// This performs structural/semantic checks that go beyond what deserialization
 	/// can enforce (e.g. warning about absolute remote paths).
-	fn validate(&self) {
+	fn validate(&self) -> Result<()> {
 		if self.sync.remote_root.is_absolute() {
 			warn!(
 				"Absolute remote_root path detected: {}. It is recommended to use a relative path starting with '~'.",
 				self.sync.remote_root.display()
 			);
 		}
+		for key in self.clean.quota_thresholds.keys() {
+			if *key > 100 {
+				bail!("Invalid clean.quota_thresholds key {key}: must be between 0 and 100");
+			}
+		}
+		Ok(())
 	}
 
 	/// Returns a string template of the default configuration for the specific format.
@@ -341,6 +362,7 @@ mod tests {
 			config.sync.remote_root,
 			PathBuf::from("~/.cache/biwa/projects")
 		);
+		assert_eq!(config.state_dir, None);
 	}
 
 	#[serial]
@@ -397,9 +419,39 @@ mod tests {
 		  "hooks": {
 		    "pre_sync": null,
 		    "post_sync": null
+		  },
+		  "state_dir": null,
+		  "clean": {
+		    "max_age": "30days",
+		    "auto": true,
+		    "quota_thresholds": {}
 		  }
 		}
 		"#);
+	}
+
+	#[serial]
+	#[test]
+	fn rejects_invalid_quota_threshold_key() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(
+			dir.path().join("biwa.toml"),
+			r#"ssh.host = "h"
+ssh.user = "u"
+[clean.quota_thresholds]
+150 = "1d"
+"#,
+		)?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("h", "u");
+
+		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		assert!(result.is_err());
+		let msg = result.unwrap_err().to_string();
+		assert!(
+			msg.contains("100") && msg.contains("quota_thresholds"),
+			"unexpected error: {msg}"
+		);
+		Ok(())
 	}
 
 	#[serial]
@@ -1085,6 +1137,67 @@ remote_root = "xdg_libs"
 			.ok_or_else(|| color_eyre::eyre::eyre!("key_path should be set"))?;
 		let expected = parent.path().join("my_key");
 		assert_eq!(resolved, expected);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn state_dir_resolves_relative_to_config_root() -> Result<()> {
+		let dir = tempdir()?;
+		let config_path = dir.path().join("biwa.toml");
+		fs::write(
+			&config_path,
+			r#"
+state_dir = "state/dir"
+
+[ssh]
+host = "host"
+user = "user"
+"#,
+		)?;
+
+		let _cleanup = EnvCleanup::remove("BIWA_STATE_DIR");
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		assert_eq!(config.resolved_state_dir(), dir.path().join("state/dir"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn biwa_state_dir_env_overrides_config_state_dir() -> Result<()> {
+		let dir = tempdir()?;
+		let env_state_dir = tempdir()?;
+		let config_path = dir.path().join("biwa.toml");
+		fs::write(
+			&config_path,
+			r#"
+state_dir = "from/config"
+
+[ssh]
+host = "host"
+user = "user"
+"#,
+		)?;
+
+		let _cleanup = EnvCleanup::set(
+			"BIWA_STATE_DIR",
+			env_state_dir
+				.path()
+				.to_str()
+				.ok_or_else(|| color_eyre::eyre::eyre!("utf8 path expected"))?,
+		);
+		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		assert_eq!(config.resolved_state_dir(), env_state_dir.path());
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn state_dir_defaults_to_xdg_when_unset() -> Result<()> {
+		let _cleanup = EnvCleanup::remove("BIWA_STATE_DIR");
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+		let config = Config::load_internal(None, None, None)?;
+		assert_eq!(config.resolved_state_dir(), default_state_dir());
 		Ok(())
 	}
 

@@ -51,7 +51,24 @@ pub(super) fn compute_remote_path(
 	path
 }
 
+/// Returns the 8-character hex hash of the local machine hostname.
+///
+/// Used to identify which remote directories belong to this client.
+#[must_use]
+pub(super) fn compute_client_host_hash() -> String {
+	let hash = hex::encode(Sha256::digest(gethostname().to_string_lossy().as_bytes()));
+	#[expect(
+		clippy::string_slice,
+		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
+	)]
+	hash[..8].to_owned()
+}
+
 /// Computes a unique project name based on the hostname and project root's canonical path.
+///
+/// The format is `{project_name}-{host_hash}-{path_hash}` where each hash is
+/// an 8-character hex prefix. The host hash is separate so the clean feature
+/// can identify directories belonging to this client.
 fn compute_unique_project_name(project_root: &Path) -> Result<String> {
 	let project_name = project_root
 		.file_name()
@@ -59,24 +76,24 @@ fn compute_unique_project_name(project_root: &Path) -> Result<String> {
 		.to_string_lossy()
 		.into_owned();
 
-	// Create a unique hash based on the hostname and absolute path to prevent
-	// collisions between projects with the same name across machines.
-	let mut hasher = Sha256::new();
-	hasher.update(gethostname().to_string_lossy().as_bytes());
-	hasher.update([0]);
-	hasher.update(
+	let host_hash = compute_client_host_hash();
+	let path_hash = hex::encode(Sha256::digest(
 		project_root
 			.canonicalize()
 			.wrap_err("Failed to canonicalize project root")?
 			.to_string_lossy()
 			.as_bytes(),
-	);
-	let hash_hex = hex::encode(hasher.finalize());
+	));
 	#[expect(
 		clippy::string_slice,
 		reason = "Hex encoded strings are strictly ASCII, slicing is safe"
 	)]
-	Ok(format!("{}-{}", project_name, &hash_hex[..8]))
+	Ok(format!(
+		"{}-{}-{}",
+		project_name,
+		host_hash,
+		&path_hash[..8]
+	))
 }
 
 /// Computes the remote directory path for a given project.
@@ -89,6 +106,81 @@ pub(super) fn compute_project_remote_dir(config: &Config, project_root: &Path) -
 		&unique_project_name,
 		Path::new(""),
 	))
+}
+
+/// Returns true if `remote_dir` is directly under `remote_root` and its final path component
+/// follows biwa's default `{project_name}-{host_hash}-{path_hash}` layout.
+///
+/// Used to avoid deleting arbitrary paths from local state during `biwa clean --auto` / `--all`.
+#[must_use]
+pub(super) fn is_default_biwa_remote_dir(
+	remote_dir: &str,
+	remote_root: &Path,
+	host_hash: &str,
+) -> bool {
+	if !is_hex_hash(host_hash) {
+		return false;
+	}
+
+	let Some(directory_name) = direct_remote_child_name(remote_dir, remote_root) else {
+		return false;
+	};
+
+	let Some((project_and_host, path_hash)) = directory_name.rsplit_once('-') else {
+		return false;
+	};
+	if !is_hex_hash(path_hash) {
+		return false;
+	}
+	let Some((project_name, actual_host_hash)) = project_and_host.rsplit_once('-') else {
+		return false;
+	};
+
+	!project_name.is_empty() && actual_host_hash.eq_ignore_ascii_case(host_hash)
+}
+
+/// Returns true if `remote_dir` is directly under `remote_root` and looks like a biwa project dir.
+///
+/// Accepts both the current `{project_name}-{host_hash}-{path_hash}` layout and the legacy
+/// `{project_name}-{combined_hash}` layout so `biwa clean --purge` can remove old default dirs
+/// without deleting arbitrary siblings under `remote_root`.
+#[must_use]
+pub(super) fn is_biwa_remote_dir(remote_dir: &str, remote_root: &Path) -> bool {
+	let Some(directory_name) = direct_remote_child_name(remote_dir, remote_root) else {
+		return false;
+	};
+
+	let Some((project_name, path_hash)) = directory_name.rsplit_once('-') else {
+		return false;
+	};
+
+	!project_name.is_empty() && is_hex_hash(path_hash)
+}
+
+/// Returns the direct child component of a remote path under `remote_root`.
+fn direct_remote_child_name<'a>(remote_dir: &'a str, remote_root: &Path) -> Option<&'a str> {
+	let root = remote_root.to_string_lossy();
+	let root = root.trim_end_matches('/');
+	if root.is_empty() {
+		return None;
+	}
+
+	let prefix = format!("{root}/");
+	let directory_name = remote_dir.strip_prefix(&prefix)?;
+	if directory_name.is_empty()
+		|| directory_name == "."
+		|| directory_name == ".."
+		|| directory_name.contains('/')
+	{
+		return None;
+	}
+
+	Some(directory_name)
+}
+
+/// Returns whether a string is exactly 8 ASCII hex characters.
+fn is_hex_hash(value: &str) -> bool {
+	value.len() == 8 && value.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// SFTP naturally resolves paths not starting with `/` relative to the user's home directory.

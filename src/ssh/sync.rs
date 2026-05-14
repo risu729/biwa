@@ -37,6 +37,24 @@ pub fn compute_project_remote_dir(config: &Config, project_root: &Path) -> Resul
 	super::sync_paths::compute_project_remote_dir(config, project_root)
 }
 
+/// Returns the 8-character hex hash of the local machine hostname.
+#[must_use]
+pub fn compute_client_host_hash() -> String {
+	super::sync_paths::compute_client_host_hash()
+}
+
+/// Returns whether a remote directory matches biwa's default project directory layout.
+#[must_use]
+pub fn is_default_biwa_remote_dir(remote_dir: &str, remote_root: &Path, host_hash: &str) -> bool {
+	super::sync_paths::is_default_biwa_remote_dir(remote_dir, remote_root, host_hash)
+}
+
+/// Returns whether a remote directory matches any known biwa project directory layout.
+#[must_use]
+pub fn is_biwa_remote_dir(remote_dir: &str, remote_root: &Path) -> bool {
+	super::sync_paths::is_biwa_remote_dir(remote_dir, remote_root)
+}
+
 /// Shell-quotes a remote path while preserving home directory expansion.
 pub(super) fn shell_quote_path(path: &str) -> String {
 	super::sync_paths::shell_quote_path(path)
@@ -1093,6 +1111,94 @@ mod tests {
 		let rel = Path::new("src/main.rs");
 		let remote = compute_remote_path(root, proj, rel);
 		assert_eq!(remote, "~/.cache/biwa/projects/test_proj/src/main.rs");
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_accepts_expected_layout() {
+		let root = Path::new("~/.cache/biwa/projects");
+		let hh = "a1b2c3d4";
+		let dir = format!(
+			"{}/myproj-{hh}-deadbeef",
+			root.to_string_lossy().trim_end_matches('/')
+		);
+		assert!(is_default_biwa_remote_dir(&dir, root, hh));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_wrong_root_prefix() {
+		let root = Path::new("libs");
+		let hh = "a1b2c3d4";
+		assert!(!is_default_biwa_remote_dir(
+			&format!("libs2/p-{hh}-deadbeef"),
+			root,
+			hh
+		));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_nested_path() {
+		let root = Path::new("~/r");
+		let hh = "a1b2c3d4";
+		let r = root.to_string_lossy();
+		assert!(!is_default_biwa_remote_dir(
+			&format!("{r}/p-{hh}-deadbeef/sub"),
+			root,
+			hh
+		));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_path_traversal() {
+		let root = Path::new("~/r");
+		let hh = "a1b2c3d4";
+		let r = root.to_string_lossy();
+		assert!(!is_default_biwa_remote_dir(
+			&format!("{r}/../other-{hh}-deadbeef"),
+			root,
+			hh
+		));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_missing_host_hash() {
+		let root = Path::new("~/r");
+		let dir = format!(
+			"{}/otherproject-nohash-here",
+			root.to_string_lossy().trim_end_matches('/')
+		);
+		assert!(!is_default_biwa_remote_dir(&dir, root, "a1b2c3d4"));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_host_hash_inside_project_name_only() {
+		let root = Path::new("~/r");
+		let hh = "a1b2c3d4";
+		let dir = format!("{}/project-{hh}-different-deadbeef", root.to_string_lossy());
+		assert!(!is_default_biwa_remote_dir(&dir, root, hh));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_invalid_path_hash() {
+		let root = Path::new("~/r");
+		let hh = "a1b2c3d4";
+		let dir = format!("{}/project-{hh}-nothexzz", root.to_string_lossy());
+		assert!(!is_default_biwa_remote_dir(&dir, root, hh));
+	}
+
+	#[test]
+	fn is_biwa_remote_dir_accepts_current_and_legacy_layouts() {
+		let root = Path::new("~/r");
+		assert!(is_biwa_remote_dir("~/r/project-a1b2c3d4-deadbeef", root));
+		assert!(is_biwa_remote_dir("~/r/project-deadbeef", root));
+	}
+
+	#[test]
+	fn is_biwa_remote_dir_rejects_non_biwa_siblings() {
+		let root = Path::new("~/r");
+		assert!(!is_biwa_remote_dir("~/r/project", root));
+		assert!(!is_biwa_remote_dir("~/r/project-nothexzz", root));
+		assert!(!is_biwa_remote_dir("~/r/project-deadbeef/nested", root));
+		assert!(!is_biwa_remote_dir("~/r2/project-deadbeef", root));
 	}
 
 	#[test]
