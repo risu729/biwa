@@ -9,6 +9,13 @@ expression: content
     "max_age": "30days",
     "quota_thresholds": {}
   },
+  "direct": {
+    "allow": [],
+    "bin_dir": "~/.local/share/biwa/bin",
+    "default_args": {},
+    "enabled": false,
+    "prefer_local": true
+  },
   "env": {
     "forward_method": "export",
     "vars": []
