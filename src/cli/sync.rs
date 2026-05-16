@@ -2,11 +2,11 @@ use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
-use crate::ssh::sync::{Options, compute_project_remote_dir, sync_project};
+use crate::ssh::sync::{Direction, Options, compute_project_remote_dir, sync_project};
 use crate::state;
 use clap::Args;
 use std::env;
-use std::fs::canonicalize;
+use std::fs::{canonicalize, create_dir_all};
 use std::io;
 use std::path::{Path, PathBuf};
 use tracing::warn;
@@ -160,13 +160,24 @@ pub(super) struct Sync {
 	/// Synchronization options.
 	#[clap(flatten)]
 	sync_args: SyncArgs,
+
+	/// Pull remote project contents into the local sync root. Local files and directories missing from the remote source can be deleted.
+	#[arg(long)]
+	pull: bool,
 }
 
 impl Sync {
 	/// Run the sync logic.
 	pub async fn run(self, quiet: bool) -> Result<()> {
 		let config = Config::load()?;
-		let sync_root = self.sync_args.resolve_sync_root(&config)?;
+		let mut sync_root = self.sync_args.resolve_sync_root(&config)?;
+		let direction = if self.pull {
+			create_dir_all(&sync_root)?;
+			sync_root = canonicalize(&sync_root)?;
+			Direction::Pull
+		} else {
+			Direction::Push
+		};
 		let options = self.sync_args.resolve_options();
 		let remote_dir = self.sync_args.resolve_remote_dir(&config, &sync_root)?;
 		let client = connect(&config, quiet).await?;
@@ -180,6 +191,7 @@ impl Sync {
 			&config,
 			&sync_root,
 			&options,
+			direction,
 			self.sync_args.remote_dir.as_deref(),
 			quiet,
 		)

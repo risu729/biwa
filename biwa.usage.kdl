@@ -57,6 +57,7 @@ cmd sync help="Synchronize files to remote host" {
     flag "-i --include" help="Only synchronize files matching these paths or globs" var=#true {
         arg <INCLUDE>
     }
+    flag --pull help="Pull remote project contents into the local sync root. Local files and directories missing from the remote source can be deleted"
 }
 cmd clean help="Clean stale remote project directories" {
     alias c

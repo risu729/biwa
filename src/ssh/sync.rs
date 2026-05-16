@@ -7,7 +7,7 @@ use crate::Result;
 use crate::config::types::{Config, SftpPermissions, SyncEngine};
 use crate::ssh::client::Client;
 use crate::ui::create_spinner;
-use color_eyre::eyre::{Context as _, bail};
+use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
 use console::style;
 use core::result::Result as CoreResult;
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -21,14 +21,20 @@ use std::fs::{self, File};
 use std::io;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
-use std::path::{Path, PathBuf};
-use tokio::fs::{File as AsyncFile, metadata};
-use tokio::io::{BufReader as AsyncBufReader, copy as async_copy};
+use std::path::{Component, Path, PathBuf};
+use std::process;
+use tokio::fs::{self as async_fs, File as AsyncFile, OpenOptions as AsyncOpenOptions, metadata};
+use tokio::io::{
+	AsyncWriteExt as _, BufReader as AsyncBufReader, BufWriter as AsyncBufWriter,
+	copy as async_copy,
+};
 use tokio::task::spawn_blocking;
 use tracing::{debug, info, warn};
 
 /// Separator emitted by the remote sync-state script before file hash lines.
 const REMOTE_FILE_MARKER: &str = "__BIWA_FILE_HASHES__";
+/// Separator emitted by the remote sync-state script before symlink lines.
+const REMOTE_SYMLINK_MARKER: &str = "__BIWA_SYMLINKS__";
 
 /// Computes the remote directory path for a given project.
 ///
@@ -65,6 +71,8 @@ pub(super) fn shell_quote_path(path: &str) -> String {
 pub struct Stats {
 	/// Number of files uploaded.
 	pub uploaded: usize,
+	/// Number of files downloaded.
+	pub downloaded: usize,
 	/// Number of files deleted.
 	pub deleted: usize,
 	/// Number of files unchanged.
@@ -96,6 +104,17 @@ struct RemoteState {
 	file_hashes: HashMap<String, String>,
 	/// The remote directories that currently exist.
 	directories: HashSet<String>,
+	/// The remote symlinks that currently exist.
+	symlinks: HashSet<String>,
+}
+
+/// Direction for a synchronization operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+	/// Push local project contents to the remote directory.
+	Push,
+	/// Pull remote project contents into the local sync root.
+	Pull,
 }
 
 /// Options for a synchronization operation.
@@ -135,6 +154,76 @@ fn path_matches_globset(globset: &GlobSet, path: &Path, is_dir: bool) -> bool {
 	}
 
 	is_dir && globset.is_match(format!("{path}/"))
+}
+
+/// Builds the combined config and CLI exclude glob set plus the CLI include glob set.
+fn build_sync_globsets(
+	config_exclude: &[String],
+	options: &Options,
+) -> Result<(Option<GlobSet>, Option<GlobSet>)> {
+	let combined_exclude = config_exclude
+		.iter()
+		.chain(options.exclude.iter())
+		.map(ToString::to_string)
+		.collect::<Vec<_>>();
+	Ok((
+		build_globset(&combined_exclude)?,
+		build_globset(&options.include)?,
+	))
+}
+
+/// Returns a checked relative path for local pull operations.
+fn checked_relative_path(relative_path: &str) -> Result<PathBuf> {
+	let path = Path::new(relative_path);
+	let mut checked = PathBuf::new();
+
+	for component in path.components() {
+		match component {
+			Component::Normal(component) => checked.push(component),
+			Component::CurDir => {}
+			Component::ParentDir | Component::Prefix(_) | Component::RootDir => {
+				bail!("Refusing to synchronize unsafe path: {relative_path}");
+			}
+		}
+	}
+
+	if checked.as_os_str().is_empty() {
+		bail!("Refusing to synchronize empty relative path");
+	}
+
+	Ok(checked)
+}
+
+/// Resolves a checked relative path under the local sync root.
+fn checked_local_path(root: &Path, relative_path: &str) -> Result<PathBuf> {
+	Ok(root.join(checked_relative_path(relative_path)?))
+}
+
+/// Returns whether a remote relative path should participate in pull synchronization.
+fn should_sync_remote_path(
+	root: &Path,
+	relative_path: &str,
+	is_dir: bool,
+	exclude_globs: Option<&GlobSet>,
+	include_globs: Option<&GlobSet>,
+) -> Result<bool> {
+	let local_equivalent = root.join(checked_relative_path(relative_path)?);
+
+	if exclude_globs
+		.as_ref()
+		.is_some_and(|set| path_matches_globset(set, &local_equivalent, is_dir))
+	{
+		return Ok(false);
+	}
+
+	if include_globs
+		.as_ref()
+		.is_some_and(|set| !path_matches_globset(set, &local_equivalent, is_dir))
+	{
+		return Ok(false);
+	}
+
+	Ok(true)
 }
 
 /// A wrapper around a hasher that implements `std::io::Write`.
@@ -215,13 +304,7 @@ fn collect_local_state(
 	builder.hidden(false); // Include hidden files (e.g. .env, .gitignore)
 	builder.require_git(false); // Respect .gitignore even outside of git repositories
 
-	let combined_exclude = config_exclude
-		.iter()
-		.chain(options.exclude.iter())
-		.map(ToString::to_string)
-		.collect::<Vec<_>>();
-	let exclude_globs = build_globset(&combined_exclude)?;
-	let include_globs = build_globset(&options.include)?;
+	let (exclude_globs, include_globs) = build_sync_globsets(config_exclude, options)?;
 
 	let mut state = LocalState::default();
 	for entry in builder.build() {
@@ -279,18 +362,31 @@ async fn fetch_remote_state(
 	client: &Client,
 	config: &Config,
 	remote_dir: &str,
+	create_remote_dir: bool,
 ) -> Result<RemoteState> {
 	let quoted_remote_dir = shell_quote_path(remote_dir);
 	let dir_mode = format!("{:04o}", 0o777 & !config.ssh.umask.as_u32());
 	let quoted_marker = shell_words::quote(REMOTE_FILE_MARKER).into_owned();
+	let quoted_symlink_marker = shell_words::quote(REMOTE_SYMLINK_MARKER).into_owned();
+	let prepare_remote_dir = if create_remote_dir {
+		format!("mkdir -p -- {quoted_remote_dir} &&")
+	} else {
+		format!(
+			"if [ ! -e {quoted_remote_dir} ]; then echo 'Error: remote directory does not exist' >&2; exit 1; fi &&"
+		)
+	};
 
-	// Create the remote dir, normalize directory permissions, then print directories and file hashes.
+	// Prepare the remote dir, normalize directory permissions, then print directories,
+	// symlinks, and file hashes without following symlinks.
 	let script = format!(
-		"umask {} && mkdir -p -- {quoted_remote_dir} && \
+		"umask {} && {prepare_remote_dir} \
 		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
+		 if [ ! -d {quoted_remote_dir} ]; then echo 'Error: remote directory is not a directory' >&2; exit 1; fi && \
 		 cd -- {quoted_remote_dir} && \
 		 (find . -type d -exec chmod {dir_mode} {{}} + || true) && \
 		 (find . -mindepth 1 -type d -print || true) && \
+		 printf '%s\n' {quoted_symlink_marker} && \
+		 (find . -type l -print || true) && \
 		 printf '%s\n' {quoted_marker} && \
 		 (find . -type f -exec sha256sum {{}} + || true)",
 		config.ssh.umask
@@ -306,6 +402,12 @@ async fn fetch_remote_state(
 		if stderr.contains("remote directory is a symlink") {
 			bail!("remote directory is a symlink");
 		}
+		if stderr.contains("remote directory does not exist") {
+			bail!("remote directory does not exist");
+		}
+		if stderr.contains("remote directory is not a directory") {
+			bail!("remote directory is not a directory");
+		}
 		bail!(
 			"Remote script failed with code {}: {}",
 			result.exit_status,
@@ -319,7 +421,7 @@ async fn fetch_remote_state(
 }
 
 /// Actions to perform during synchronization.
-struct SyncActions {
+struct PushActions {
 	/// Files to upload to the remote server.
 	uploads: Vec<PathBuf>,
 	/// Files to delete from the remote server.
@@ -330,12 +432,24 @@ struct SyncActions {
 	directory_deletions: Vec<String>,
 }
 
+/// Actions to perform during pull synchronization.
+struct PullActions {
+	/// Files to download from the remote server.
+	downloads: Vec<String>,
+	/// Files to delete from the local sync root.
+	file_deletions: Vec<String>,
+	/// Directories to create under the local sync root.
+	directory_creations: Vec<String>,
+	/// Directories to delete from the local sync root.
+	directory_deletions: Vec<String>,
+}
+
 /// Compares local and remote sync state to determine which actions are required.
-fn calculate_sync_actions(
+fn calculate_push_actions(
 	local_state: &LocalState,
 	remote_state: &RemoteState,
 	options: &Options,
-) -> SyncActions {
+) -> PushActions {
 	let mut desired_dirs = local_state.directories.clone();
 	collect_parent_directories_into(&local_state.files, &mut desired_dirs);
 
@@ -378,22 +492,103 @@ fn calculate_sync_actions(
 		.filter(|path| !desired_dirs.contains(*path) || local_paths_str.contains(*path))
 		.cloned()
 		.collect::<Vec<_>>();
-	to_delete_dirs.sort_unstable_by(|left, right| {
-		let left_depth = left.bytes().filter(|byte| *byte == b'/').count();
-		let right_depth = right.bytes().filter(|byte| *byte == b'/').count();
-		right_depth.cmp(&left_depth).then_with(|| left.cmp(right))
-	});
+	sort_paths_deepest_first(&mut to_delete_dirs);
 
 	let mut to_delete_files = to_delete_files.into_iter().collect::<Vec<_>>();
 	to_delete_files.sort_unstable();
 	to_upload.sort_unstable();
 
-	SyncActions {
+	PushActions {
 		uploads: to_upload,
 		file_deletions: to_delete_files,
 		directory_creations: to_create_dirs,
 		directory_deletions: to_delete_dirs,
 	}
+}
+
+/// Compares local and remote sync state to determine pull actions.
+fn calculate_pull_actions(
+	local_state: &LocalState,
+	remote_state: &RemoteState,
+	options: &Options,
+) -> PullActions {
+	let mut desired_dirs = remote_state.directories.clone();
+	let remote_files_for_parents = remote_state
+		.file_hashes
+		.keys()
+		.map(PathBuf::from)
+		.map(|path| LocalFile {
+			path,
+			hash: String::new(),
+		})
+		.collect::<Vec<_>>();
+	collect_parent_directories_into(&remote_files_for_parents, &mut desired_dirs);
+
+	let local_files = local_state
+		.files
+		.iter()
+		.map(|file| (file.path.to_string_lossy().into_owned(), file.hash.as_str()))
+		.collect::<HashMap<_, _>>();
+	let remote_file_set = remote_state
+		.file_hashes
+		.keys()
+		.cloned()
+		.collect::<HashSet<_>>();
+
+	let mut downloads = Vec::new();
+	let mut remote_paths = remote_state
+		.file_hashes
+		.iter()
+		.collect::<Vec<(&String, &String)>>();
+	remote_paths.sort_unstable_by_key(|(path, _)| *path);
+	for (remote_path, remote_hash) in remote_paths {
+		if !options.force
+			&& !local_state.directories.contains(remote_path)
+			&& let Some(local_hash) = local_files.get(remote_path)
+			&& *local_hash == remote_hash
+		{
+			continue;
+		}
+		downloads.push(remote_path.clone());
+	}
+
+	let mut file_deletions = local_files
+		.keys()
+		.filter(|path| !remote_file_set.contains(*path) || desired_dirs.contains(*path))
+		.cloned()
+		.collect::<Vec<_>>();
+	file_deletions.sort_unstable();
+
+	let mut directory_creations = desired_dirs
+		.iter()
+		.filter(|path| !local_state.directories.contains(*path))
+		.cloned()
+		.collect::<Vec<_>>();
+	directory_creations.sort_unstable();
+
+	let mut directory_deletions = local_state
+		.directories
+		.iter()
+		.filter(|path| !desired_dirs.contains(*path) || remote_file_set.contains(*path))
+		.cloned()
+		.collect::<Vec<_>>();
+	sort_paths_deepest_first(&mut directory_deletions);
+
+	PullActions {
+		downloads,
+		file_deletions,
+		directory_creations,
+		directory_deletions,
+	}
+}
+
+/// Sorts relative paths deepest-first with lexical tie-breaking.
+fn sort_paths_deepest_first(paths: &mut [String]) {
+	paths.sort_unstable_by(|left, right| {
+		let left_depth = left.bytes().filter(|byte| *byte == b'/').count();
+		let right_depth = right.bytes().filter(|byte| *byte == b'/').count();
+		right_depth.cmp(&left_depth).then_with(|| left.cmp(right))
+	});
 }
 
 /// Aborts synchronization when too many local files are considered for sync.
@@ -433,7 +628,7 @@ async fn delete_remote_directories(
 }
 
 /// Collects the set of directories that must exist before uploading files.
-fn collect_directories_to_create(actions: &SyncActions) -> Vec<String> {
+fn collect_remote_directories_to_create(actions: &PushActions) -> Vec<String> {
 	let mut directories = actions
 		.directory_creations
 		.iter()
@@ -552,6 +747,223 @@ fn should_remove_for_recreate<E>(
 	})
 }
 
+/// Ensures a local directory exists under the sync root without traversing symlink components.
+#[expect(
+	clippy::create_dir,
+	reason = "Pull creates one checked path component at a time to avoid symlink traversal."
+)]
+fn ensure_local_directory(root: &Path, relative_path: &str) -> Result<()> {
+	let relative_path = checked_relative_path(relative_path)?;
+	let mut current = root.to_path_buf();
+
+	for component in relative_path.components() {
+		current.push(component.as_os_str());
+		match fs::symlink_metadata(&current) {
+			Ok(metadata) => {
+				let file_type = metadata.file_type();
+				if file_type.is_symlink() {
+					bail!(
+						"Refusing to create local directory through symlink: {}",
+						current.display()
+					);
+				}
+				if !file_type.is_dir() {
+					bail!(
+						"Refusing to create local directory over non-directory: {}",
+						current.display()
+					);
+				}
+			}
+			Err(error) if error.kind() == io::ErrorKind::NotFound => {
+				fs::create_dir(&current).wrap_err_with(|| {
+					format!("Failed to create local directory: {}", current.display())
+				})?;
+			}
+			Err(error) => {
+				return Err(error).wrap_err_with(|| {
+					format!("Failed to inspect local directory: {}", current.display())
+				});
+			}
+		}
+	}
+
+	Ok(())
+}
+
+/// Ensures the parent directory for a local file exists safely under the sync root.
+fn ensure_local_file_parent(root: &Path, relative_path: &str) -> Result<PathBuf> {
+	let relative_path = checked_relative_path(relative_path)?;
+	if let Some(parent) = relative_path.parent()
+		&& !parent.as_os_str().is_empty()
+	{
+		ensure_local_directory(root, &parent.to_string_lossy())?;
+	}
+
+	Ok(root.join(relative_path))
+}
+
+/// Creates a unique temporary local file path in the target file's parent directory.
+async fn create_download_temp_file(local_path: &Path) -> Result<(PathBuf, AsyncFile)> {
+	let parent = local_path
+		.parent()
+		.wrap_err("Local download target has no parent directory")?;
+	let file_name = local_path
+		.file_name()
+		.wrap_err("Local download target has no file name")?
+		.to_string_lossy();
+
+	for attempt in 0_u8..100 {
+		let temp_path = parent.join(format!(
+			".{file_name}.biwa-download-{}-{attempt}",
+			process::id()
+		));
+		let file_result = AsyncOpenOptions::new()
+			.write(true)
+			.create_new(true)
+			.open(&temp_path)
+			.await;
+		match file_result {
+			Ok(file) => return Ok((temp_path, file)),
+			Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+			Err(error) => {
+				return Err(error).wrap_err_with(|| {
+					format!("Failed to create temporary file: {}", temp_path.display())
+				});
+			}
+		}
+	}
+
+	bail!(
+		"Failed to create unique temporary file next to {}",
+		local_path.display()
+	);
+}
+
+/// Downloads a file from a remote SFTP server into the local sync root.
+async fn download_file(
+	sftp: &SftpSession,
+	remote_path: &str,
+	project_root: &Path,
+	relative_path: &str,
+) -> Result<()> {
+	let local_path = ensure_local_file_parent(project_root, relative_path)?;
+	if let Ok(metadata) = fs::symlink_metadata(&local_path)
+		&& metadata.file_type().is_dir()
+		&& !metadata.file_type().is_symlink()
+	{
+		bail!(
+			"Refusing to overwrite local directory with remote file: {}",
+			local_path.display()
+		);
+	}
+
+	let mut remote_file = sftp
+		.open(resolve_sftp_path(remote_path))
+		.await
+		.wrap_err_with(|| format!("Failed to open remote file: {remote_path}"))?;
+	let (temp_path, temp_file) = create_download_temp_file(&local_path).await?;
+	let mut temp_file = AsyncBufWriter::new(temp_file);
+
+	let copy_result = async {
+		async_copy(&mut remote_file, &mut temp_file).await?;
+		temp_file.flush().await
+	}
+	.await;
+	if let Err(error) = copy_result {
+		#[expect(clippy::unused_result_ok, reason = "Cleanup failure is secondary")]
+		async_fs::remove_file(&temp_path).await.ok();
+		return Err(error).wrap_err_with(|| {
+			format!(
+				"Failed to download remote file {remote_path} to {}",
+				local_path.display()
+			)
+		});
+	}
+	drop(temp_file);
+
+	if let Err(error) = async_fs::rename(&temp_path, &local_path).await {
+		#[expect(clippy::unused_result_ok, reason = "Cleanup failure is secondary")]
+		async_fs::remove_file(&temp_path).await.ok();
+		return Err(error).wrap_err_with(|| {
+			format!(
+				"Failed to replace local file after download: {}",
+				local_path.display()
+			)
+		});
+	}
+
+	Ok(())
+}
+
+/// Deletes local files selected by a pull operation.
+async fn delete_local_files(project_root: &Path, relative_paths: &[String]) -> Result<usize> {
+	let mut deleted = 0_usize;
+	for relative_path in relative_paths {
+		let local_path = checked_local_path(project_root, relative_path)?;
+		match fs::symlink_metadata(&local_path) {
+			Ok(metadata) if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() => {
+				bail!(
+					"Refusing to delete local directory as a file: {}",
+					local_path.display()
+				);
+			}
+			Ok(_) => {
+				async_fs::remove_file(&local_path).await.wrap_err_with(|| {
+					format!("Failed to delete local file: {}", local_path.display())
+				})?;
+				deleted = deleted.saturating_add(1);
+			}
+			Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+			Err(error) => {
+				return Err(error).wrap_err_with(|| {
+					format!("Failed to inspect local file: {}", local_path.display())
+				});
+			}
+		}
+	}
+
+	Ok(deleted)
+}
+
+/// Deletes local directories selected by a pull operation.
+async fn delete_local_directories(project_root: &Path, relative_paths: &[String]) -> Result<usize> {
+	let mut deleted = 0_usize;
+	for relative_path in relative_paths {
+		let local_path = checked_local_path(project_root, relative_path)?;
+		match fs::symlink_metadata(&local_path) {
+			Ok(metadata) if metadata.file_type().is_symlink() => {
+				bail!(
+					"Refusing to delete local symlink as a directory: {}",
+					local_path.display()
+				);
+			}
+			Ok(metadata) if metadata.file_type().is_dir() => {
+				async_fs::remove_dir(&local_path).await.wrap_err_with(|| {
+					format!("Failed to delete local directory: {}", local_path.display())
+				})?;
+				deleted = deleted.saturating_add(1);
+			}
+			Ok(_) => {
+				bail!(
+					"Refusing to delete local non-directory as a directory: {}",
+					local_path.display()
+				);
+			}
+			Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+			Err(error) => {
+				return Err(error).wrap_err_with(|| {
+					format!(
+						"Failed to inspect local directory: {}",
+						local_path.display()
+					)
+				});
+			}
+		}
+	}
+
+	Ok(deleted)
+}
+
 /// Target and actions for a synchronization operation.
 struct SyncTarget<'a> {
 	/// The local project root directory.
@@ -559,7 +971,7 @@ struct SyncTarget<'a> {
 	/// The remote directory path.
 	remote_dir: &'a str,
 	/// The synchronization actions to execute.
-	actions: SyncActions,
+	actions: PushActions,
 }
 
 /// Executes the synchronization actions by uploading and deleting files via SFTP.
@@ -613,7 +1025,7 @@ async fn apply_sync_actions(
 	);
 
 	// Pre-create directories respecting umask.
-	let dirs_to_create = collect_directories_to_create(&actions);
+	let dirs_to_create = collect_remote_directories_to_create(&actions);
 	create_remote_directories(client, config, remote_dir, &dirs_to_create).await?;
 
 	// Upload files and change permissions to match local user permissions (respecting umask)
@@ -654,6 +1066,230 @@ async fn apply_sync_actions(
 	Ok(())
 }
 
+/// Executes pull actions by deleting local paths, creating local directories, and downloading files.
+async fn apply_pull_actions(
+	client: &Client,
+	project_root: &Path,
+	remote_dir: &str,
+	actions: PullActions,
+	stats: &mut Stats,
+	spinner: Option<&ProgressBar>,
+) -> Result<()> {
+	if actions.file_deletions.is_empty()
+		&& actions.directory_creations.is_empty()
+		&& actions.directory_deletions.is_empty()
+		&& actions.downloads.is_empty()
+	{
+		return Ok(());
+	}
+
+	stats.deleted = stats
+		.deleted
+		.saturating_add(delete_local_files(project_root, &actions.file_deletions).await?);
+	stats.deleted = stats.deleted.saturating_add(
+		delete_local_directories(project_root, &actions.directory_deletions).await?,
+	);
+
+	for directory in &actions.directory_creations {
+		ensure_local_directory(project_root, directory)?;
+	}
+
+	if actions.downloads.is_empty() {
+		return Ok(());
+	}
+
+	let channel = client
+		.get_channel()
+		.await
+		.wrap_err("Failed to get SFTP channel")?;
+	channel
+		.request_subsystem(true, "sftp")
+		.await
+		.wrap_err("Failed to request SFTP subsystem")?;
+	let sftp = SftpSession::new(channel.into_stream())
+		.await
+		.wrap_err("Failed to initialize SFTP session")?;
+
+	let total_to_download = actions.downloads.len();
+	for (i, rel_path) in actions.downloads.into_iter().enumerate() {
+		if let Some(s) = spinner {
+			s.set_message(format!(
+				"Downloading files... ({}/{total_to_download})",
+				i.saturating_add(1)
+			));
+		}
+
+		let remote_path = format!("{remote_dir}/{rel_path}");
+		download_file(&sftp, &remote_path, project_root, &rel_path).await?;
+		stats.downloaded = stats.downloaded.saturating_add(1);
+	}
+
+	Ok(())
+}
+
+/// Filters remote state to the selected local sync scope for pull operations.
+fn filter_remote_state_for_pull(
+	remote_state: RemoteState,
+	project_root: &Path,
+	config_exclude: &[String],
+	options: &Options,
+) -> Result<RemoteState> {
+	let (exclude_globs, include_globs) = build_sync_globsets(config_exclude, options)?;
+	let mut filtered = RemoteState::default();
+
+	let mut file_hashes = remote_state.file_hashes.into_iter().collect::<Vec<_>>();
+	file_hashes.sort_unstable_by_key(|(path, _)| path.clone());
+	for (path, hash) in file_hashes {
+		if should_sync_remote_path(
+			project_root,
+			&path,
+			false,
+			exclude_globs.as_ref(),
+			include_globs.as_ref(),
+		)? {
+			filtered.file_hashes.insert(path, hash);
+		}
+	}
+
+	let mut directories = remote_state.directories.into_iter().collect::<Vec<_>>();
+	directories.sort_unstable();
+	for path in directories {
+		if should_sync_remote_path(
+			project_root,
+			&path,
+			true,
+			exclude_globs.as_ref(),
+			include_globs.as_ref(),
+		)? {
+			filtered.directories.insert(path);
+		}
+	}
+
+	let mut symlinks = remote_state.symlinks.into_iter().collect::<Vec<_>>();
+	symlinks.sort_unstable();
+	for path in symlinks {
+		if should_sync_remote_path(
+			project_root,
+			&path,
+			false,
+			exclude_globs.as_ref(),
+			include_globs.as_ref(),
+		)? {
+			filtered.symlinks.insert(path);
+		}
+	}
+
+	Ok(filtered)
+}
+
+/// Rejects selected remote symlinks before pulling to avoid ambiguous local writes.
+fn ensure_no_remote_symlinks(remote_state: &RemoteState) -> Result<()> {
+	if remote_state.symlinks.is_empty() {
+		return Ok(());
+	}
+
+	let mut symlinks = remote_state.symlinks.iter().cloned().collect::<Vec<_>>();
+	symlinks.sort_unstable();
+	bail!(
+		"Refusing to pull remote symlink entries: {}",
+		symlinks.join(", ")
+	);
+}
+
+/// Shared execution inputs for one sync operation.
+struct SyncExecution<'a> {
+	/// The SSH client.
+	client: &'a Client,
+	/// The loaded configuration.
+	config: &'a Config,
+	/// The local sync root.
+	project_root: &'a Path,
+	/// The resolved remote project directory.
+	remote_dir: &'a str,
+	/// Sync options.
+	options: &'a Options,
+	/// Optional progress spinner.
+	spinner: Option<&'a ProgressBar>,
+}
+
+/// Plans and applies push synchronization.
+async fn execute_push_sync(
+	context: &SyncExecution<'_>,
+	local_state: &LocalState,
+	remote_state: &RemoteState,
+	stats: &mut Stats,
+) -> Result<()> {
+	let actions = calculate_push_actions(local_state, remote_state, context.options);
+	stats.unchanged = local_state
+		.files
+		.len()
+		.saturating_sub(actions.uploads.len());
+	info!(
+		to_create_dirs = actions.directory_creations.len(),
+		to_delete_dirs = actions.directory_deletions.len(),
+		to_upload = actions.uploads.len(),
+		to_delete = actions.file_deletions.len(),
+		unchanged = stats.unchanged,
+		"Calculated push synchronization actions"
+	);
+
+	apply_sync_actions(
+		context.client,
+		context.config,
+		SyncTarget {
+			project_root: context.project_root,
+			remote_dir: context.remote_dir,
+			actions,
+		},
+		stats,
+		context.spinner,
+	)
+	.await
+}
+
+/// Plans and applies pull synchronization.
+async fn execute_pull_sync(
+	context: &SyncExecution<'_>,
+	local_state: &LocalState,
+	remote_state: RemoteState,
+	stats: &mut Stats,
+) -> Result<()> {
+	let remote_state = filter_remote_state_for_pull(
+		remote_state,
+		context.project_root,
+		&context.config.sync.exclude,
+		context.options,
+	)?;
+	ensure_no_remote_symlinks(&remote_state)?;
+	ensure_sync_file_limit(
+		remote_state.file_hashes.len(),
+		context.config.sync.sftp.max_files_to_sync,
+	)?;
+	let actions = calculate_pull_actions(local_state, &remote_state, context.options);
+	stats.unchanged = remote_state
+		.file_hashes
+		.len()
+		.saturating_sub(actions.downloads.len());
+	info!(
+		to_create_dirs = actions.directory_creations.len(),
+		to_delete_dirs = actions.directory_deletions.len(),
+		to_download = actions.downloads.len(),
+		to_delete = actions.file_deletions.len(),
+		unchanged = stats.unchanged,
+		"Calculated pull synchronization actions"
+	);
+
+	apply_pull_actions(
+		context.client,
+		context.project_root,
+		context.remote_dir,
+		actions,
+		stats,
+		context.spinner,
+	)
+	.await
+}
+
 /// Synchronizes a project to a remote server.
 #[expect(clippy::module_name_repetitions, reason = "No better name exists")]
 pub async fn sync_project(
@@ -661,6 +1297,7 @@ pub async fn sync_project(
 	config: &Config,
 	project_root: &Path,
 	options: &Options,
+	direction: Direction,
 	remote_dir_override: Option<&str>,
 	quiet: bool,
 ) -> Result<Stats> {
@@ -669,6 +1306,7 @@ pub async fn sync_project(
 	}
 	info!(
 			project_root = %project_root.display(),
+			direction = ?direction,
 			force = options.force,
 			include_patterns = options.include.len(),
 			exclude_patterns = options.exclude.len(),
@@ -689,12 +1327,18 @@ pub async fn sync_project(
 		local_files = local_state.files.len(),
 		"Collected local sync state"
 	);
-	ensure_sync_file_limit(local_state.files.len(), config.sync.sftp.max_files_to_sync)?;
+	if direction == Direction::Push {
+		ensure_sync_file_limit(local_state.files.len(), config.sync.sftp.max_files_to_sync)?;
+	}
 
 	let spinner = if quiet {
 		None
 	} else {
-		Some(create_spinner("Synchronizing files...".to_owned()))
+		let message = match direction {
+			Direction::Push => "Synchronizing files...",
+			Direction::Pull => "Downloading files...",
+		};
+		Some(create_spinner(message.to_owned()))
 	};
 
 	let remote_dir = match remote_dir_override {
@@ -702,54 +1346,59 @@ pub async fn sync_project(
 		None => compute_project_remote_dir(config, project_root)?,
 	};
 
-	let remote_state = fetch_remote_state(client, config, &remote_dir).await?;
+	let remote_state =
+		fetch_remote_state(client, config, &remote_dir, direction == Direction::Push).await?;
 	debug!(
 		remote_dir = %remote_dir,
 		remote_directories = remote_state.directories.len(),
 		remote_files = remote_state.file_hashes.len(),
+		remote_symlinks = remote_state.symlinks.len(),
 		"Fetched remote sync state"
 	);
 
 	let mut stats = Stats::default();
-	let actions = calculate_sync_actions(&local_state, &remote_state, options);
-	stats.unchanged = local_state
-		.files
-		.len()
-		.saturating_sub(actions.uploads.len());
-	info!(
-		to_create_dirs = actions.directory_creations.len(),
-		to_delete_dirs = actions.directory_deletions.len(),
-		to_upload = actions.uploads.len(),
-		to_delete = actions.file_deletions.len(),
-		unchanged = stats.unchanged,
-		"Calculated synchronization actions"
-	);
-
-	apply_sync_actions(
+	let execution = SyncExecution {
 		client,
 		config,
-		SyncTarget {
-			project_root,
-			remote_dir: &remote_dir,
-			actions,
-		},
-		&mut stats,
-		spinner.as_ref(),
-	)
-	.await?;
+		project_root,
+		remote_dir: &remote_dir,
+		options,
+		spinner: spinner.as_ref(),
+	};
+	match direction {
+		Direction::Push => {
+			execute_push_sync(&execution, &local_state, &remote_state, &mut stats).await?;
+		}
+		Direction::Pull => {
+			execute_pull_sync(&execution, &local_state, remote_state, &mut stats).await?;
+		}
+	}
 
 	if let Some(s) = spinner {
 		s.finish_and_clear();
 	}
 	info!("Sync completed: {:?}", stats);
 	if !quiet {
-		eprintln!(
-			"{} Sync completed: {} uploaded, {} deleted, {} unchanged",
-			style("✓").green().bold(),
-			stats.uploaded,
-			stats.deleted,
-			stats.unchanged
-		);
+		match direction {
+			Direction::Push => {
+				eprintln!(
+					"{} Sync completed: {} uploaded, {} deleted, {} unchanged",
+					style("✓").green().bold(),
+					stats.uploaded,
+					stats.deleted,
+					stats.unchanged
+				);
+			}
+			Direction::Pull => {
+				eprintln!(
+					"{} Sync completed: {} downloaded, {} deleted, {} unchanged",
+					style("✓").green().bold(),
+					stats.downloaded,
+					stats.deleted,
+					stats.unchanged
+				);
+			}
+		}
 	}
 
 	Ok(stats)
@@ -759,10 +1408,18 @@ pub async fn sync_project(
 fn parse_remote_state(output: &str) -> RemoteState {
 	let mut remote_state = RemoteState::default();
 	let mut parsing_files = false;
+	let mut parsing_symlinks = false;
 
 	for line in output.lines() {
+		if line == REMOTE_SYMLINK_MARKER {
+			parsing_symlinks = true;
+			parsing_files = false;
+			continue;
+		}
+
 		if line == REMOTE_FILE_MARKER {
 			parsing_files = true;
+			parsing_symlinks = false;
 			continue;
 		}
 
@@ -771,6 +1428,13 @@ fn parse_remote_state(output: &str) -> RemoteState {
 				&& let Some(path) = parse_remote_path(raw_path, "file")
 			{
 				remote_state.file_hashes.insert(path, hash.to_owned());
+			}
+			continue;
+		}
+
+		if parsing_symlinks {
+			if let Some(path) = parse_remote_path(line, "symlink") {
+				remote_state.symlinks.insert(path);
 			}
 			continue;
 		}
@@ -975,16 +1639,17 @@ mod tests {
 
 	#[test]
 	fn parse_remote_state_collects_directories() {
-		let output = "./empty\n./nested/child\n__BIWA_FILE_HASHES__\nhash1  ./nested/file.txt";
+		let output = "./empty\n./nested/child\n__BIWA_SYMLINKS__\n./link\n__BIWA_FILE_HASHES__\nhash1  ./nested/file.txt";
 		let state = parse_remote_state(output);
 		assert!(state.directories.contains("empty"));
 		assert!(state.directories.contains("nested/child"));
+		assert!(state.symlinks.contains("link"));
 		assert_eq!(state.file_hashes.get("nested/file.txt").unwrap(), "hash1");
 	}
 
 	#[test]
-	fn calculate_sync_actions_creates_and_deletes_empty_directories() {
-		let actions = calculate_sync_actions(
+	fn calculate_push_actions_creates_and_deletes_empty_directories() {
+		let actions = calculate_push_actions(
 			&LocalState {
 				files: Vec::new(),
 				directories: HashSet::from(["empty".to_owned()]),
@@ -992,6 +1657,7 @@ mod tests {
 			&RemoteState {
 				file_hashes: HashMap::new(),
 				directories: HashSet::from(["stale".to_owned()]),
+				symlinks: HashSet::new(),
 			},
 			&Options::default(),
 		);
@@ -1003,8 +1669,8 @@ mod tests {
 	}
 
 	#[test]
-	fn calculate_sync_actions_preserves_directory_when_last_file_removed() {
-		let actions = calculate_sync_actions(
+	fn calculate_push_actions_preserves_directory_when_last_file_removed() {
+		let actions = calculate_push_actions(
 			&LocalState {
 				files: Vec::new(),
 				directories: HashSet::from(["dir".to_owned()]),
@@ -1012,6 +1678,7 @@ mod tests {
 			&RemoteState {
 				file_hashes: HashMap::from([("dir/file.txt".to_owned(), "hash".to_owned())]),
 				directories: HashSet::from(["dir".to_owned()]),
+				symlinks: HashSet::new(),
 			},
 			&Options::default(),
 		);
@@ -1022,12 +1689,13 @@ mod tests {
 	}
 
 	#[test]
-	fn calculate_sync_actions_deletes_directories_deepest_first() {
-		let actions = calculate_sync_actions(
+	fn calculate_push_actions_deletes_directories_deepest_first() {
+		let actions = calculate_push_actions(
 			&LocalState::default(),
 			&RemoteState {
 				file_hashes: HashMap::new(),
 				directories: HashSet::from(["a".to_owned(), "a/b".to_owned(), "a/b/c".to_owned()]),
+				symlinks: HashSet::new(),
 			},
 			&Options::default(),
 		);
@@ -1036,6 +1704,186 @@ mod tests {
 			actions.directory_deletions,
 			vec!["a/b/c".to_owned(), "a/b".to_owned(), "a".to_owned()]
 		);
+	}
+
+	#[test]
+	fn calculate_pull_actions_downloads_changed_and_missing_files() {
+		let actions = calculate_pull_actions(
+			&LocalState {
+				files: vec![LocalFile {
+					path: PathBuf::from("changed.txt"),
+					hash: "old".to_owned(),
+				}],
+				directories: HashSet::new(),
+			},
+			&RemoteState {
+				file_hashes: HashMap::from([
+					("changed.txt".to_owned(), "new".to_owned()),
+					("missing.txt".to_owned(), "hash".to_owned()),
+				]),
+				directories: HashSet::new(),
+				symlinks: HashSet::new(),
+			},
+			&Options::default(),
+		);
+
+		assert_eq!(
+			actions.downloads,
+			vec!["changed.txt".to_owned(), "missing.txt".to_owned()]
+		);
+		assert!(actions.file_deletions.is_empty());
+	}
+
+	#[test]
+	fn calculate_pull_actions_preserves_unchanged_files_unless_forced() {
+		let local_state = LocalState {
+			files: vec![LocalFile {
+				path: PathBuf::from("same.txt"),
+				hash: "same".to_owned(),
+			}],
+			directories: HashSet::new(),
+		};
+		let remote_state = RemoteState {
+			file_hashes: HashMap::from([("same.txt".to_owned(), "same".to_owned())]),
+			directories: HashSet::new(),
+			symlinks: HashSet::new(),
+		};
+
+		let actions = calculate_pull_actions(&local_state, &remote_state, &Options::default());
+		assert!(actions.downloads.is_empty());
+
+		let actions = calculate_pull_actions(
+			&local_state,
+			&remote_state,
+			&Options {
+				force: true,
+				..Options::default()
+			},
+		);
+		assert_eq!(actions.downloads, vec!["same.txt".to_owned()]);
+	}
+
+	#[test]
+	fn calculate_pull_actions_deletes_local_extras_and_creates_empty_dirs() {
+		let actions = calculate_pull_actions(
+			&LocalState {
+				files: vec![LocalFile {
+					path: PathBuf::from("stale.txt"),
+					hash: "hash".to_owned(),
+				}],
+				directories: HashSet::from(["old".to_owned()]),
+			},
+			&RemoteState {
+				file_hashes: HashMap::new(),
+				directories: HashSet::from(["empty".to_owned()]),
+				symlinks: HashSet::new(),
+			},
+			&Options::default(),
+		);
+
+		assert_eq!(actions.file_deletions, vec!["stale.txt".to_owned()]);
+		assert_eq!(actions.directory_deletions, vec!["old".to_owned()]);
+		assert_eq!(actions.directory_creations, vec!["empty".to_owned()]);
+		assert!(actions.downloads.is_empty());
+	}
+
+	#[test]
+	fn calculate_pull_actions_deletes_directories_deepest_first() {
+		let actions = calculate_pull_actions(
+			&LocalState {
+				files: Vec::new(),
+				directories: HashSet::from(["a".to_owned(), "a/b".to_owned(), "a/b/c".to_owned()]),
+			},
+			&RemoteState::default(),
+			&Options::default(),
+		);
+
+		assert_eq!(
+			actions.directory_deletions,
+			vec!["a/b/c".to_owned(), "a/b".to_owned(), "a".to_owned()]
+		);
+	}
+
+	#[test]
+	fn checked_relative_path_rejects_absolute_and_parent_paths() {
+		let parent_error = checked_relative_path("../outside.txt").unwrap_err();
+		assert!(
+			parent_error
+				.to_string()
+				.contains("Refusing to synchronize unsafe path"),
+			"error: {parent_error}"
+		);
+		let absolute_error = checked_relative_path("/tmp/outside.txt").unwrap_err();
+		assert!(
+			absolute_error
+				.to_string()
+				.contains("Refusing to synchronize unsafe path"),
+			"error: {absolute_error}"
+		);
+		assert_eq!(
+			checked_relative_path("./nested/file.txt").unwrap(),
+			PathBuf::from("nested/file.txt")
+		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn ensure_local_directory_rejects_symlink_components() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let outside = tempdir().unwrap();
+		symlink(outside.path(), dir.path().join("link")).unwrap();
+
+		let error = ensure_local_directory(dir.path(), "link/child").unwrap_err();
+		assert!(
+			error
+				.to_string()
+				.contains("Refusing to create local directory through symlink"),
+			"error: {error}"
+		);
+		assert!(!outside.path().join("child").exists());
+	}
+
+	#[test]
+	fn filter_remote_state_for_pull_respects_include_and_exclude() {
+		let dir = tempdir().unwrap();
+		let remote_state = RemoteState {
+			file_hashes: HashMap::from([
+				("src/main.rs".to_owned(), "hash1".to_owned()),
+				("target/debug/app".to_owned(), "hash2".to_owned()),
+				("README.md".to_owned(), "hash3".to_owned()),
+			]),
+			directories: HashSet::from(["src".to_owned(), "target".to_owned()]),
+			symlinks: HashSet::from(["src/link".to_owned(), "target/link".to_owned()]),
+		};
+
+		let filtered = filter_remote_state_for_pull(
+			remote_state,
+			dir.path(),
+			&[dir
+				.path()
+				.join("target")
+				.join("**")
+				.to_string_lossy()
+				.into_owned()],
+			&Options {
+				include: vec![
+					dir.path()
+						.join("src")
+						.join("**")
+						.to_string_lossy()
+						.into_owned(),
+				],
+				..Options::default()
+			},
+		)
+		.unwrap();
+
+		assert_eq!(filtered.file_hashes.len(), 1);
+		assert!(filtered.file_hashes.contains_key("src/main.rs"));
+		assert_eq!(filtered.directories, HashSet::from(["src".to_owned()]));
+		assert_eq!(filtered.symlinks, HashSet::from(["src/link".to_owned()]));
 	}
 
 	#[test]

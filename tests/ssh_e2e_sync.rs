@@ -10,6 +10,7 @@
 
 use color_eyre::eyre::eyre;
 use common::Result;
+use pretty_assertions::assert_eq;
 use rstest::rstest;
 use std::{fs, path::Path};
 
@@ -72,6 +73,250 @@ fn e2e_sync_basic() -> Result<()> {
 	let stdout3 = String::from_utf8_lossy(&output3.stdout);
 	assert!(output3.status.success());
 	assert!(stdout3.contains("world"));
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_pull_downloads_remote_file() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1\" && printf 'remote content' > \"$1/remote.txt\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 downloaded"), "stderr: {stderr}");
+	assert_eq!(
+		fs::read_to_string(dir.path().join("remote.txt"))?,
+		"remote content"
+	);
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_pull_deletes_local_file_missing_remotely() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("stale.txt"), "stale")?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 deleted"), "stderr: {stderr}");
+	assert!(!dir.path().join("stale.txt").exists());
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_pull_missing_remote_dir_preserves_local_files() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("local.txt"), "local")?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let output = biwa_cmd_tilde(
+		&["sync", "--pull", "--remote-dir", &remote_proj_dir],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("remote directory does not exist"),
+		"stderr: {stderr}"
+	);
+	assert_eq!(fs::read_to_string(dir.path().join("local.txt"))?, "local");
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_pull_creates_and_removes_empty_dirs() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::create_dir_all(dir.path().join("stale"))?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1/empty\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 deleted"), "stderr: {stderr}");
+	assert!(dir.path().join("empty").is_dir());
+	assert!(!dir.path().join("stale").exists());
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_pull_respects_include_scope() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("local-only.txt"), "keep")?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1\" && printf kept > \"$1/kept.txt\" && printf skipped > \"$1/skipped.txt\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["sync", "--pull", "--include", "kept.txt"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert_eq!(fs::read_to_string(dir.path().join("kept.txt"))?, "kept");
+	assert!(!dir.path().join("skipped.txt").exists());
+	assert_eq!(
+		fs::read_to_string(dir.path().join("local-only.txt"))?,
+		"keep"
+	);
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_pull_rejects_remote_symlink() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1\" && ln -s /tmp \"$1/link\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("Refusing to pull remote symlink entries: link"),
+		"stderr: {stderr}"
+	);
+	assert!(!dir.path().join("link").exists());
+
 	Ok(())
 }
 
