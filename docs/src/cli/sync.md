@@ -34,4 +34,8 @@ Only synchronize files matching these paths or globs
 
 ### `--pull`
 
-Pull remote project contents into the local sync root. Local files and directories missing from the remote source can be deleted
+Pull eligible remote project contents into the local sync root
+
+### `--overwrite`
+
+Allow pull to overwrite or delete local files and empty directories
