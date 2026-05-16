@@ -44,9 +44,18 @@ pub fn biwa_cmd(args: &[&str]) -> duct::Expression {
 }
 
 fn biwa_cmd_with_port(args: &[&str], port: &str) -> duct::Expression {
-	duct::cmd(env!("CARGO_BIN_EXE_biwa"), args)
-		.env("BIWA_SSH_HOST", "127.0.0.1")
+	biwa_program_cmd(env!("CARGO_BIN_EXE_biwa"), args)
 		.env("BIWA_SSH_PORT", port)
+}
+
+/// Creates a `duct::Expression` to run a biwa-compatible executable path.
+pub fn biwa_program_cmd<T>(program: T, args: &[&str]) -> duct::Expression
+where
+	T: duct::IntoExecutablePath,
+{
+	duct::cmd(program, args)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", "2222")
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_CLEAN_AUTO", "false")

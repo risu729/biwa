@@ -166,3 +166,36 @@ expression: content
 #
 # Default value: {  }
 #quota_thresholds = {  }
+
+# Direct command shim configuration.
+[direct]
+# Enable direct command dispatch when biwa is invoked through an allowed shim name.
+#
+# Can also be specified via environment variable `BIWA_DIRECT_ENABLED`.
+#
+# Default value: false
+#enabled = false
+
+# Directory containing direct command shims.
+#
+# Can also be specified via environment variable `BIWA_DIRECT_BIN_DIR`.
+#
+# Default value: "~/.local/share/biwa/bin"
+#bin_dir = "~/.local/share/biwa/bin"
+
+# Regular expressions matching command names that may dispatch remotely.
+#
+# Default value: []
+#allow = []
+
+# Arguments inserted after the command name and before user-supplied arguments.
+#
+# Default value: {  }
+#default_args = {  }
+
+# Keep local commands earlier in PATH ahead of biwa shims.
+#
+# Can also be specified via environment variable `BIWA_DIRECT_PREFER_LOCAL`.
+#
+# Default value: true
+#prefer_local = true

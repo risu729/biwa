@@ -9,6 +9,8 @@ use tracing_subscriber::{
 	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
 };
 
+/// Shell activation and direct command shims.
+mod activate;
 /// Cleanup of stale remote directories.
 mod clean;
 /// Shell completion generation command.
@@ -67,6 +69,8 @@ struct Cli {
 /// Supported subcommands for the biwa CLI.
 #[derive(Subcommand, Debug)]
 enum Commands {
+	/// Print shell activation code and manage direct command shims.
+	Activate(activate::Activate),
 	/// Run commands on remote host.
 	Run(run::Run),
 	/// Push local project files to the remote host.
@@ -90,11 +94,19 @@ enum Commands {
 
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
 pub async fn run() -> Result<()> {
+	if let Some(invocation) = activate::direct_invocation_from_env()? {
+		let output_mode = OutputMode::from_env();
+		init_logging(0, output_mode);
+		return activate::run_direct_invocation(invocation, output_mode.quiet, output_mode.silent)
+			.await;
+	}
+
 	let cli = Cli::parse();
 	let output_mode = OutputMode::resolve(&cli);
 	init_logging(cli.verbose, output_mode);
 
 	match cli.command {
+		Some(Commands::Activate(cmd)) => cmd.run()?,
 		Some(Commands::Run(cmd)) => cmd.run(output_mode.quiet, output_mode.silent).await?,
 		Some(Commands::Sync(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Pull(cmd)) => cmd.run(output_mode.quiet).await?,
@@ -164,11 +176,19 @@ struct OutputMode {
 }
 
 impl OutputMode {
+	/// Resolves output flags from environment defaults.
+	fn from_env() -> Self {
+		let silent = env_flag::is_truthy("BIWA_LOG_SILENT");
+		let quiet = silent || env_flag::is_truthy("BIWA_LOG_QUIET");
+		Self { quiet, silent }
+	}
+
 	/// Resolves output flags using CLI precedence over environment defaults.
 	fn resolve(cli: &Cli) -> Self {
-		let silent = cli.silent || env_flag::is_truthy("BIWA_LOG_SILENT");
-		let quiet = silent || cli.quiet || env_flag::is_truthy("BIWA_LOG_QUIET");
-		Self { quiet, silent }
+		let mut mode = Self::from_env();
+		mode.silent |= cli.silent;
+		mode.quiet = mode.silent || mode.quiet || cli.quiet;
+		mode
 	}
 }
 
@@ -236,6 +256,13 @@ mod tests {
 	fn cli_push_is_a_sync_alias() {
 		let cli = Cli::parse_from(["biwa", "push"]);
 		assert!(matches!(cli.command, Some(Commands::Sync(_))));
+	}
+
+	#[test]
+	fn cli_activate_subcommand() {
+		let cli = Cli::parse_from(["biwa", "activate", "bash"]);
+		assert!(matches!(cli.command, Some(Commands::Activate(_))));
+		assert!(cli.run_command_args.is_empty());
 	}
 
 	#[test]

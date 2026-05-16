@@ -22,11 +22,26 @@ struct RequiredConfigPresence {
 impl Config {
 	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
+		Self::load_with_required_ssh(true)
+	}
+
+	/// Loads configuration for local-only commands that do not require SSH settings.
+	pub fn load_optional_ssh() -> Result<Self> {
+		Self::load_with_required_ssh(false)
+	}
+
+	/// Loads the configuration with optional enforcement of SSH identity settings.
+	fn load_with_required_ssh(require_ssh: bool) -> Result<Self> {
 		let home = homedir::my_home().ok().flatten();
 		let config_dir = dirs::config_dir();
 		let cwd = env::current_dir().ok();
 		debug!(home = ?home, config_dir = ?config_dir, cwd = ?cwd, "Loading configuration");
-		Self::load_internal(home.as_ref(), config_dir.as_ref(), cwd.as_ref())
+		Self::load_internal_with_required(
+			home.as_ref(),
+			config_dir.as_ref(),
+			cwd.as_ref(),
+			require_ssh,
+		)
 	}
 
 	/// Resolves the local state directory path.
@@ -41,10 +56,21 @@ impl Config {
 	}
 
 	/// Core inner load logic separating the paths.
+	#[cfg(test)]
 	fn load_internal(
 		home: Option<&PathBuf>,
 		config_dir: Option<&PathBuf>,
 		cwd: Option<&PathBuf>,
+	) -> Result<Self> {
+		Self::load_internal_with_required(home, config_dir, cwd, true)
+	}
+
+	/// Core inner load logic separating the paths with optional SSH requirement enforcement.
+	fn load_internal_with_required(
+		home: Option<&PathBuf>,
+		config_dir: Option<&PathBuf>,
+		cwd: Option<&PathBuf>,
+		require_ssh: bool,
 	) -> Result<Self> {
 		let mut builder = Self::builder().env();
 		let mut required_presence = RequiredConfigPresence::from_env();
@@ -136,7 +162,9 @@ impl Config {
 		}
 
 		let mut config = builder.load()?;
-		required_presence.ensure_all_present()?;
+		if require_ssh {
+			required_presence.ensure_all_present()?;
+		}
 
 		if let Ok(value) = env::var("BIWA_ENV_VARS") {
 			let mut rules = config.env.vars.rules()?;
@@ -183,6 +211,7 @@ impl Config {
 
 		resolve(&mut partial.ssh.key_path);
 		resolve(&mut partial.state_dir);
+		resolve(&mut partial.direct.bin_dir);
 
 		if let Some(exclude_list) = &mut partial.sync.exclude {
 			let root = canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
@@ -209,6 +238,10 @@ impl Config {
 				"Absolute remote_root path detected: {}. It is recommended to use a relative path starting with '~'.",
 				self.sync.remote_root.display()
 			);
+		}
+		for pattern in &self.direct.allow {
+			regex::Regex::new(pattern)
+				.wrap_err_with(|| format!("Invalid direct.allow regex `{pattern}`"))?;
 		}
 		for key in self.clean.quota_thresholds.keys() {
 			if *key > 100 {
@@ -425,6 +458,13 @@ mod tests {
 		    "max_age": "30days",
 		    "auto": true,
 		    "quota_thresholds": {}
+		  },
+		  "direct": {
+		    "enabled": false,
+		    "bin_dir": "~/.local/share/biwa/bin",
+		    "allow": [],
+		    "default_args": {},
+		    "prefer_local": true
 		  }
 		}
 		"#);

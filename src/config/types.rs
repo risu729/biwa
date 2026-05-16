@@ -134,6 +134,18 @@ mod schema_defaults {
 		true
 	}
 
+	/// Default for `DirectConfig::bin_dir` in schema.
+	#[must_use]
+	pub fn direct_bin_dir() -> PathBuf {
+		PathBuf::from("~/.local/share/biwa/bin")
+	}
+
+	/// Default for `DirectConfig::prefer_local` in schema.
+	#[must_use]
+	pub const fn direct_prefer_local() -> bool {
+		true
+	}
+
 	/// JSON Schema for [`CleanConfig::quota_thresholds`]: keys are quota percentages 0–100 only.
 	#[must_use]
 	pub fn clean_quota_thresholds_schema(
@@ -182,6 +194,10 @@ pub struct Config {
 	#[config(nested)]
 	#[schemars(default)]
 	pub clean: CleanConfig,
+	/// Direct command shim configuration.
+	#[config(nested)]
+	#[schemars(default)]
+	pub direct: DirectConfig,
 }
 
 /// Password authentication configuration.
@@ -411,6 +427,37 @@ impl CleanConfig {
 impl Default for CleanConfig {
 	fn default() -> Self {
 		Config::default().clean
+	}
+}
+
+/// Direct command shim settings.
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DirectConfig {
+	/// Enable direct command dispatch when biwa is invoked through an allowed shim name.
+	#[config(default = false, env = "BIWA_DIRECT_ENABLED")]
+	#[schemars(default)]
+	pub enabled: bool,
+	/// Directory containing direct command shims.
+	#[config(default = "~/.local/share/biwa/bin", env = "BIWA_DIRECT_BIN_DIR")]
+	#[schemars(default = "crate::config::types::schema_defaults::direct_bin_dir")]
+	pub bin_dir: PathBuf,
+	/// Regular expressions matching command names that may dispatch remotely.
+	#[config(default = [])]
+	#[schemars(default)]
+	pub allow: Vec<String>,
+	/// Arguments inserted after the command name and before user-supplied arguments.
+	#[config(default = {})]
+	#[schemars(default)]
+	pub default_args: BTreeMap<String, Vec<String>>,
+	/// Keep local commands earlier in PATH ahead of biwa shims.
+	#[config(default = true, env = "BIWA_DIRECT_PREFER_LOCAL")]
+	#[schemars(default = "crate::config::types::schema_defaults::direct_prefer_local")]
+	pub prefer_local: bool,
+}
+
+impl Default for DirectConfig {
+	fn default() -> Self {
+		Config::default().direct
 	}
 }
 
