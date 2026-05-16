@@ -4,10 +4,10 @@
 general.mise = true
 
 [daemons.ssh-server]
-run = "docker compose up"
-watch = ["docker-compose.yml"]
+run = "docker compose up --build"
+watch = ["docker-compose.yml", "tests/fixtures/ssh-capable/Dockerfile"]
 auto = ["start", "stop"]
-ready_port = 2222
+ready_cmd = "nc -z 127.0.0.1 2222 && nc -z 127.0.0.1 2223"
 
 [daemons.docs]
 run = "mise run docs:dev --strictPort"

@@ -55,6 +55,7 @@ jobs:
             test:
               - *ci
               - *build
+              - 'docker-compose.yml'
               - 'tests/**'
               - 'tarpaulin.toml'
               - 'tasks.toml'
@@ -75,21 +76,14 @@ jobs:
       contents: read # for checkout
       id-token: write # for codecov
 
-    services:
-      ssh-server:
-        image: lscr.io/linuxserver/openssh-server@sha256:29d4e3f887596c4c2fc609f4e07040b08890a238178da400ffa2a602b55245bc
-        ports:
-          - 2222:2222
-        env:
-          USER_NAME: testuser
-          USER_PASSWORD: password123
-          PASSWORD_ACCESS: "true"
-
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+
+      - name: Start SSH test services
+        run: docker compose up --build --detach --wait --wait-timeout 60
 
       - name: Install mise
         uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
@@ -103,6 +97,10 @@ jobs:
 
       - name: Test (coverage)
         run: mise run test:coverage
+
+      - name: Show SSH service logs
+        if: failure()
+        run: docker compose logs --no-color
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0

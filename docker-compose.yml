@@ -8,3 +8,25 @@ services:
       - USER_NAME=testuser
       - USER_PASSWORD=password123
       - PASSWORD_ACCESS=true
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2222"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+
+  ssh-server-capable:
+    build:
+      context: .
+      dockerfile: tests/fixtures/ssh-capable/Dockerfile
+    container_name: ssh_test_server_capable
+    ports:
+      - "2223:2222"
+    environment:
+      - USER_NAME=testuser
+      - USER_PASSWORD=password123
+      - PASSWORD_ACCESS=true
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2222"]
+      interval: 1s
+      timeout: 1s
+      retries: 30

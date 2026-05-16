@@ -8,7 +8,7 @@ use std::io::{BufRead as _, BufReader, Read as _};
 use core::time::Duration;
 mod common;
 use color_eyre::eyre::{WrapErr as _, eyre};
-use common::{Result, biwa_cmd};
+use common::{Result, biwa_cmd, biwa_cmd_capable};
 use rstest::rstest;
 use std::{
 	env, ffi::OsStr, fs, path::PathBuf, process::Command, process::Stdio, thread, time::Instant,
@@ -654,6 +654,56 @@ fn e2e_run_env_wildcard_and_negation_from_flag() -> Result<()> {
 		String::from_utf8_lossy(&output.stdout).trim(),
 		"development|missing"
 	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_rejects_setenv_on_default_server() -> Result<()> {
+	let output = biwa_cmd(&[
+		"--quiet",
+		"run",
+		"--skip-sync",
+		"--env",
+		"BIWA_TEST_FLAG=ok",
+		"printenv",
+		"BIWA_TEST_FLAG",
+	])
+	.env("BIWA_ENV_FORWARD_METHOD", "setenv")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("rejected environment variable forwarding via setenv"),
+		"stderr: {stderr}"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_forwards_setenv_on_capable_server() -> Result<()> {
+	let output = biwa_cmd_capable(&[
+		"--quiet",
+		"run",
+		"--skip-sync",
+		"--env",
+		"BIWA_TEST_FLAG=ok",
+		"printenv",
+		"BIWA_TEST_FLAG",
+	])
+	.env("BIWA_ENV_FORWARD_METHOD", "setenv")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	pretty_assertions::assert_eq!(stdout.trim(), "ok");
 	Ok(())
 }
 
