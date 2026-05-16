@@ -277,6 +277,70 @@ fn e2e_sync_pull_respects_include_scope() -> Result<()> {
 }
 
 #[test]
+fn e2e_sync_pull_respects_explicit_remote_dir_sync_root_and_exclude() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let sync_root = dir.path().join("local-root");
+	fs::create_dir_all(sync_root.join("excluded"))?;
+	fs::write(sync_root.join("excluded/local.txt"), "local")?;
+	let remote_proj_dir = common::get_remote_project_dir(&sync_root)?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1/keep\" \"$1/excluded\" && printf included > \"$1/keep/file.txt\" && printf excluded > \"$1/excluded/remote.txt\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(
+		&[
+			"sync",
+			"--pull",
+			"--sync-root",
+			".",
+			"--remote-dir",
+			&remote_proj_dir,
+			"--exclude",
+			"excluded/**",
+		],
+		&sync_root,
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 downloaded"), "stderr: {stderr}");
+	assert_eq!(
+		fs::read_to_string(sync_root.join("keep/file.txt"))?,
+		"included"
+	);
+	assert!(!sync_root.join("excluded/remote.txt").exists());
+	assert_eq!(
+		fs::read_to_string(sync_root.join("excluded/local.txt"))?,
+		"local"
+	);
+
+	Ok(())
+}
+
+#[test]
 fn e2e_sync_pull_rejects_remote_symlink() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;

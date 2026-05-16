@@ -868,7 +868,7 @@ async fn download_file(
 	relative_path: &str,
 ) -> Result<()> {
 	let local_path = ensure_local_file_parent(project_root, relative_path).await?;
-	if let Ok(metadata) = fs::symlink_metadata(&local_path)
+	if let Ok(metadata) = async_fs::symlink_metadata(&local_path).await
 		&& metadata.file_type().is_dir()
 		&& !metadata.file_type().is_symlink()
 	{
@@ -921,7 +921,7 @@ async fn delete_local_files(project_root: &Path, relative_paths: &[String]) -> R
 	let mut deleted = 0_usize;
 	for relative_path in relative_paths {
 		let local_path = checked_local_path(project_root, relative_path)?;
-		match fs::symlink_metadata(&local_path) {
+		match async_fs::symlink_metadata(&local_path).await {
 			Ok(metadata) if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() => {
 				bail!(
 					"Refusing to delete local directory as a file: {}",
@@ -951,7 +951,7 @@ async fn delete_local_directories(project_root: &Path, relative_paths: &[String]
 	let mut deleted = 0_usize;
 	for relative_path in relative_paths {
 		let local_path = checked_local_path(project_root, relative_path)?;
-		match fs::symlink_metadata(&local_path) {
+		match async_fs::symlink_metadata(&local_path).await {
 			Ok(metadata) if metadata.file_type().is_symlink() => {
 				bail!(
 					"Refusing to delete local symlink as a directory: {}",
