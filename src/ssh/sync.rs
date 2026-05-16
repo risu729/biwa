@@ -752,18 +752,33 @@ fn should_remove_for_recreate<E>(
 	})
 }
 
+/// Restricts a newly created local pull directory to user-only access.
+#[cfg(unix)]
+async fn restrict_local_directory_permissions(path: &Path) -> Result<()> {
+	async_fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+		.await
+		.wrap_err_with(|| {
+			format!(
+				"Failed to set local directory permissions: {}",
+				path.display()
+			)
+		})
+}
+
+/// Restricts a newly created local pull directory to user-only access.
+#[cfg(not(unix))]
+async fn restrict_local_directory_permissions(_path: &Path) -> Result<()> {
+	Ok(())
+}
+
 /// Ensures a local directory exists under the sync root without traversing symlink components.
-#[expect(
-	clippy::create_dir,
-	reason = "Pull creates one checked path component at a time to avoid symlink traversal."
-)]
-fn ensure_local_directory(root: &Path, relative_path: &str) -> Result<()> {
+async fn ensure_local_directory(root: &Path, relative_path: &str) -> Result<()> {
 	let relative_path = checked_relative_path(relative_path)?;
 	let mut current = root.to_path_buf();
 
 	for component in relative_path.components() {
 		current.push(component.as_os_str());
-		match fs::symlink_metadata(&current) {
+		match async_fs::symlink_metadata(&current).await {
 			Ok(metadata) => {
 				let file_type = metadata.file_type();
 				if file_type.is_symlink() {
@@ -780,9 +795,10 @@ fn ensure_local_directory(root: &Path, relative_path: &str) -> Result<()> {
 				}
 			}
 			Err(error) if error.kind() == io::ErrorKind::NotFound => {
-				fs::create_dir(&current).wrap_err_with(|| {
+				async_fs::create_dir(&current).await.wrap_err_with(|| {
 					format!("Failed to create local directory: {}", current.display())
 				})?;
+				restrict_local_directory_permissions(&current).await?;
 			}
 			Err(error) => {
 				return Err(error).wrap_err_with(|| {
@@ -796,12 +812,12 @@ fn ensure_local_directory(root: &Path, relative_path: &str) -> Result<()> {
 }
 
 /// Ensures the parent directory for a local file exists safely under the sync root.
-fn ensure_local_file_parent(root: &Path, relative_path: &str) -> Result<PathBuf> {
+async fn ensure_local_file_parent(root: &Path, relative_path: &str) -> Result<PathBuf> {
 	let relative_path = checked_relative_path(relative_path)?;
 	if let Some(parent) = relative_path.parent()
 		&& !parent.as_os_str().is_empty()
 	{
-		ensure_local_directory(root, &parent.to_string_lossy())?;
+		ensure_local_directory(root, &parent.to_string_lossy()).await?;
 	}
 
 	Ok(root.join(relative_path))
@@ -822,11 +838,11 @@ async fn create_download_temp_file(local_path: &Path) -> Result<(PathBuf, AsyncF
 			".{file_name}.biwa-download-{}-{attempt}",
 			process::id()
 		));
-		let file_result = AsyncOpenOptions::new()
-			.write(true)
-			.create_new(true)
-			.open(&temp_path)
-			.await;
+		let mut open_options = AsyncOpenOptions::new();
+		open_options.write(true).create_new(true);
+		#[cfg(unix)]
+		open_options.mode(0o600);
+		let file_result = open_options.open(&temp_path).await;
 		match file_result {
 			Ok(file) => return Ok((temp_path, file)),
 			Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
@@ -851,7 +867,7 @@ async fn download_file(
 	project_root: &Path,
 	relative_path: &str,
 ) -> Result<()> {
-	let local_path = ensure_local_file_parent(project_root, relative_path)?;
+	let local_path = ensure_local_file_parent(project_root, relative_path).await?;
 	if let Ok(metadata) = fs::symlink_metadata(&local_path)
 		&& metadata.file_type().is_dir()
 		&& !metadata.file_type().is_symlink()
@@ -1137,7 +1153,7 @@ async fn apply_local_pull_actions(
 	);
 
 	for directory in &actions.directory_creations {
-		ensure_local_directory(project_root, directory)?;
+		ensure_local_directory(project_root, directory).await?;
 	}
 
 	Ok(())
@@ -1890,15 +1906,17 @@ mod tests {
 	}
 
 	#[cfg(unix)]
-	#[test]
-	fn ensure_local_directory_rejects_symlink_components() {
+	#[tokio::test]
+	async fn ensure_local_directory_rejects_symlink_components() {
 		use std::os::unix::fs::symlink;
 
 		let dir = tempdir().unwrap();
 		let outside = tempdir().unwrap();
 		symlink(outside.path(), dir.path().join("link")).unwrap();
 
-		let error = ensure_local_directory(dir.path(), "link/child").unwrap_err();
+		let error = ensure_local_directory(dir.path(), "link/child")
+			.await
+			.unwrap_err();
 		assert!(
 			error
 				.to_string()
@@ -1908,13 +1926,24 @@ mod tests {
 		assert!(!outside.path().join("child").exists());
 	}
 
-	#[test]
-	fn ensure_local_file_parent_creates_checked_parent() {
+	#[tokio::test]
+	async fn ensure_local_file_parent_creates_checked_parent() {
 		let dir = tempdir().unwrap();
-		let path = ensure_local_file_parent(dir.path(), "nested/file.txt").unwrap();
+		let path = ensure_local_file_parent(dir.path(), "nested/file.txt")
+			.await
+			.unwrap();
 
 		assert_eq!(path, dir.path().join("nested/file.txt"));
 		assert!(dir.path().join("nested").is_dir());
+
+		#[cfg(unix)]
+		assert_eq!(
+			fs::metadata(dir.path().join("nested"))
+				.unwrap()
+				.permissions()
+				.mode() & 0o777,
+			0o700
+		);
 	}
 
 	#[tokio::test]
@@ -1934,6 +1963,12 @@ mod tests {
 		);
 		drop(file);
 		assert!(temp_path.exists());
+
+		#[cfg(unix)]
+		assert_eq!(
+			fs::metadata(&temp_path).unwrap().permissions().mode() & 0o777,
+			0o600
+		);
 	}
 
 	#[tokio::test]
