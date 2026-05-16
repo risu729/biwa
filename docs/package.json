@@ -9,7 +9,7 @@
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "1.36.4",
 		"@risu729/tsconfigs": "2.0.0",
-		"@types/bun": "1.3.13",
+		"@types/bun": "1.3.14",
 		"oxc-minify": "0.130.0",
 		"typescript": "6.0.3",
 		"vitepress": "2.0.0-alpha.17",
