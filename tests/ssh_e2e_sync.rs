@@ -527,11 +527,8 @@ fn e2e_sync_setstat_permissions_on_capable_server() -> Result<()> {
 		fs::set_permissions(&file_path, perms)?;
 	}
 
-	let run_cmd = |args: &[&str]| {
-		biwa_cmd_capable_tilde(args, dir.path()).env("BIWA_SYNC_SFTP_PERMISSIONS", "setstat")
-	};
-
-	let output = run_cmd(&["sync"])
+	let output = biwa_cmd_capable_tilde(&["sync"], dir.path())
+		.env("BIWA_SYNC_SFTP_PERMISSIONS", "setstat")
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -546,11 +543,14 @@ fn e2e_sync_setstat_permissions_on_capable_server() -> Result<()> {
 
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 	let remote_file = format!("{remote_proj_dir}/secret.txt");
-	let ls_output = run_cmd(&["run", "--skip-sync", "ls", "-l", &remote_file])
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
+	let ls_output = biwa_cmd_capable_tilde(
+		&["run", "--skip-sync", "ls", "-l", &remote_file],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
 
 	let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
 	assert!(
