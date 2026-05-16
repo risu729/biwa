@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 
 /// Tracks whether required SSH settings were supplied explicitly rather than inherited from defaults.
 #[derive(Debug, Default)]
-struct RequiredConfigPresence {
+pub struct RequiredConfigPresence {
 	/// Whether `ssh.host` was provided by any config layer or environment variable.
 	ssh_host: bool,
 	/// Whether `ssh.user` was provided by any config layer or environment variable.
@@ -22,26 +22,23 @@ struct RequiredConfigPresence {
 impl Config {
 	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
-		Self::load_with_required_ssh(true)
+		let (config, required_presence) = Self::load_optional_ssh_with_presence()?;
+		required_presence.ensure_all_present()?;
+		Ok(config)
 	}
 
 	/// Loads configuration for local-only commands that do not require SSH settings.
 	pub fn load_optional_ssh() -> Result<Self> {
-		Self::load_with_required_ssh(false)
+		Ok(Self::load_optional_ssh_with_presence()?.0)
 	}
 
-	/// Loads the configuration with optional enforcement of SSH identity settings.
-	fn load_with_required_ssh(require_ssh: bool) -> Result<Self> {
+	/// Loads configuration and reports whether required SSH settings were provided.
+	pub(crate) fn load_optional_ssh_with_presence() -> Result<(Self, RequiredConfigPresence)> {
 		let home = homedir::my_home().ok().flatten();
 		let config_dir = dirs::config_dir();
 		let cwd = env::current_dir().ok();
 		debug!(home = ?home, config_dir = ?config_dir, cwd = ?cwd, "Loading configuration");
-		Self::load_internal_with_required(
-			home.as_ref(),
-			config_dir.as_ref(),
-			cwd.as_ref(),
-			require_ssh,
-		)
+		Self::load_internal_with_presence(home.as_ref(), config_dir.as_ref(), cwd.as_ref())
 	}
 
 	/// Resolves the local state directory path.
@@ -62,16 +59,17 @@ impl Config {
 		config_dir: Option<&PathBuf>,
 		cwd: Option<&PathBuf>,
 	) -> Result<Self> {
-		Self::load_internal_with_required(home, config_dir, cwd, true)
+		let (config, required_presence) = Self::load_internal_with_presence(home, config_dir, cwd)?;
+		required_presence.ensure_all_present()?;
+		Ok(config)
 	}
 
-	/// Core inner load logic separating the paths with optional SSH requirement enforcement.
-	fn load_internal_with_required(
+	/// Core inner load logic separating the paths.
+	fn load_internal_with_presence(
 		home: Option<&PathBuf>,
 		config_dir: Option<&PathBuf>,
 		cwd: Option<&PathBuf>,
-		require_ssh: bool,
-	) -> Result<Self> {
+	) -> Result<(Self, RequiredConfigPresence)> {
 		let mut builder = Self::builder().env();
 		let mut required_presence = RequiredConfigPresence::from_env();
 
@@ -162,10 +160,6 @@ impl Config {
 		}
 
 		let mut config = builder.load()?;
-		if require_ssh {
-			required_presence.ensure_all_present()?;
-		}
-
 		if let Ok(value) = env::var("BIWA_ENV_VARS") {
 			let mut rules = config.env.vars.rules()?;
 			rules.extend(parse_env_var_env(&value)?);
@@ -173,7 +167,7 @@ impl Config {
 		}
 		config.validate()?;
 
-		Ok(config)
+		Ok((config, required_presence))
 	}
 
 	/// Loads a specific partial configuration file based on format.
@@ -284,7 +278,7 @@ impl RequiredConfigPresence {
 	}
 
 	/// Fails when any required SSH setting was not supplied by configuration input.
-	fn ensure_all_present(&self) -> Result<()> {
+	pub fn ensure_all_present(&self) -> Result<()> {
 		let mut missing = Vec::new();
 
 		if !self.ssh_host {

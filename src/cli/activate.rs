@@ -150,23 +150,24 @@ pub(super) async fn run_direct_invocation(
 	quiet: bool,
 	silent: bool,
 ) -> Result<()> {
-	let discovery_config = Config::load_optional_ssh()?;
+	let (config, required_presence) = Config::load_optional_ssh_with_presence()?;
 
-	if !discovery_config.direct.enabled {
+	if !config.direct.enabled {
 		bail!(
 			"Direct command `{}` is disabled. Set `direct.enabled = true` to use activation shims.",
 			invocation.command
 		);
 	}
 
-	if !direct_command_is_allowed(&discovery_config, &invocation.command)? {
+	let allow_patterns = compile_direct_allow_patterns(&config)?;
+	if !direct_command_is_allowed(&allow_patterns, &invocation.command) {
 		bail!(
 			"Direct command `{}` is not allowed by `direct.allow`.",
 			invocation.command
 		);
 	}
 
-	let mut command_args = discovery_config
+	let mut command_args = config
 		.direct
 		.default_args
 		.get(&invocation.command)
@@ -174,7 +175,7 @@ pub(super) async fn run_direct_invocation(
 		.unwrap_or_default();
 	command_args.extend(invocation.args);
 
-	let config = Config::load()?;
+	required_presence.ensure_all_present()?;
 	run_remote(
 		&config,
 		&SyncArgs::default(),
@@ -226,18 +227,23 @@ fn os_string_to_string(value: OsString) -> Result<String> {
 		.map_err(|value| color_eyre::eyre::eyre!("Non-UTF-8 direct command argument: {value:?}"))
 }
 
-/// Returns whether a direct command name matches any configured allow pattern.
-fn direct_command_is_allowed(config: &Config, command: &str) -> Result<bool> {
-	for pattern in &config.direct.allow {
-		if Regex::new(pattern)
-			.wrap_err_with(|| format!("Invalid direct.allow regex `{pattern}`"))?
-			.is_match(command)
-		{
-			return Ok(true);
-		}
-	}
+/// Compiles configured direct command allow patterns.
+fn compile_direct_allow_patterns(config: &Config) -> Result<Vec<Regex>> {
+	config
+		.direct
+		.allow
+		.iter()
+		.map(|pattern| {
+			Regex::new(pattern).wrap_err_with(|| format!("Invalid direct.allow regex `{pattern}`"))
+		})
+		.collect()
+}
 
-	Ok(false)
+/// Returns whether a direct command name matches any configured allow pattern.
+fn direct_command_is_allowed(allow_patterns: &[Regex], command: &str) -> bool {
+	allow_patterns
+		.iter()
+		.any(|pattern| pattern.is_match(command))
 }
 
 /// Returns shell code that adds the shim directory to PATH.
@@ -355,22 +361,18 @@ fn print_doctor(config: &Config) -> Result<()> {
 /// Returns static shim names that can be safely materialized.
 fn static_allowed_shim_names(config: &Config) -> Result<Vec<String>> {
 	let mut names = BTreeSet::new();
+	let allow_patterns = compile_direct_allow_patterns(config)?;
 
 	for pattern in &config.direct.allow {
-		Regex::new(pattern).wrap_err_with(|| format!("Invalid direct.allow regex `{pattern}`"))?;
 		names.extend(static_names_from_allow_pattern(pattern));
 	}
 
 	names.extend(config.direct.default_args.keys().cloned());
 
-	names
+	Ok(names
 		.into_iter()
-		.filter_map(|name| match direct_command_is_allowed(config, &name) {
-			Ok(true) => Some(Ok(name)),
-			Ok(false) => None,
-			Err(e) => Some(Err(e)),
-		})
-		.collect()
+		.filter(|name| direct_command_is_allowed(&allow_patterns, name))
+		.collect())
 }
 
 /// Extracts literal command names from a restricted subset of anchored regexes.
@@ -382,12 +384,40 @@ fn static_names_from_allow_pattern(pattern: &str) -> Vec<String> {
 	let alternatives = inner
 		.strip_prefix('(')
 		.and_then(|s| s.strip_suffix(')'))
-		.map_or_else(|| vec![inner], |group| group.split('|').collect());
+		.map_or_else(|| vec![inner.to_owned()], split_regex_group_alternatives);
 
 	alternatives
-		.into_iter()
-		.filter_map(static_name_from_regex_literal)
+		.iter()
+		.filter_map(|alternative| static_name_from_regex_literal(alternative))
 		.collect()
+}
+
+/// Splits a simple regex group on unescaped alternation separators.
+fn split_regex_group_alternatives(group: &str) -> Vec<String> {
+	let mut alternatives = Vec::new();
+	let mut current = String::new();
+	let mut escaped = false;
+
+	for ch in group.chars() {
+		if escaped {
+			current.push('\\');
+			current.push(ch);
+			escaped = false;
+		} else if ch == '\\' {
+			escaped = true;
+		} else if ch == '|' {
+			alternatives.push(current);
+			current = String::new();
+		} else {
+			current.push(ch);
+		}
+	}
+
+	if escaped {
+		current.push('\\');
+	}
+	alternatives.push(current);
+	alternatives
 }
 
 /// Converts one simple regex literal into a command name.
@@ -588,10 +618,12 @@ mod tests {
 			true,
 		);
 
-		assert!(direct_command_is_allowed(&config, "1511")?);
-		assert!(direct_command_is_allowed(&config, "dcc")?);
-		assert!(!direct_command_is_allowed(&config, "1511x")?);
-		assert!(!direct_command_is_allowed(&config, "sh")?);
+		let allow_patterns = compile_direct_allow_patterns(&config)?;
+
+		assert!(direct_command_is_allowed(&allow_patterns, "1511"));
+		assert!(direct_command_is_allowed(&allow_patterns, "dcc"));
+		assert!(!direct_command_is_allowed(&allow_patterns, "1511x"));
+		assert!(!direct_command_is_allowed(&allow_patterns, "sh"));
 		Ok(())
 	}
 
@@ -615,6 +647,21 @@ mod tests {
 		assert_eq!(
 			static_allowed_shim_names(&config)?,
 			vec!["1511", "1521", "9999", "autotest", "dcc", "give"]
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn static_shim_names_preserve_escaped_pipe_in_alternatives() -> Result<()> {
+		let config = direct_config(
+			vec!["^(cmd1|cmd\\|2|dcc)$".to_owned()],
+			BTreeMap::new(),
+			true,
+		);
+
+		assert_eq!(
+			static_allowed_shim_names(&config)?,
+			vec!["cmd1", "cmd|2", "dcc"]
 		);
 		Ok(())
 	}
