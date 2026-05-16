@@ -3,7 +3,7 @@ use crate::cli::run::{RemoteCommand, run_remote};
 use crate::cli::sync::SyncArgs;
 use crate::config::types::Config;
 use alloc::collections::BTreeSet;
-use clap::{Args, ValueEnum};
+use clap::{Args, Subcommand, ValueEnum};
 use color_eyre::eyre::{WrapErr as _, bail};
 use regex::Regex;
 use std::env;
@@ -15,30 +15,34 @@ use std::path::{Path, PathBuf};
 /// Shell activation and direct command shim management.
 #[derive(Args, Debug)]
 pub(super) struct Activate {
-	/// Create or update configured static command shims.
-	#[arg(long)]
-	install: bool,
+	/// Print activation code for this shell.
+	#[arg(long, value_enum)]
+	shell: Option<ActivationShell>,
 
-	/// Activation action to run.
-	#[arg(value_enum)]
-	action: Option<ActivateAction>,
+	/// Activation command to run.
+	#[command(subcommand)]
+	command: Option<ActivateCommand>,
 }
 
-/// Supported activation actions.
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
-enum ActivateAction {
-	/// Print activation code for bash.
-	Bash,
-	/// Print activation code for zsh.
-	Zsh,
-	/// Print activation code for fish.
-	Fish,
+/// Supported activation commands.
+#[derive(Subcommand, Debug)]
+enum ActivateCommand {
+	/// Create or update configured static command shims.
+	Install(Install),
 	/// Print diagnostic information for direct command activation.
 	Doctor,
 }
 
+/// Direct command shim installation options.
+#[derive(Args, Debug)]
+struct Install {
+	/// Replace existing shim files and ignore local command conflicts.
+	#[arg(long, short)]
+	force: bool,
+}
+
 /// Shells that can receive activation code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 enum ActivationShell {
 	/// Bash shell.
 	Bash,
@@ -90,49 +94,33 @@ impl Activate {
 	/// Run the activation command.
 	pub(super) fn run(self) -> Result<()> {
 		let config = Config::load_optional_ssh()?;
+		let mut did_work = false;
 
-		if self.install {
-			let path = env::var_os("PATH");
-			let report = install_shims(&config, &env::current_exe()?, path.as_ref())?;
-			print_install_report(&report);
+		match self.command {
+			Some(ActivateCommand::Install(install)) => {
+				let path = env::var_os("PATH");
+				let report =
+					install_shims(&config, &env::current_exe()?, path.as_ref(), install.force)?;
+				print_install_report(&report);
+				did_work = true;
+			}
+			Some(ActivateCommand::Doctor) => {
+				print_doctor(&config)?;
+				did_work = true;
+			}
+			None => {}
 		}
 
-		match self.action {
-			Some(ActivateAction::Bash) => {
-				println!(
-					"{}",
-					activation_script(
-						ActivationShell::Bash,
-						&config.direct.bin_dir,
-						config.direct.prefer_local,
-					)
-				);
-			}
-			Some(ActivateAction::Zsh) => {
-				println!(
-					"{}",
-					activation_script(
-						ActivationShell::Zsh,
-						&config.direct.bin_dir,
-						config.direct.prefer_local,
-					)
-				);
-			}
-			Some(ActivateAction::Fish) => {
-				println!(
-					"{}",
-					activation_script(
-						ActivationShell::Fish,
-						&config.direct.bin_dir,
-						config.direct.prefer_local,
-					)
-				);
-			}
-			Some(ActivateAction::Doctor) => print_doctor(&config)?,
-			None if self.install => {}
-			None => {
-				bail!("Specify `bash`, `zsh`, `fish`, `doctor`, or `--install`.");
-			}
+		if let Some(shell) = self.shell {
+			println!(
+				"{}",
+				activation_script(shell, &config.direct.bin_dir, config.direct.prefer_local)
+			);
+			did_work = true;
+		}
+
+		if !did_work {
+			bail!("Specify `--shell <bash|zsh|fish>`, `install`, or `doctor`.");
 		}
 
 		Ok(())
@@ -254,9 +242,17 @@ fn activation_script(shell: ActivationShell, bin_dir: &Path, prefer_local: bool)
 	match shell {
 		ActivationShell::Bash | ActivationShell::Zsh => {
 			let export = if prefer_local {
-				r#"export PATH="$PATH:$__biwa_direct_bin""#
+				r#"if [ -n "$PATH" ]; then
+  export PATH="$PATH:$__biwa_direct_bin"
+else
+  export PATH="$__biwa_direct_bin"
+fi"#
 			} else {
-				r#"export PATH="$__biwa_direct_bin:$PATH""#
+				r#"if [ -n "$PATH" ]; then
+  export PATH="$__biwa_direct_bin:$PATH"
+else
+  export PATH="$__biwa_direct_bin"
+fi"#
 			};
 			format!(
 				r#"__biwa_direct_bin={quoted_bin_dir}
@@ -289,6 +285,7 @@ fn install_shims(
 	config: &Config,
 	biwa_path: &Path,
 	path: Option<&OsString>,
+	force: bool,
 ) -> Result<InstallReport> {
 	let mut report = InstallReport::default();
 	let shim_names = static_allowed_shim_names(config)?;
@@ -301,7 +298,8 @@ fn install_shims(
 	})?;
 
 	for command in shim_names {
-		if config.direct.prefer_local
+		if !force
+			&& config.direct.prefer_local
 			&& let Some(conflict) = find_local_conflict(&command, &config.direct.bin_dir, path)
 		{
 			report.skipped_conflicts.push(conflict);
@@ -309,7 +307,7 @@ fn install_shims(
 		}
 
 		let shim_path = config.direct.bin_dir.join(&command);
-		match create_or_update_symlink(&shim_path, biwa_path)? {
+		match create_or_update_symlink(&shim_path, biwa_path, force)? {
 			ShimInstallStatus::Installed => report.installed.push(shim_path),
 			ShimInstallStatus::Unchanged => report.unchanged.push(shim_path),
 		}
@@ -504,7 +502,11 @@ fn is_executable_file(path: &Path) -> bool {
 
 /// Creates or updates one symlink shim.
 #[cfg(unix)]
-fn create_or_update_symlink(shim_path: &Path, biwa_path: &Path) -> Result<ShimInstallStatus> {
+fn create_or_update_symlink(
+	shim_path: &Path,
+	biwa_path: &Path,
+	force: bool,
+) -> Result<ShimInstallStatus> {
 	use std::os::unix::fs::symlink;
 
 	match fs::symlink_metadata(shim_path) {
@@ -520,10 +522,25 @@ fn create_or_update_symlink(shim_path: &Path, biwa_path: &Path) -> Result<ShimIn
 			})?;
 		}
 		Ok(_) => {
-			bail!(
-				"Refusing to replace existing non-symlink `{}`",
-				shim_path.display()
-			);
+			if force {
+				if shim_path.is_dir() {
+					bail!(
+						"Refusing to replace existing directory `{}`",
+						shim_path.display()
+					);
+				}
+				fs::remove_file(shim_path).wrap_err_with(|| {
+					format!(
+						"Failed to replace direct command shim `{}`",
+						shim_path.display()
+					)
+				})?;
+			} else {
+				bail!(
+					"Refusing to replace existing non-symlink `{}`. Use `--force` to replace it.",
+					shim_path.display()
+				);
+			}
 		}
 		Err(error) if error.kind() == ErrorKind::NotFound => {}
 		Err(error) => {
@@ -549,7 +566,11 @@ fn create_or_update_symlink(shim_path: &Path, biwa_path: &Path) -> Result<ShimIn
 
 /// Creates or updates one symlink shim.
 #[cfg(not(unix))]
-fn create_or_update_symlink(_shim_path: &Path, _biwa_path: &Path) -> Result<ShimInstallStatus> {
+fn create_or_update_symlink(
+	_shim_path: &Path,
+	_biwa_path: &Path,
+	_force: bool,
+) -> Result<ShimInstallStatus> {
 	bail!("Direct command shim installation is only supported on Unix-like systems");
 }
 
@@ -671,6 +692,7 @@ mod tests {
 		let script = activation_script(ActivationShell::Bash, Path::new("/tmp/biwa/bin"), true);
 
 		assert!(script.contains(r#"export PATH="$PATH:$__biwa_direct_bin""#));
+		assert!(script.contains(r#"export PATH="$__biwa_direct_bin""#));
 		assert!(script.contains("/tmp/biwa/bin"));
 	}
 
@@ -751,7 +773,7 @@ mod tests {
 		config.direct.bin_dir = shim_bin.clone();
 		let path = env::join_paths([local_bin.as_path()])?;
 
-		let report = install_shims(&config, &biwa, Some(&path))?;
+		let report = install_shims(&config, &biwa, Some(&path), false)?;
 
 		assert!(report.installed.is_empty());
 		assert_eq!(
@@ -767,6 +789,34 @@ mod tests {
 
 	#[cfg(unix)]
 	#[test]
+	fn install_force_ignores_conflicts_when_prefer_local_is_enabled() -> Result<()> {
+		use std::os::unix::fs::PermissionsExt as _;
+
+		let dir = tempdir()?;
+		let local_bin = dir.path().join("local");
+		let shim_bin = dir.path().join("shim");
+		let biwa = dir.path().join("biwa");
+		fs::create_dir_all(&local_bin)?;
+		fs::write(&biwa, "")?;
+		let command = local_bin.join("dcc");
+		fs::write(&command, "#!/bin/sh\n")?;
+
+		fs::set_permissions(&command, fs::Permissions::from_mode(0o755))?;
+
+		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
+		config.direct.bin_dir = shim_bin.clone();
+		let path = env::join_paths([local_bin.as_path()])?;
+
+		let report = install_shims(&config, &biwa, Some(&path), true)?;
+
+		assert_eq!(report.installed, vec![shim_bin.join("dcc")]);
+		assert!(report.skipped_conflicts.is_empty());
+		assert_eq!(fs::read_link(shim_bin.join("dcc"))?, biwa);
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
 	fn install_creates_symlink_for_static_allowed_command() -> Result<()> {
 		let dir = tempdir()?;
 		let shim_bin = dir.path().join("shim");
@@ -776,7 +826,27 @@ mod tests {
 		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
 		config.direct.bin_dir = shim_bin.clone();
 
-		let report = install_shims(&config, &biwa, None)?;
+		let report = install_shims(&config, &biwa, None, false)?;
+
+		assert_eq!(report.installed, vec![shim_bin.join("dcc")]);
+		assert_eq!(fs::read_link(shim_bin.join("dcc"))?, biwa);
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn install_force_replaces_existing_file() -> Result<()> {
+		let dir = tempdir()?;
+		let shim_bin = dir.path().join("shim");
+		let biwa = dir.path().join("biwa");
+		fs::create_dir_all(&shim_bin)?;
+		fs::write(&biwa, "")?;
+		fs::write(shim_bin.join("dcc"), "#!/bin/sh\n")?;
+
+		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
+		config.direct.bin_dir = shim_bin.clone();
+
+		let report = install_shims(&config, &biwa, None, true)?;
 
 		assert_eq!(report.installed, vec![shim_bin.join("dcc")]);
 		assert_eq!(fs::read_link(shim_bin.join("dcc"))?, biwa);

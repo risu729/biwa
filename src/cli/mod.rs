@@ -237,7 +237,15 @@ mod tests {
 
 	#[test]
 	fn cli_activate_subcommand() {
-		let cli = Cli::parse_from(["biwa", "activate", "bash"]);
+		let cli = Cli::parse_from(["biwa", "activate", "--shell", "bash"]);
+		assert!(matches!(cli.command, Some(Commands::Activate(_))));
+		assert!(cli.run_command_args.is_empty());
+
+		let cli = Cli::parse_from(["biwa", "activate", "doctor"]);
+		assert!(matches!(cli.command, Some(Commands::Activate(_))));
+		assert!(cli.run_command_args.is_empty());
+
+		let cli = Cli::parse_from(["biwa", "activate", "install", "--force"]);
 		assert!(matches!(cli.command, Some(Commands::Activate(_))));
 		assert!(cli.run_command_args.is_empty());
 	}

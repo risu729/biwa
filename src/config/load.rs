@@ -165,6 +165,7 @@ impl Config {
 			rules.extend(parse_env_var_env(&value)?);
 			config.env.vars = EnvVars::from_rules(rules);
 		}
+		Self::resolve_loaded_paths(&mut config);
 		config.validate()?;
 
 		Ok((config, required_presence))
@@ -220,6 +221,11 @@ impl Config {
 
 		// NOTE: remote_root is intentionally NOT resolved here because it is a remote SSH path.
 		// Tilde expansion and relative path resolution should happen on the remote server, not locally.
+	}
+
+	/// Resolves loaded local paths that may still come from defaults or environment variables.
+	fn resolve_loaded_paths(config: &mut Self) {
+		config.direct.bin_dir = expand_tilde(&config.direct.bin_dir);
 	}
 
 	/// Runs post-load validation checks on the configuration.
@@ -1232,6 +1238,21 @@ user = "user"
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
 		let config = Config::load_internal(None, None, None)?;
 		assert_eq!(config.resolved_state_dir(), default_state_dir());
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn direct_bin_dir_default_expands_tilde_on_load() -> Result<()> {
+		let Some(home) = homedir::my_home().ok().flatten() else {
+			return Ok(());
+		};
+		let _cleanup = EnvCleanup::remove("BIWA_DIRECT_BIN_DIR");
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+
+		let config = Config::load_internal(None, None, None)?;
+
+		assert_eq!(config.direct.bin_dir, home.join(".local/share/biwa/bin"));
 		Ok(())
 	}
 
