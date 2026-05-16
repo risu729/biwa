@@ -30,7 +30,7 @@ It captures the commands, conventions, and guardrails that are actually used her
 - `mise x --` is usually unnecessary, but if a binary is not found or the environment looks wrong, retry with it.
 - `target/debug/` is added to PATH via `mise.toml`, so local `biwa` builds can be invoked directly in a mise environment.
 - `pitchfork.toml` enables automatic background daemons when you enter the directory.
-- The required SSH test server normally starts automatically via `pitchfork`; if it is not running, use `pitchfork start --all`.
+- The required SSH test servers normally start automatically via `pitchfork`; if they are not running, use `pitchfork start --all`.
 - Do not run `docker compose up` manually for the test server; prefer `pitchfork`.
 
 ## High-Value Commands
@@ -94,8 +94,9 @@ It captures the commands, conventions, and guardrails that are actually used her
 
 ## Test Environment Notes
 
-- E2E tests use the local SSH container described in `docker-compose.yml`.
-- CI starts an SSH service container with username `testuser`, password `password123`, port `2222`.
+- E2E tests use the local SSH containers described in `docker-compose.yml`.
+- The default/restrictive SSH server listens on port `2222`; the capable SSH server for `setenv` and SFTP permission-update tests listens on port `2223`.
+- CI starts the same SSH test services through `docker compose up --build --detach --wait`.
 - Shared integration helpers are in `tests/common/mod.rs`.
 - Tests install `color_eyre` globally at startup for improved diagnostics.
 - Tests that mutate environment variables use `#[serial]` and cleanup guards; preserve that pattern.

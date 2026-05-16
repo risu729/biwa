@@ -40,13 +40,29 @@ fn init_test_env() {
 /// cleanup so `biwa clean --auto` does not remove other tests’ remote project directories.
 /// The state directory is isolated from the developer's real XDG state.
 pub fn biwa_cmd(args: &[&str]) -> duct::Expression {
+	biwa_cmd_with_port(args, "2222")
+}
+
+fn biwa_cmd_with_port(args: &[&str], port: &str) -> duct::Expression {
 	duct::cmd(env!("CARGO_BIN_EXE_biwa"), args)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
-		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_PORT", port)
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_CLEAN_AUTO", "false")
 		.env("BIWA_STATE_DIR", TEST_STATE_DIR.path())
+}
+
+/// Creates a `duct::Expression` to run the `biwa` CLI against the capable SSH server.
+///
+/// The capable server allows `BIWA_TEST_*` variables through SSH `setenv` and uses an
+/// SFTP subsystem that supports permission updates for files owned by the test user.
+#[allow(
+	dead_code,
+	reason = "Only some integration test binaries use the capable server."
+)]
+pub fn biwa_cmd_capable(args: &[&str]) -> duct::Expression {
+	biwa_cmd_with_port(args, "2223")
 }
 
 /// Computes the absolute path to the remote project directory.

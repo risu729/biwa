@@ -19,8 +19,16 @@ fn biwa_cmd(args: &[&str], current_dir: &Path) -> duct::Expression {
 	common::biwa_cmd(args).dir(current_dir)
 }
 
+fn biwa_cmd_capable(args: &[&str], current_dir: &Path) -> duct::Expression {
+	common::biwa_cmd_capable(args).dir(current_dir)
+}
+
 fn biwa_cmd_tilde(args: &[&str], current_dir: &Path) -> duct::Expression {
 	biwa_cmd(args, current_dir).env("BIWA_SYNC_REMOTE_ROOT", "~/.cache/biwa/projects")
+}
+
+fn biwa_cmd_capable_tilde(args: &[&str], current_dir: &Path) -> duct::Expression {
+	biwa_cmd_capable(args, current_dir).env("BIWA_SYNC_REMOTE_ROOT", "~/.cache/biwa/projects")
 }
 
 #[test]
@@ -500,6 +508,59 @@ fn e2e_sync_permissions(
 	assert!(
 		ls_group_stdout.contains(expected_group),
 		"group stdout: {ls_group_stdout}"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_setstat_permissions_on_capable_server() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let file_path = dir.path().join("secret.txt");
+	fs::write(&file_path, "secret")?;
+
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::PermissionsExt as _;
+
+		let mut perms = fs::metadata(&file_path)?.permissions();
+		perms.set_mode(0o644);
+		fs::set_permissions(&file_path, perms)?;
+	}
+
+	let run_cmd = |args: &[&str]| {
+		biwa_cmd_capable_tilde(args, dir.path()).env("BIWA_SYNC_SFTP_PERMISSIONS", "setstat")
+	};
+
+	let output = run_cmd(&["sync"])
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(
+		!stderr.contains("Failed to enforce file permissions via fsetstat"),
+		"stderr: {stderr}"
+	);
+
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let remote_file = format!("{remote_proj_dir}/secret.txt");
+	let ls_output = run_cmd(&["run", "--skip-sync", "ls", "-l", &remote_file])
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let ls_stdout = String::from_utf8_lossy(&ls_output.stdout);
+	assert!(
+		ls_output.status.success(),
+		"ls failed for {remote_file}: {ls_stdout}\nstderr: {}",
+		String::from_utf8_lossy(&ls_output.stderr)
+	);
+	assert!(
+		ls_stdout.contains("-rw-------"),
+		"File {remote_file} does not have 0600 permissions. ls output: {ls_stdout}"
 	);
 	Ok(())
 }

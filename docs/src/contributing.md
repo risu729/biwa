@@ -34,6 +34,13 @@ That's it! The environment is automatically managed by mise and `mise.toml`.
    ```
 5. Submit a Pull Request.
 
+End-to-end SSH tests use the Docker Compose services in `docker-compose.yml`. `pitchfork`
+normally starts them automatically; if they are not running, use:
+
+```bash
+pitchfork start --all
+```
+
 ## Documentation
 
 To work on documentation:
