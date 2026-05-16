@@ -83,6 +83,7 @@ impl SyncArgs {
 			force: self.force,
 			exclude: absolutize_patterns(&self.exclude, &cwd),
 			include: absolutize_patterns(&self.include, &cwd),
+			pull_overwrite: false,
 		}
 	}
 }
@@ -159,18 +160,22 @@ pub(super) fn record_connection_use(config: &Config, remote_dir: &str) {
 pub(super) struct Sync {
 	/// Synchronization options.
 	#[clap(flatten)]
-	sync_args: SyncArgs,
+	args: SyncArgs,
 
-	/// Pull remote project contents into the local sync root. Local files and directories missing from the remote source can be deleted.
+	/// Pull eligible remote project contents into the local sync root.
 	#[arg(long)]
 	pull: bool,
+
+	/// Allow pull to overwrite or delete local files and empty directories.
+	#[arg(long, requires = "pull")]
+	overwrite: bool,
 }
 
 impl Sync {
 	/// Run the sync logic.
 	pub async fn run(self, quiet: bool) -> Result<()> {
 		let config = Config::load()?;
-		let mut sync_root = self.sync_args.resolve_sync_root(&config)?;
+		let mut sync_root = self.args.resolve_sync_root(&config)?;
 		let direction = if self.pull {
 			create_dir_all(&sync_root)?;
 			sync_root = canonicalize(&sync_root)?;
@@ -178,8 +183,9 @@ impl Sync {
 		} else {
 			Direction::Push
 		};
-		let options = self.sync_args.resolve_options();
-		let remote_dir = self.sync_args.resolve_remote_dir(&config, &sync_root)?;
+		let mut options = self.args.resolve_options();
+		options.pull_overwrite = self.overwrite;
+		let remote_dir = self.args.resolve_remote_dir(&config, &sync_root)?;
 		let client = connect(&config, quiet).await?;
 
 		// Mark the directory as in use before remote work starts so background cleanup
@@ -192,7 +198,7 @@ impl Sync {
 			&sync_root,
 			&options,
 			direction,
-			self.sync_args.remote_dir.as_deref(),
+			self.args.remote_dir.as_deref(),
 			quiet,
 		)
 		.await?;
