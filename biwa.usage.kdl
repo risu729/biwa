@@ -18,10 +18,15 @@ flag "-q --quiet" help="Suppress biwa internal logs, only showing remote command
 flag "-s --silent" help="Suppress all output, including remote command stdout/stderr" global=#true
 arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true
 cmd activate help="Print shell activation code and manage direct command shims" {
-    flag --install help="Create or update configured static command shims"
-    arg "[ACTION]" help="Activation action to run" required=#false {
-        choices bash zsh fish doctor
+    flag --shell help="Print activation code for this shell" {
+        arg <SHELL> {
+            choices bash zsh fish
+        }
     }
+    cmd install help="Create or update configured static command shims" {
+        flag "-f --force" help="Replace existing shim files and ignore local command conflicts"
+    }
+    cmd doctor help="Print diagnostic information for direct command activation"
 }
 cmd run help="Run commands on remote host" {
     alias r

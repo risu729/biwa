@@ -29,7 +29,9 @@ Suppress all output, including remote command stdout/stderr
 
 ## Subcommands
 
-- [`biwa activate [--install] [ACTION]`](/cli/activate.md)
+- [`biwa activate [--shell <SHELL>] <SUBCOMMAND>`](/cli/activate.md)
+- [`biwa activate install [-f --force]`](/cli/activate/install.md)
+- [`biwa activate doctor`](/cli/activate/doctor.md)
 - [`biwa run [FLAGS] <COMMAND> [COMMAND_ARGS]…`](/cli/run.md)
 - [`biwa sync [FLAGS]`](/cli/sync.md)
 - [`biwa pull [FLAGS]`](/cli/pull.md)

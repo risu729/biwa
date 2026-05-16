@@ -34,10 +34,10 @@ prefer_local = true
 Create or update static command shims:
 
 ```bash
-biwa activate --install
+biwa activate install
 ```
 
-`biwa` can create shims for literal allow entries such as `^dcc$`, simple alternatives such as `^(give|autotest)$`, and keys present in `direct.default_args`. Regex families such as `^\\d{4}$` are matched at runtime, but `--install` cannot enumerate every possible name from them; add the specific command as a `default_args` key when you want a static shim for it.
+`biwa` can create shims for literal allow entries such as `^dcc$`, simple alternatives such as `^(give|autotest)$`, and keys present in `direct.default_args`. Regex families such as `^\\d{4}$` are matched at runtime, but `activate install` cannot enumerate every possible name from them; add the specific command as a `default_args` key when you want a static shim for it.
 
 ## Activate Your Shell
 
@@ -46,19 +46,19 @@ Add one of these to your shell configuration:
 ### Bash
 
 ```bash
-eval "$(biwa activate bash)"
+eval "$(biwa activate --shell bash)"
 ```
 
 ### Zsh
 
 ```zsh
-eval "$(biwa activate zsh)"
+eval "$(biwa activate --shell zsh)"
 ```
 
 ### Fish
 
 ```fish
-biwa activate fish | source
+biwa activate --shell fish | source
 ```
 
 Run diagnostics with:
@@ -69,9 +69,9 @@ biwa activate doctor
 
 ## Conflict Behavior
 
-When `direct.prefer_local = true`, `biwa activate --install` skips a shim if an executable with the same name appears earlier in `PATH`. The message identifies the local command that would take precedence.
+When `direct.prefer_local = true`, `biwa activate install` skips a shim if an executable with the same name appears earlier in `PATH`. The message identifies the local command that would take precedence. Use `biwa activate install --force` to create configured shims anyway and replace existing files in the shim directory.
 
-To replace a shim, rerun `biwa activate --install`. To remove direct command support, remove the activation line from your shell config and delete the shim directory:
+To replace a shim, rerun `biwa activate install`. To remove direct command support, remove the activation line from your shell config and delete the shim directory:
 
 ```bash
 rm -rf ~/.local/share/biwa/bin
