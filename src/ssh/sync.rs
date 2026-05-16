@@ -357,13 +357,8 @@ fn collect_parent_directories_into(files: &[LocalFile], directories: &mut HashSe
 	}
 }
 
-/// Fetches the current remote directory and file state.
-async fn fetch_remote_state(
-	client: &Client,
-	config: &Config,
-	remote_dir: &str,
-	create_remote_dir: bool,
-) -> Result<RemoteState> {
+/// Builds the remote shell script that emits directory, symlink, and file hash state.
+fn build_remote_state_script(config: &Config, remote_dir: &str, create_remote_dir: bool) -> String {
 	let quoted_remote_dir = shell_quote_path(remote_dir);
 	let dir_mode = format!("{:04o}", 0o777 & !config.ssh.umask.as_u32());
 	let quoted_marker = shell_words::quote(REMOTE_FILE_MARKER).into_owned();
@@ -378,7 +373,7 @@ async fn fetch_remote_state(
 
 	// Prepare the remote dir, normalize directory permissions, then print directories,
 	// symlinks, and file hashes without following symlinks.
-	let script = format!(
+	format!(
 		"umask {} && {prepare_remote_dir} \
 		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
 		 if [ ! -d {quoted_remote_dir} ]; then echo 'Error: remote directory is not a directory' >&2; exit 1; fi && \
@@ -390,7 +385,17 @@ async fn fetch_remote_state(
 		 printf '%s\n' {quoted_marker} && \
 		 (find . -type f -exec sha256sum {{}} + || true)",
 		&config.ssh.umask
-	);
+	)
+}
+
+/// Fetches the current remote directory and file state.
+async fn fetch_remote_state(
+	client: &Client,
+	config: &Config,
+	remote_dir: &str,
+	create_remote_dir: bool,
+) -> Result<RemoteState> {
+	let script = build_remote_state_script(config, remote_dir, create_remote_dir);
 
 	let result = client
 		.execute(&script)
@@ -1083,16 +1088,7 @@ async fn apply_pull_actions(
 		return Ok(());
 	}
 
-	stats.deleted = stats
-		.deleted
-		.saturating_add(delete_local_files(project_root, &actions.file_deletions).await?);
-	stats.deleted = stats.deleted.saturating_add(
-		delete_local_directories(project_root, &actions.directory_deletions).await?,
-	);
-
-	for directory in &actions.directory_creations {
-		ensure_local_directory(project_root, directory)?;
-	}
+	apply_local_pull_actions(project_root, &actions, stats).await?;
 
 	if actions.downloads.is_empty() {
 		return Ok(());
@@ -1122,6 +1118,26 @@ async fn apply_pull_actions(
 		let remote_path = format!("{remote_dir}/{rel_path}");
 		download_file(&sftp, &remote_path, project_root, &rel_path).await?;
 		stats.downloaded = stats.downloaded.saturating_add(1);
+	}
+
+	Ok(())
+}
+
+/// Applies the local filesystem side of a pull operation.
+async fn apply_local_pull_actions(
+	project_root: &Path,
+	actions: &PullActions,
+	stats: &mut Stats,
+) -> Result<()> {
+	stats.deleted = stats
+		.deleted
+		.saturating_add(delete_local_files(project_root, &actions.file_deletions).await?);
+	stats.deleted = stats.deleted.saturating_add(
+		delete_local_directories(project_root, &actions.directory_deletions).await?,
+	);
+
+	for directory in &actions.directory_creations {
+		ensure_local_directory(project_root, directory)?;
 	}
 
 	Ok(())
@@ -1648,6 +1664,22 @@ mod tests {
 	}
 
 	#[test]
+	fn build_remote_state_script_creates_only_for_push() {
+		let config = Config::default();
+
+		let push_script = build_remote_state_script(&config, "~/project", true);
+		assert!(push_script.contains("mkdir -p -- \"$HOME\"/project"));
+		assert!(push_script.contains("find . -type l -print"));
+		assert!(push_script.contains(REMOTE_SYMLINK_MARKER));
+		assert!(push_script.contains(REMOTE_FILE_MARKER));
+
+		let pull_script = build_remote_state_script(&config, "~/project", false);
+		assert!(!pull_script.contains("mkdir -p --"));
+		assert!(pull_script.contains("remote directory does not exist"));
+		assert!(pull_script.contains("remote directory is not a directory"));
+	}
+
+	#[test]
 	fn calculate_push_actions_creates_and_deletes_empty_directories() {
 		let actions = calculate_push_actions(
 			&LocalState {
@@ -1732,6 +1764,37 @@ mod tests {
 			vec!["changed.txt".to_owned(), "missing.txt".to_owned()]
 		);
 		assert!(actions.file_deletions.is_empty());
+	}
+
+	#[test]
+	fn calculate_push_actions_deletes_remote_files_missing_locally() {
+		let actions = calculate_push_actions(
+			&LocalState::default(),
+			&RemoteState {
+				file_hashes: HashMap::from([("stale.txt".to_owned(), "hash".to_owned())]),
+				directories: HashSet::new(),
+				symlinks: HashSet::new(),
+			},
+			&Options::default(),
+		);
+
+		assert_eq!(actions.file_deletions, vec!["stale.txt".to_owned()]);
+		assert!(actions.uploads.is_empty());
+	}
+
+	#[test]
+	fn collect_remote_directories_to_create_includes_upload_parents() {
+		let actions = PushActions {
+			uploads: vec![PathBuf::from("nested/file.txt")],
+			file_deletions: Vec::new(),
+			directory_creations: vec!["empty".to_owned()],
+			directory_deletions: Vec::new(),
+		};
+
+		assert_eq!(
+			collect_remote_directories_to_create(&actions),
+			vec!["empty".to_owned(), "nested".to_owned()]
+		);
 	}
 
 	#[test]
@@ -1843,6 +1906,147 @@ mod tests {
 			"error: {error}"
 		);
 		assert!(!outside.path().join("child").exists());
+	}
+
+	#[test]
+	fn ensure_local_file_parent_creates_checked_parent() {
+		let dir = tempdir().unwrap();
+		let path = ensure_local_file_parent(dir.path(), "nested/file.txt").unwrap();
+
+		assert_eq!(path, dir.path().join("nested/file.txt"));
+		assert!(dir.path().join("nested").is_dir());
+	}
+
+	#[tokio::test]
+	async fn create_download_temp_file_retries_existing_name() {
+		let dir = tempdir().unwrap();
+		let target = dir.path().join("file.txt");
+		let attempt_zero = dir
+			.path()
+			.join(format!(".file.txt.biwa-download-{}-0", process::id()));
+		fs::write(&attempt_zero, "existing").unwrap();
+
+		let (temp_path, file) = create_download_temp_file(&target).await.unwrap();
+		assert_eq!(
+			temp_path,
+			dir.path()
+				.join(format!(".file.txt.biwa-download-{}-1", process::id()))
+		);
+		drop(file);
+		assert!(temp_path.exists());
+	}
+
+	#[tokio::test]
+	async fn delete_local_files_removes_files_and_rejects_directories() {
+		let dir = tempdir().unwrap();
+		fs::write(dir.path().join("stale.txt"), "stale").unwrap();
+
+		let deleted = delete_local_files(
+			dir.path(),
+			&["stale.txt".to_owned(), "missing.txt".to_owned()],
+		)
+		.await
+		.unwrap();
+		assert_eq!(deleted, 1);
+		assert!(!dir.path().join("stale.txt").exists());
+
+		fs::create_dir_all(dir.path().join("not-file")).unwrap();
+		let error = delete_local_files(dir.path(), &["not-file".to_owned()])
+			.await
+			.unwrap_err();
+		assert!(
+			error
+				.to_string()
+				.contains("Refusing to delete local directory as a file"),
+			"error: {error}"
+		);
+	}
+
+	#[tokio::test]
+	async fn delete_local_directories_removes_dirs_and_rejects_files() {
+		let dir = tempdir().unwrap();
+		fs::create_dir_all(dir.path().join("stale")).unwrap();
+
+		let deleted =
+			delete_local_directories(dir.path(), &["stale".to_owned(), "missing".to_owned()])
+				.await
+				.unwrap();
+		assert_eq!(deleted, 1);
+		assert!(!dir.path().join("stale").exists());
+
+		fs::write(dir.path().join("not-dir"), "file").unwrap();
+		let error = delete_local_directories(dir.path(), &["not-dir".to_owned()])
+			.await
+			.unwrap_err();
+		assert!(
+			error
+				.to_string()
+				.contains("Refusing to delete local non-directory as a directory"),
+			"error: {error}"
+		);
+	}
+
+	#[cfg(unix)]
+	#[tokio::test]
+	async fn delete_local_directories_rejects_symlinks() {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir().unwrap();
+		let outside = tempdir().unwrap();
+		symlink(outside.path(), dir.path().join("link")).unwrap();
+
+		let error = delete_local_directories(dir.path(), &["link".to_owned()])
+			.await
+			.unwrap_err();
+		assert!(
+			error
+				.to_string()
+				.contains("Refusing to delete local symlink as a directory"),
+			"error: {error}"
+		);
+		assert!(outside.path().exists());
+	}
+
+	#[tokio::test]
+	async fn apply_local_pull_actions_updates_local_state_and_stats() {
+		let dir = tempdir().unwrap();
+		fs::write(dir.path().join("stale.txt"), "stale").unwrap();
+		fs::create_dir_all(dir.path().join("stale-dir")).unwrap();
+		let actions = PullActions {
+			downloads: vec!["download.txt".to_owned()],
+			file_deletions: vec!["stale.txt".to_owned()],
+			directory_creations: vec!["empty/nested".to_owned()],
+			directory_deletions: vec!["stale-dir".to_owned()],
+		};
+		let mut stats = Stats::default();
+
+		apply_local_pull_actions(dir.path(), &actions, &mut stats)
+			.await
+			.unwrap();
+
+		assert_eq!(stats.deleted, 2);
+		assert!(!dir.path().join("stale.txt").exists());
+		assert!(!dir.path().join("stale-dir").exists());
+		assert!(dir.path().join("empty/nested").is_dir());
+	}
+
+	#[test]
+	fn ensure_no_remote_symlinks_reports_sorted_entries() {
+		ensure_no_remote_symlinks(&RemoteState::default()).unwrap();
+
+		let error = ensure_no_remote_symlinks(&RemoteState {
+			file_hashes: HashMap::new(),
+			directories: HashSet::new(),
+			symlinks: HashSet::from(["z".to_owned(), "a".to_owned()]),
+		})
+		.unwrap_err();
+
+		assert!(
+			error
+				.to_string()
+				.contains("Refusing to pull remote symlink entries: a, z"),
+			"error: {error}"
+		);
 	}
 
 	#[test]
