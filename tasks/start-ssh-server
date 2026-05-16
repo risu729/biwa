@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+containers=(
+	ssh_test_server
+	ssh_test_server_capable
+)
+
+for container in "${containers[@]}"; do
+	status=$(docker inspect --format '{{.State.Status}}' "${container}" 2>/dev/null || true)
+	if [[ -n "${status}" && "${status}" != "running" ]]; then
+		echo "Removing stale SSH test container ${container} (${status})." >&2
+		docker rm --force "${container}" >/dev/null
+	fi
+done
+
+exec docker compose up --build
