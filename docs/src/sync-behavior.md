@@ -1,18 +1,46 @@
 # Sync Behavior
 
-Synchronize local project files to the remote server.
+Synchronize project files between the local sync root and the remote server.
 
-By default, `biwa run` automatically runs `biwa sync` before executing your command unless `sync.auto` is set to `false` in your configuration.
+By default, `biwa sync` pushes local files to the remote server. `biwa run` automatically runs that push sync before executing your command unless `sync.auto` is set to `false` in your configuration.
 
 ## Features
 
-- **Smart Hashing**: Computes SHA-256 hash to only upload modified/new files.
+- **Smart Hashing**: Computes SHA-256 hash to only upload or download modified/new files.
 - **Directory Tracking**: Synchronizes directory presence as well as file contents, including empty directories.
-- **Cleanup**: Automatically deletes remote files and directories that no longer exist locally.
+- **Cleanup**: Push deletes remote files and directories that no longer exist locally. Pull deletes selected local files and directories that no longer exist remotely.
 - **Ignore files & Standard Filters**: By default, standard filters are used (`.gitignore`, parent git ignores, git excludes). Hidden files (such as `.env`) are **not** ignored by default. You can use the custom `.biwaignore` file to ignore them.
 - **Secure Permissions**: Enforces `0700` for directories. File permissions are preserved from the local filesystem but restricted to user-only access (e.g. `0644` becomes `0600`, `0755` becomes `0700`).
 
 If a directory still exists locally after its last file is removed, `biwa sync` will keep it on the remote side as an empty directory instead of deleting it.
+
+## Sync Direction
+
+### Push: local to remote
+
+Push is the default direction:
+
+```sh
+biwa sync
+```
+
+The local sync root is the source of truth. Files are uploaded when they are missing remotely, have different hashes, or `--force` is passed. Remote files and directories that are no longer present locally are removed.
+
+### Pull: remote to local
+
+Use `--pull` to treat the remote project directory as the source of truth:
+
+```sh
+biwa sync --pull
+biwa sync --pull --remote-dir "~/course-work/lab01"
+biwa sync --pull --sync-root ./lab01 --remote-dir "~/course-work/lab01"
+```
+
+Pull can overwrite or delete local files inside the sync root. Files are downloaded when they are missing locally, have different hashes, or `--force` is passed. Selected local files and directories that are missing from the remote source are deleted, and empty remote directories are created locally.
+
+Pull requires the remote project directory to already exist. This avoids treating a mistyped remote path as an empty source and deleting local files.
+
+Pull refuses remote symlink entries instead of following or recreating them. Local writes are also guarded so parent symlinks are not traversed.
 
 ## Sync Root
 
@@ -38,6 +66,8 @@ Biwa utilizes `globset` for specifying target exclusions and inclusions, support
 - **CLI `--exclude` / `--include`**: Globs are resolved relative to your current working directory (CWD).
 
 _Example_: running `biwa sync --exclude "tests/**"` from a subdirectory will correctly match and exclude the `tests` folder relative to that directory.
+
+For pull, remote paths are matched against their corresponding local path under the sync root. Excluded remote files are not downloaded, and local files outside the selected include/exclude scope are not deleted. This is intentionally narrower than push cleanup, which compares the full remote project directory against the selected local state.
 
 ## Working Directory
 
