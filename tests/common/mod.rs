@@ -70,6 +70,7 @@ where
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_CLEAN_AUTO", "false")
 		.env("BIWA_STATE_DIR", TEST_STATE_DIR.path())
+		.env("XDG_DATA_HOME", TEST_STATE_DIR.path())
 }
 
 /// Creates a `duct::Expression` to run the `biwa` CLI against the capable SSH server.

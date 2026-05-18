@@ -180,19 +180,19 @@ expression: content
     // Default value: false
     //enabled: false,
 
-    // Directory containing direct command shims.
+    // Directory containing direct command shims. If unset, uses the platform data directory.
     //
     // Can also be specified via environment variable `BIWA_DIRECT_BIN_DIR`.
-    //
-    // Default value: "~\/.local\/share\/biwa\/bin"
-    //bin_dir: "~\/.local\/share\/biwa\/bin",
+    //bin_dir: ,
 
     // Regular expressions matching command names that may dispatch remotely.
+    //
+    // Higher-priority config layers replace this list instead of appending to it.
     //
     // Default value: []
     //allow: [],
 
-    // Arguments inserted after the command name and before user-supplied arguments.
+    // `biwa run` options inserted before the direct command name.
     //
     // Default value: {}
     //default_args: {},

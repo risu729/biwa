@@ -18,7 +18,7 @@
       "$ref": "#/$defs/DirectConfig",
       "default": {
         "allow": [],
-        "bin_dir": "~/.local/share/biwa/bin",
+        "bin_dir": null,
         "default_args": {},
         "enabled": false,
         "prefer_local": true
@@ -113,7 +113,7 @@
       "type": "object",
       "properties": {
         "allow": {
-          "description": "Regular expressions matching command names that may dispatch remotely.",
+          "description": "Regular expressions matching command names that may dispatch remotely.\n\nHigher-priority config layers replace this list instead of appending to it.",
           "type": "array",
           "default": [],
           "items": {
@@ -121,12 +121,14 @@
           }
         },
         "bin_dir": {
-          "description": "Directory containing direct command shims.",
-          "type": "string",
-          "default": "~/.local/share/biwa/bin"
+          "description": "Directory containing direct command shims. If unset, uses the platform data directory.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "default_args": {
-          "description": "Arguments inserted after the command name and before user-supplied arguments.",
+          "description": "`biwa run` options inserted before the direct command name.",
           "type": "object",
           "additionalProperties": {
             "type": "array",

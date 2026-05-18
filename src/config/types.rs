@@ -7,7 +7,7 @@ use derive_more::Deref;
 use schemars::JsonSchema;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 
 /// Maximum allowed umask value (0o777 = 511). Three digits (owner/group/other) only.
 const UMASK_MAX: u32 = 0o777;
@@ -132,12 +132,6 @@ mod schema_defaults {
 	#[must_use]
 	pub const fn clean_auto() -> bool {
 		true
-	}
-
-	/// Default for `DirectConfig::bin_dir` in schema.
-	#[must_use]
-	pub fn direct_bin_dir() -> PathBuf {
-		PathBuf::from("~/.local/share/biwa/bin")
 	}
 
 	/// Default for `DirectConfig::prefer_local` in schema.
@@ -437,15 +431,16 @@ pub struct DirectConfig {
 	#[config(default = false, env = "BIWA_DIRECT_ENABLED")]
 	#[schemars(default)]
 	pub enabled: bool,
-	/// Directory containing direct command shims.
-	#[config(default = "~/.local/share/biwa/bin", env = "BIWA_DIRECT_BIN_DIR")]
-	#[schemars(default = "crate::config::types::schema_defaults::direct_bin_dir")]
-	pub bin_dir: PathBuf,
+	/// Directory containing direct command shims. If unset, uses the platform data directory.
+	#[config(env = "BIWA_DIRECT_BIN_DIR")]
+	pub bin_dir: Option<PathBuf>,
 	/// Regular expressions matching command names that may dispatch remotely.
+	///
+	/// Higher-priority config layers replace this list instead of appending to it.
 	#[config(default = [])]
 	#[schemars(default)]
 	pub allow: Vec<String>,
-	/// Arguments inserted after the command name and before user-supplied arguments.
+	/// `biwa run` options inserted before the direct command name.
 	#[config(default = {})]
 	#[schemars(default)]
 	pub default_args: BTreeMap<String, Vec<String>>,
@@ -455,10 +450,36 @@ pub struct DirectConfig {
 	pub prefer_local: bool,
 }
 
+impl DirectConfig {
+	/// Returns the direct command shim directory.
+	#[must_use]
+	pub fn resolved_bin_dir(&self) -> PathBuf {
+		self.bin_dir.clone().unwrap_or_else(default_direct_bin_dir)
+	}
+}
+
 impl Default for DirectConfig {
 	fn default() -> Self {
 		Config::default().direct
 	}
+}
+
+/// Returns the default direct shim directory from the platform data directory.
+#[must_use]
+pub fn default_direct_bin_dir() -> PathBuf {
+	default_data_dir().join("biwa/bin")
+}
+
+/// Returns the platform data directory, falling back to the conventional XDG path.
+fn default_data_dir() -> PathBuf {
+	dirs::data_dir()
+		.or_else(|| {
+			homedir::my_home()
+				.ok()
+				.flatten()
+				.map(|home| home.join(".local/share"))
+		})
+		.unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
 }
 
 #[cfg(test)]

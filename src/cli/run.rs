@@ -7,7 +7,8 @@ use crate::{
 	ssh::exec::{ExecuteCommandOptions, connect, execute_command},
 	ssh::sync::sync_project,
 };
-use clap::Args;
+use clap::{Args, Parser as _};
+use color_eyre::eyre::{WrapErr as _, bail};
 use tracing::warn;
 
 /// Run a command on the CSE server.
@@ -48,6 +49,86 @@ pub(super) struct RemoteCommand<'a> {
 	pub command_args: &'a [String],
 	/// CLI `--env` arguments to merge with config env vars.
 	pub cli_env_vars: &'a [String],
+}
+
+/// `biwa run` options supplied by direct command defaults.
+#[derive(Debug)]
+pub(super) struct RunOptions {
+	/// Explicitly skip automatic synchronization before running the command.
+	skip_sync: bool,
+	/// Explicitly force automatic synchronization before running the command.
+	sync: bool,
+	/// Synchronization options.
+	sync_args: SyncArgs,
+	/// Environment variables requested by `--env`.
+	env_vars: Vec<String>,
+}
+
+impl RunOptions {
+	/// Determines whether synchronization should be performed before running the command.
+	pub const fn should_sync(&self, config_sync_auto: bool) -> bool {
+		if self.sync {
+			true
+		} else if self.skip_sync || self.sync_args.remote_dir.is_some() {
+			false
+		} else {
+			config_sync_auto
+		}
+	}
+
+	/// Returns synchronization options.
+	pub const fn sync_args(&self) -> &SyncArgs {
+		&self.sync_args
+	}
+
+	/// Returns CLI environment variable forwarding options.
+	pub fn env_vars(&self) -> &[String] {
+		&self.env_vars
+	}
+}
+
+impl From<Run> for RunOptions {
+	fn from(run: Run) -> Self {
+		Self {
+			skip_sync: run.skip_sync,
+			sync: run.sync,
+			sync_args: run.sync_args,
+			env_vars: run.env_vars,
+		}
+	}
+}
+
+/// Parses direct command defaults as `biwa run` options, not remote command arguments.
+pub(super) fn parse_direct_run_options(
+	command: &str,
+	default_args: &[String],
+) -> Result<RunOptions> {
+	const PLACEHOLDER_COMMAND: &str = "__biwa_direct_command__";
+
+	let parse_argv = ["biwa".to_owned(), "run".to_owned()]
+		.into_iter()
+		.chain(default_args.iter().cloned())
+		.chain([PLACEHOLDER_COMMAND.to_owned()]);
+	let cli = super::Cli::try_parse_from(parse_argv)
+		.wrap_err_with(|| format!("Invalid direct.default_args for `{command}`"))?;
+
+	if cli.verbose != 0 || cli.quiet || cli.silent {
+		bail!(
+			"`direct.default_args.{command}` supports `biwa run` options only; use BIWA_LOG_* environment variables for direct-command output defaults."
+		);
+	}
+
+	let Some(super::Commands::Run(run)) = cli.command else {
+		bail!("`direct.default_args.{command}` must contain `biwa run` options only.");
+	};
+
+	if run.command != PLACEHOLDER_COMMAND || !run.command_args.is_empty() {
+		bail!(
+			"`direct.default_args.{command}` must not include the remote command or remote command arguments."
+		);
+	}
+
+	Ok(run.into())
 }
 
 /// Shared execution path for remote commands (used by both `biwa run` and implicit `biwa <args>`).
