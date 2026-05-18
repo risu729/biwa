@@ -97,7 +97,7 @@ jobs:
         with:
           version: 2026.5.5
           install_args: --locked
-          cache_key: "{{default}}-rustup-cargo-home-v1"
+          cache_key: "{{default}}-rustup-cargo-home-v2"
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -143,7 +143,7 @@ jobs:
         with:
           version: 2026.5.5
           install_args: --locked
-          cache_key: "{{default}}-rustup-cargo-home-v1"
+          cache_key: "{{default}}-rustup-cargo-home-v2"
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -187,7 +187,7 @@ jobs:
         with:
           version: 2026.5.5
           install_args: --locked
-          cache_key: "{{default}}-rustup-cargo-home-v1"
+          cache_key: "{{default}}-rustup-cargo-home-v2"
 
       - name: Validate schema
         run: mise run schema

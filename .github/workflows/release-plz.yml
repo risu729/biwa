@@ -44,7 +44,7 @@ jobs:
         with:
           version: 2026.5.5
           install_args: --locked
-          cache_key: "{{default}}-rustup-cargo-home-v1"
+          cache_key: "{{default}}-rustup-cargo-home-v2"
 
       - name: Create biwa-bot GitHub App token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -89,7 +89,7 @@ jobs:
         with:
           version: 2026.5.5
           install_args: --locked
-          cache_key: "{{default}}-rustup-cargo-home-v1"
+          cache_key: "{{default}}-rustup-cargo-home-v2"
 
       - name: Create biwa-bot GitHub App token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0

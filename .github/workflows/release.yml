@@ -70,7 +70,7 @@ jobs:
           version: 2026.5.5
           install_args: --locked
           cache: ${{ steps.mode.outputs.publishing == 'false' }}
-          cache_key: "{{default}}-release-rustup-cargo-home-v1"
+          cache_key: "{{default}}-release-rustup-cargo-home-v2"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
@@ -126,7 +126,7 @@ jobs:
           version: 2026.5.5
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
-          cache_key: "{{default}}-release-rustup-cargo-home-v1"
+          cache_key: "{{default}}-release-rustup-cargo-home-v2"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
@@ -226,7 +226,7 @@ jobs:
           version: 2026.5.5
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
-          cache_key: "{{default}}-release-rustup-cargo-home-v1"
+          cache_key: "{{default}}-release-rustup-cargo-home-v2"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
