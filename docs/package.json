@@ -3,8 +3,8 @@
 	"type": "module",
 	"scripts": {
 		"build": "vitepress build",
-		"deploy": "wrangler deploy",
-		"deploy-preview": "wrangler versions upload"
+		"deploy": "wrangler deploy --config .vitepress/dist/wrangler.json",
+		"deploy-preview": "wrangler versions upload --config .vitepress/dist/wrangler.json"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "1.37.0",
