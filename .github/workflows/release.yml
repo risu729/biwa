@@ -56,15 +56,21 @@ jobs:
             } >> "${GITHUB_OUTPUT}"
           fi
 
+      - name: Configure mise Rust homes
+        run: |
+          {
+            echo "MISE_RUSTUP_HOME=${HOME}/.local/share/mise/rustup"
+            echo "MISE_CARGO_HOME=${HOME}/.local/share/mise/cargo"
+          } >> "${GITHUB_ENV}"
+
       - name: Install mise
         id: install-mise
-        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.5
           install_args: --locked
           cache: ${{ steps.mode.outputs.publishing == 'false' }}
-          cache_key: "{{default}}-release"
-          cache_rust: true
+          cache_key: "{{default}}-release-rustup-cargo-home-v2"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
@@ -106,15 +112,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Configure mise Rust homes
+        run: |
+          {
+            echo "MISE_RUSTUP_HOME=${HOME}/.local/share/mise/rustup"
+            echo "MISE_CARGO_HOME=${HOME}/.local/share/mise/cargo"
+          } >> "${GITHUB_ENV}"
+
       - name: Install mise
         id: install-mise
-        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.5
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
-          cache_key: "{{default}}-release"
-          cache_rust: true
+          cache_key: "{{default}}-release-rustup-cargo-home-v2"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
@@ -123,6 +135,7 @@ jobs:
         if: needs.plan.outputs.publishing == 'false'
         with:
           key: ${{ join(matrix.targets, '-') }}
+          cache-bin: "false"
 
       - name: Install dependencies
         # zizmor: ignore[template-injection] required to run arbitrary commands
@@ -199,15 +212,21 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Configure mise Rust homes
+        run: |
+          {
+            echo "MISE_RUSTUP_HOME=${HOME}/.local/share/mise/rustup"
+            echo "MISE_CARGO_HOME=${HOME}/.local/share/mise/cargo"
+          } >> "${GITHUB_ENV}"
+
       - name: Install mise
         id: install-mise
-        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.5
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
-          cache_key: "{{default}}-release"
-          cache_rust: true
+          cache_key: "{{default}}-release-rustup-cargo-home-v2"
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
 
@@ -267,8 +286,15 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Configure mise Rust homes
+        run: |
+          {
+            echo "MISE_RUSTUP_HOME=${HOME}/.local/share/mise/rustup"
+            echo "MISE_CARGO_HOME=${HOME}/.local/share/mise/cargo"
+          } >> "${GITHUB_ENV}"
+
       - name: Install mise
-        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.5
           install_args: --locked

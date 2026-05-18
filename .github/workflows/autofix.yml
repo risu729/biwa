@@ -32,11 +32,18 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Configure mise Rust homes
+        run: |
+          {
+            echo "MISE_RUSTUP_HOME=${HOME}/.local/share/mise/rustup"
+            echo "MISE_CARGO_HOME=${HOME}/.local/share/mise/cargo"
+          } >> "${GITHUB_ENV}"
+
       - name: Install mise
-        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.5
-          cache_rust: true
+          cache_key: "{{default}}-rustup-cargo-home-v2"
 
       - name: Update mise lockfile
         if: github.event.pull_request.user.login == 'renovate[bot]'
