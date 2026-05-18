@@ -262,6 +262,40 @@ fn add_pull_ignore_file(
 	Ok(())
 }
 
+/// Adds ignore files found below the sync root in deterministic directory order.
+fn add_descendant_pull_ignore_files(matchers: &mut Vec<PullIgnore>, root: &Path) -> Result<()> {
+	let mut builder = WalkBuilder::new(root);
+	builder.standard_filters(true);
+	builder.add_custom_ignore_filename(".biwaignore");
+	builder.hidden(false);
+	builder.require_git(false);
+
+	let mut ignore_roots = HashSet::new();
+	for entry in builder.build() {
+		let entry = entry?;
+		let path = entry.path();
+		if path == root {
+			continue;
+		}
+		let file_name = entry.file_name();
+		if (file_name == ".gitignore" || file_name == ".biwaignore")
+			&& let Some(parent) = path.parent()
+			&& parent != root
+		{
+			ignore_roots.insert(parent.to_path_buf());
+		}
+	}
+
+	let mut ignore_roots = ignore_roots.into_iter().collect::<Vec<_>>();
+	ignore_roots.sort_unstable();
+	for ignore_root in ignore_roots {
+		add_pull_ignore_file(matchers, &ignore_root, &ignore_root.join(".gitignore"))?;
+		add_pull_ignore_file(matchers, &ignore_root, &ignore_root.join(".biwaignore"))?;
+	}
+
+	Ok(())
+}
+
 /// Builds gitignore-style rules that remote pull filtering must respect.
 fn build_pull_ignore_matcher(root: &Path) -> Result<PullIgnoreMatcher> {
 	let roots = pull_ignore_roots(root);
@@ -283,6 +317,7 @@ fn build_pull_ignore_matcher(root: &Path) -> Result<PullIgnoreMatcher> {
 			&ignore_root.join(".biwaignore"),
 		)?;
 	}
+	add_descendant_pull_ignore_files(&mut matchers, root)?;
 
 	Ok(PullIgnoreMatcher { matchers })
 }
@@ -2435,6 +2470,65 @@ mod tests {
 		assert!(filtered.file_hashes.contains_key("src/main.rs"));
 		assert_eq!(filtered.directories, HashSet::from(["src".to_owned()]));
 		assert_eq!(filtered.symlinks, HashSet::from(["src/link".to_owned()]));
+	}
+
+	#[test]
+	fn filter_remote_state_for_pull_respects_nested_ignore_files() {
+		let dir = tempdir().unwrap();
+		fs::create_dir_all(dir.path().join("src").join("nested")).unwrap();
+		fs::write(
+			dir.path().join("src").join(".gitignore"),
+			"ignored.txt\nignored-dir/\n",
+		)
+		.unwrap();
+		fs::write(
+			dir.path().join("src").join("nested").join(".biwaignore"),
+			"!public.txt\nsecret.*\n",
+		)
+		.unwrap();
+		fs::write(
+			dir.path().join("src").join("nested").join(".gitignore"),
+			"public.txt\n",
+		)
+		.unwrap();
+		let remote_state = RemoteState {
+			file_hashes: HashMap::from([
+				("src/kept.txt".to_owned(), "hash1".to_owned()),
+				("src/ignored.txt".to_owned(), "hash2".to_owned()),
+				("src/ignored-dir/file.txt".to_owned(), "hash3".to_owned()),
+				("src/nested/public.txt".to_owned(), "hash4".to_owned()),
+				("src/nested/secret.txt".to_owned(), "hash5".to_owned()),
+			]),
+			directories: HashSet::from([
+				"src".to_owned(),
+				"src/ignored-dir".to_owned(),
+				"src/nested".to_owned(),
+			]),
+			symlinks: HashSet::from([
+				"src/nested/link".to_owned(),
+				"src/nested/secret.link".to_owned(),
+			]),
+		};
+
+		let filtered =
+			filter_remote_state_for_pull(remote_state, dir.path(), &[], &Options::default())
+				.unwrap();
+
+		assert_eq!(
+			filtered.file_hashes.keys().cloned().collect::<HashSet<_>>(),
+			HashSet::from([
+				"src/kept.txt".to_owned(),
+				"src/nested/public.txt".to_owned()
+			])
+		);
+		assert_eq!(
+			filtered.directories,
+			HashSet::from(["src".to_owned(), "src/nested".to_owned()])
+		);
+		assert_eq!(
+			filtered.symlinks,
+			HashSet::from(["src/nested/link".to_owned()])
+		);
 	}
 
 	#[test]
