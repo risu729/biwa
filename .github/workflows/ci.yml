@@ -85,15 +85,24 @@ jobs:
       - name: Start SSH test services
         run: docker compose up --build --detach --wait --wait-timeout 60
 
+      - name: Configure mise Rust homes
+        run: |
+          {
+            echo "MISE_RUSTUP_HOME=${HOME}/.local/share/mise/rustup"
+            echo "MISE_CARGO_HOME=${HOME}/.local/share/mise/cargo"
+          } >> "${GITHUB_ENV}"
+
       - name: Install mise
-        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.5
           install_args: --locked
-          cache_rust: true
+          cache_key: "{{default}}-rustup-cargo-home-v1"
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          cache-bin: "false"
 
       - name: Test (coverage)
         run: mise run test:coverage
@@ -122,15 +131,24 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Configure mise Rust homes
+        run: |
+          {
+            echo "MISE_RUSTUP_HOME=${HOME}/.local/share/mise/rustup"
+            echo "MISE_CARGO_HOME=${HOME}/.local/share/mise/cargo"
+          } >> "${GITHUB_ENV}"
+
       - name: Install mise
-        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.5
           install_args: --locked
-          cache_rust: true
+          cache_key: "{{default}}-rustup-cargo-home-v1"
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          cache-bin: "false"
 
       - name: Render
         run: mise run --jobs 1 --continue-on-error render
@@ -157,12 +175,19 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Configure mise Rust homes
+        run: |
+          {
+            echo "MISE_RUSTUP_HOME=${HOME}/.local/share/mise/rustup"
+            echo "MISE_CARGO_HOME=${HOME}/.local/share/mise/cargo"
+          } >> "${GITHUB_ENV}"
+
       - name: Install mise
-        uses: risu729/mise-action@f2054108d3926f722fd54c7fc70a1224cb691032 # zizmor: ignore[stale-action-refs,ref-version-mismatch] temporary SHA for jdx/mise-action PR 467
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.5
           install_args: --locked
-          cache_rust: true
+          cache_key: "{{default}}-rustup-cargo-home-v1"
 
       - name: Validate schema
         run: mise run schema
