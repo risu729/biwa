@@ -3,8 +3,8 @@
 	"type": "module",
 	"scripts": {
 		"build": "vitepress build",
-		"deploy": "wrangler deploy --config .vitepress/dist/wrangler.json",
-		"deploy-preview": "wrangler versions upload --config .vitepress/dist/wrangler.json"
+		"deploy": "mise x --no-deps -- wrangler deploy --config .vitepress/dist/wrangler.json",
+		"deploy-preview": "mise x --no-deps -- wrangler versions upload --config .vitepress/dist/wrangler.json"
 	},
 	"devDependencies": {
 		"@cloudflare/vite-plugin": "1.37.0",
@@ -14,8 +14,7 @@
 		"typescript": "6.0.3",
 		"vitepress": "2.0.0-alpha.17",
 		"vitepress-plugin-mermaid": "2.0.17",
-		"vue-tsc": "3.2.9",
-		"wrangler": "4.91.0"
+		"vue-tsc": "3.2.9"
 	},
 	"overrides": {
 		"vite": "8.0.13"
