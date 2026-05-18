@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# Use configured container names because stale containers can belong to an older
+# Compose project and therefore not appear in `docker compose ps`.
+container_names=$(
+	docker compose config --format json \
+		| yq --input-format json --output-format tsv '.services[].container_name | select(. != null)'
+)
+
+while IFS= read -r container; do
+	[[ -n "${container}" ]] || continue
+	status=$(docker inspect --format '{{.State.Status}}' "${container}" 2>/dev/null || true)
+	if [[ -n "${status}" && "${status}" != "running" ]]; then
+		echo "Removing stale SSH test container ${container} (${status})." >&2
+		docker rm --force "${container}" >/dev/null
+	fi
+done <<<"${container_names}"
+
+exec docker compose up --build

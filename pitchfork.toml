@@ -4,8 +4,12 @@
 general.mise = true
 
 [daemons.ssh-server]
-run = "docker compose up --build"
-watch = ["docker-compose.yml", "tests/fixtures/ssh-capable/Dockerfile"]
+run = "./tasks/start-ssh-server"
+watch = [
+	"docker-compose.yml",
+	"tasks/start-ssh-server",
+	"tests/fixtures/ssh-capable/Dockerfile"
+]
 auto = ["start", "stop"]
 ready_cmd = "nc -z 127.0.0.1 2222 && nc -z 127.0.0.1 2223"
 
