@@ -501,7 +501,6 @@ fn collect_parent_directories_into(files: &[LocalFile], directories: &mut HashSe
 /// Builds the remote shell script that emits directory, symlink, and file hash state.
 fn build_remote_state_script(config: &Config, remote_dir: &str, create_remote_dir: bool) -> String {
 	let quoted_remote_dir = shell_quote_path(remote_dir);
-	let dir_mode = format!("{:04o}", 0o777 & !config.ssh.umask.as_u32());
 	let quoted_marker = shell_words::quote(REMOTE_FILE_MARKER).into_owned();
 	let quoted_symlink_marker = shell_words::quote(REMOTE_SYMLINK_MARKER).into_owned();
 	let prepare_remote_dir = if create_remote_dir {
@@ -511,15 +510,21 @@ fn build_remote_state_script(config: &Config, remote_dir: &str, create_remote_di
 			"if [ ! -e {quoted_remote_dir} ]; then echo 'Error: remote directory does not exist' >&2; exit 1; fi &&"
 		)
 	};
+	let normalize_remote_dirs = if create_remote_dir {
+		let dir_mode = format!("{:04o}", 0o777 & !config.ssh.umask.as_u32());
+		format!("(find . -type d -exec chmod {dir_mode} {{}} + || true) &&")
+	} else {
+		String::new()
+	};
 
-	// Prepare the remote dir, normalize directory permissions, then print directories,
-	// symlinks, and file hashes without following symlinks.
+	// Prepare the remote dir, normalize owned push directories, then print
+	// directories, symlinks, and file hashes without following symlinks.
 	format!(
 		"umask {} && {prepare_remote_dir} \
 		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
 		 if [ ! -d {quoted_remote_dir} ]; then echo 'Error: remote directory is not a directory' >&2; exit 1; fi && \
 		 cd -- {quoted_remote_dir} && \
-		 (find . -type d -exec chmod {dir_mode} {{}} + || true) && \
+		 {normalize_remote_dirs} \
 		 (find . -mindepth 1 -type d -print || true) && \
 		 printf '%s\n' {quoted_symlink_marker} && \
 		 (find . -type l -print || true) && \
@@ -1914,12 +1919,14 @@ mod tests {
 
 		let push_script = build_remote_state_script(&config, "~/project", true);
 		assert!(push_script.contains("mkdir -p -- \"$HOME\"/project"));
+		assert!(push_script.contains("find . -type d -exec chmod"));
 		assert!(push_script.contains("find . -type l -print"));
 		assert!(push_script.contains(REMOTE_SYMLINK_MARKER));
 		assert!(push_script.contains(REMOTE_FILE_MARKER));
 
 		let pull_script = build_remote_state_script(&config, "~/project", false);
 		assert!(!pull_script.contains("mkdir -p --"));
+		assert!(!pull_script.contains("find . -type d -exec chmod"));
 		assert!(pull_script.contains("remote directory does not exist"));
 		assert!(pull_script.contains("remote directory is not a directory"));
 	}
