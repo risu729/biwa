@@ -67,7 +67,7 @@ jobs:
         id: install-mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: 2026.5.5
+          version: 2026.5.11
           install_args: --locked
           cache: ${{ steps.mode.outputs.publishing == 'false' }}
           cache_key: "{{default}}-release-rustup-cargo-home-v2"
@@ -123,7 +123,7 @@ jobs:
         id: install-mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: 2026.5.5
+          version: 2026.5.11
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
           cache_key: "{{default}}-release-rustup-cargo-home-v2"
@@ -223,7 +223,7 @@ jobs:
         id: install-mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: 2026.5.5
+          version: 2026.5.11
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
           cache_key: "{{default}}-release-rustup-cargo-home-v2"
@@ -296,7 +296,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
-          version: 2026.5.5
+          version: 2026.5.11
           install_args: --locked
           cache: false
         env:
