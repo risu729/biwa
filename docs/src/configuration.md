@@ -77,13 +77,13 @@ Storing your password in a configuration file is **not recommended** for securit
 
 ### `[direct]` — Direct Command Settings
 
-| Key            | Type    | Default                     | Description                                                    |
-| -------------- | ------- | --------------------------- | -------------------------------------------------------------- |
-| `enabled`      | boolean | `false`                     | Enable direct command dispatch from allowed shim names         |
-| `bin_dir`      | string  | `"~/.local/share/biwa/bin"` | Directory where `biwa activate install` creates shim links     |
-| `allow`        | array   | `[]`                        | Regular expressions for command names that may dispatch remote |
-| `default_args` | table   | `{}`                        | Extra arguments inserted before user-provided arguments        |
-| `prefer_local` | boolean | `true`                      | Skip shims that would conflict with earlier local commands     |
+| Key            | Type    | Default           | Description                                                    |
+| -------------- | ------- | ----------------- | -------------------------------------------------------------- |
+| `enabled`      | boolean | `false`           | Enable direct command dispatch from allowed shim names         |
+| `bin_dir`      | string? | Platform data dir | Directory where `biwa activate install` creates shim links     |
+| `allow`        | array   | `[]`              | Regular expressions for command names that may dispatch remote |
+| `default_args` | table   | `{}`              | `biwa run` options for exact shim command names                |
+| `prefer_local` | boolean | `true`            | Skip shims that would conflict with earlier local commands     |
 
 Direct commands are documented in detail on [`/direct-commands`](/direct-commands).
 

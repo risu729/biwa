@@ -1262,6 +1262,87 @@ PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 #[cfg(unix)]
 #[test]
+fn e2e_direct_command_default_args_are_biwa_run_options() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let shim_dir = tempfile::tempdir()?;
+	let remote_command = "biwa-remote-nosync";
+	let remote_dir = format!(
+		"/tmp/biwa-direct-default-args-{}",
+		dir.path()
+			.file_name()
+			.ok_or_else(|| eyre!("tempdir had no file name"))?
+			.to_string_lossy()
+	);
+	let setup_script = format!(
+		r#"cat > {remote_command} <<'EOF'
+#!/bin/sh
+printf 'nosync:%s\n' "$PWD"
+EOF
+chmod +x {remote_command}
+"#
+	);
+	biwa_cmd(&["--quiet", "run", "--skip-sync", "rm", "-rf", &remote_dir])
+		.stdout_null()
+		.stderr_null()
+		.run()?;
+	biwa_cmd(&[
+		"--quiet",
+		"run",
+		"--skip-sync",
+		"--remote-dir",
+		&remote_dir,
+		"sh",
+		"-c",
+		&setup_script,
+	])
+	.stdout_null()
+	.stderr_capture()
+	.run()?;
+	fs::write(
+		dir.path().join("biwa.toml"),
+		format!(
+			r#"
+[sync.sftp]
+max_files_to_sync = 0
+
+[direct]
+enabled = true
+allow = ["^{remote_command}$"]
+default_args = {{ "{remote_command}" = ["--skip-sync", "--remote-dir", "{remote_dir}"] }}
+
+[env.vars]
+PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+"#,
+		),
+	)?;
+
+	let shim = create_biwa_symlink(shim_dir.path(), remote_command)?;
+	let output = biwa_program_cmd(&shim, &[])
+		.dir(dir.path())
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(
+		output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout),
+		format!("nosync:{remote_dir}\n")
+	);
+	biwa_cmd(&["--quiet", "run", "--skip-sync", "rm", "-rf", &remote_dir])
+		.stdout_null()
+		.stderr_null()
+		.run()?;
+	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
 fn e2e_direct_command_symlink_rejects_non_allowed_command() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let shim_dir = tempfile::tempdir()?;

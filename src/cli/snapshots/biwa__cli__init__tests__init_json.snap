@@ -11,7 +11,7 @@ expression: content
   },
   "direct": {
     "allow": [],
-    "bin_dir": "~/.local/share/biwa/bin",
+    "bin_dir": null,
     "default_args": {},
     "enabled": false,
     "prefer_local": true

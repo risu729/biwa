@@ -1,6 +1,5 @@
 use crate::Result;
-use crate::cli::run::{RemoteCommand, run_remote};
-use crate::cli::sync::SyncArgs;
+use crate::cli::run::{RemoteCommand, parse_direct_run_options, run_remote};
 use crate::config::types::Config;
 use alloc::collections::BTreeSet;
 use clap::{Args, Subcommand, ValueEnum};
@@ -94,6 +93,7 @@ impl Activate {
 	/// Run the activation command.
 	pub(super) fn run(self) -> Result<()> {
 		let config = Config::load_optional_ssh()?;
+		let bin_dir = config.direct.resolved_bin_dir();
 		let mut did_work = false;
 
 		match self.command {
@@ -114,7 +114,7 @@ impl Activate {
 		if let Some(shell) = self.shell {
 			println!(
 				"{}",
-				activation_script(shell, &config.direct.bin_dir, config.direct.prefer_local)
+				activation_script(shell, &bin_dir, config.direct.prefer_local)
 			);
 			did_work = true;
 		}
@@ -155,24 +155,23 @@ pub(super) async fn run_direct_invocation(
 		);
 	}
 
-	let mut command_args = config
+	let default_args = config
 		.direct
 		.default_args
 		.get(&invocation.command)
-		.cloned()
-		.unwrap_or_default();
-	command_args.extend(invocation.args);
+		.map_or(&[][..], Vec::as_slice);
+	let run_options = parse_direct_run_options(&invocation.command, default_args)?;
 
 	required_presence.ensure_all_present()?;
 	run_remote(
 		&config,
-		&SyncArgs::default(),
+		run_options.transfer_args(),
 		RemoteCommand {
 			command: &invocation.command,
-			command_args: &command_args,
-			cli_env_vars: &[],
+			command_args: &invocation.args,
+			cli_env_vars: run_options.env_vars(),
 		},
-		config.sync.auto,
+		run_options.transfer_mode(config.sync.auto),
 		quiet,
 		silent,
 	)
@@ -289,24 +288,25 @@ fn install_shims(
 ) -> Result<InstallReport> {
 	let mut report = InstallReport::default();
 	let shim_names = static_allowed_shim_names(config)?;
+	let bin_dir = config.direct.resolved_bin_dir();
 
-	fs::create_dir_all(&config.direct.bin_dir).wrap_err_with(|| {
+	fs::create_dir_all(&bin_dir).wrap_err_with(|| {
 		format!(
 			"Failed to create direct shim directory `{}`",
-			config.direct.bin_dir.display()
+			bin_dir.display()
 		)
 	})?;
 
 	for command in shim_names {
 		if !force
 			&& config.direct.prefer_local
-			&& let Some(conflict) = find_local_conflict(&command, &config.direct.bin_dir, path)
+			&& let Some(conflict) = find_local_conflict(&command, &bin_dir, path)
 		{
 			report.skipped_conflicts.push(conflict);
 			continue;
 		}
 
-		let shim_path = config.direct.bin_dir.join(&command);
+		let shim_path = bin_dir.join(&command);
 		match create_or_update_symlink(&shim_path, biwa_path, force)? {
 			ShimInstallStatus::Installed => report.installed.push(shim_path),
 			ShimInstallStatus::Unchanged => report.unchanged.push(shim_path),
@@ -346,7 +346,10 @@ fn print_doctor(config: &Config) -> Result<()> {
 	let shim_names = static_allowed_shim_names(config)?;
 
 	println!("direct.enabled = {}", config.direct.enabled);
-	println!("direct.bin_dir = {}", config.direct.bin_dir.display());
+	println!(
+		"direct.bin_dir = {}",
+		config.direct.resolved_bin_dir().display()
+	);
 	println!("direct.prefer_local = {}", config.direct.prefer_local);
 	println!("static shims = {}", shim_names.len());
 	for command in shim_names {
@@ -577,6 +580,7 @@ fn create_or_update_symlink(
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::cli::run::RunTransferMode;
 	use crate::config::types::Config;
 	use alloc::collections::BTreeMap;
 	use pretty_assertions::assert_eq;
@@ -621,7 +625,7 @@ mod tests {
 		let invocation = direct_invocation_from_args([
 			OsString::from("/usr/bin/biwa"),
 			OsString::from("run"),
-			OsString::from("pwd"),
+			OsString::from("biwa-remote-nosync"),
 		])?;
 
 		assert_eq!(invocation, None);
@@ -705,23 +709,24 @@ mod tests {
 	}
 
 	#[test]
-	fn direct_default_args_are_inserted_before_user_args() {
-		let mut default_args = BTreeMap::new();
-		default_args.insert(
-			"1511".to_owned(),
-			vec!["--course".to_owned(), "comp1511".to_owned()],
-		);
-		let invocation = DirectInvocation {
-			command: "1511".to_owned(),
-			args: vec!["autotest".to_owned(), "lab01".to_owned()],
-		};
-		let mut args = default_args
-			.get(&invocation.command)
-			.cloned()
-			.unwrap_or_default();
-		args.extend(invocation.args);
+	fn direct_default_args_are_biwa_run_options() -> Result<()> {
+		let options = parse_direct_run_options("biwa-remote-nosync", &["--skip-sync".to_owned()])?;
 
-		assert_eq!(args, vec!["--course", "comp1511", "autotest", "lab01"]);
+		assert_eq!(options.transfer_mode(true), RunTransferMode::Skip);
+		assert!(options.env_vars().is_empty());
+		Ok(())
+	}
+
+	#[test]
+	fn direct_default_args_reject_remote_command_args() {
+		let err = parse_direct_run_options("biwa-remote-nosync", &["remote-arg".to_owned()])
+			.expect_err("remote command args should be rejected");
+
+		assert!(
+			err.to_string()
+				.contains("must not include the remote command or remote command arguments"),
+			"error was: {err:?}"
+		);
 	}
 
 	#[test]
@@ -770,7 +775,7 @@ mod tests {
 		}
 
 		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = shim_bin.clone();
+		config.direct.bin_dir = Some(shim_bin.clone());
 		let path = env::join_paths([local_bin.as_path()])?;
 
 		let report = install_shims(&config, &biwa, Some(&path), false)?;
@@ -804,7 +809,7 @@ mod tests {
 		fs::set_permissions(&command, fs::Permissions::from_mode(0o755))?;
 
 		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = shim_bin.clone();
+		config.direct.bin_dir = Some(shim_bin.clone());
 		let path = env::join_paths([local_bin.as_path()])?;
 
 		let report = install_shims(&config, &biwa, Some(&path), true)?;
@@ -824,7 +829,7 @@ mod tests {
 		fs::write(&biwa, "")?;
 
 		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = shim_bin.clone();
+		config.direct.bin_dir = Some(shim_bin.clone());
 
 		let report = install_shims(&config, &biwa, None, false)?;
 
@@ -844,7 +849,7 @@ mod tests {
 		fs::write(shim_bin.join("dcc"), "#!/bin/sh\n")?;
 
 		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = shim_bin.clone();
+		config.direct.bin_dir = Some(shim_bin.clone());
 
 		let report = install_shims(&config, &biwa, None, true)?;
 

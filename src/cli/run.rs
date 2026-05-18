@@ -10,7 +10,7 @@ use crate::{
 		pull_project, push_project, snapshot_local_project,
 	},
 };
-use clap::Args;
+use clap::{Args, Parser as _};
 use color_eyre::eyre::{Context as _, bail};
 use std::path::Path;
 use tracing::warn;
@@ -104,6 +104,91 @@ pub(super) struct RemoteCommand<'a> {
 	pub command_args: &'a [String],
 	/// CLI `--env` arguments to merge with config env vars.
 	pub cli_env_vars: &'a [String],
+}
+
+/// `biwa run` options supplied by direct command defaults.
+#[derive(Debug)]
+pub(super) struct RunOptions {
+	/// Explicit transfer mode, or `None` to use the configured automatic mode.
+	transfer_mode: Option<RunTransferMode>,
+	/// Project transfer options.
+	transfer_args: TransferArgs,
+	/// Environment variables requested by `--env`.
+	env_vars: Vec<String>,
+}
+
+impl RunOptions {
+	/// Resolves the transfer workflow surrounding the direct command.
+	pub const fn transfer_mode(&self, config_sync_auto: bool) -> RunTransferMode {
+		match self.transfer_mode {
+			Some(mode) => mode,
+			None => RunTransferMode::from_auto(config_sync_auto),
+		}
+	}
+
+	/// Returns project transfer options.
+	pub const fn transfer_args(&self) -> &TransferArgs {
+		&self.transfer_args
+	}
+
+	/// Returns CLI environment variable forwarding options.
+	pub fn env_vars(&self) -> &[String] {
+		&self.env_vars
+	}
+}
+
+impl From<Run> for RunOptions {
+	fn from(run: Run) -> Self {
+		let transfer_mode = if run.pull_always {
+			Some(RunTransferMode::PullAlways)
+		} else if run.pull {
+			Some(RunTransferMode::PullOnSuccess)
+		} else if run.sync {
+			Some(RunTransferMode::Push)
+		} else if run.skip_sync || run.transfer_args.remote_dir.is_some() {
+			Some(RunTransferMode::Skip)
+		} else {
+			None
+		};
+		Self {
+			transfer_mode,
+			transfer_args: run.transfer_args,
+			env_vars: run.env_vars,
+		}
+	}
+}
+
+/// Parses direct command defaults as `biwa run` options, not remote command arguments.
+pub(super) fn parse_direct_run_options(
+	command: &str,
+	default_args: &[String],
+) -> Result<RunOptions> {
+	const PLACEHOLDER_COMMAND: &str = "__biwa_direct_command__";
+
+	let parse_argv = ["biwa".to_owned(), "run".to_owned()]
+		.into_iter()
+		.chain(default_args.iter().cloned())
+		.chain([PLACEHOLDER_COMMAND.to_owned()]);
+	let cli = super::Cli::try_parse_from(parse_argv)
+		.wrap_err_with(|| format!("Invalid direct.default_args for `{command}`"))?;
+
+	if cli.verbose != 0 || cli.quiet || cli.silent {
+		bail!(
+			"`direct.default_args.{command}` supports `biwa run` options only; use BIWA_LOG_* environment variables for direct-command output defaults."
+		);
+	}
+
+	let Some(super::Commands::Run(run)) = cli.command else {
+		bail!("`direct.default_args.{command}` must contain `biwa run` options only.");
+	};
+
+	if run.command != PLACEHOLDER_COMMAND || !run.command_args.is_empty() {
+		bail!(
+			"`direct.default_args.{command}` must not include the remote command or remote command arguments."
+		);
+	}
+
+	Ok(run.into())
 }
 
 /// Renders a recovery command that preserves both resolved targets and the transfer scope.
