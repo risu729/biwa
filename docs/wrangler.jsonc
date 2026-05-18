@@ -2,6 +2,7 @@
 	"$schema": "./node_modules/wrangler/config-schema.json",
 	"name": "biwa-docs",
 	"compatibility_date": "2026-05-15",
+	"workers_dev": false,
 	"preview_urls": true,
 	"routes": [
 		{
@@ -10,7 +11,6 @@
 		},
 	],
 	"assets": {
-		"directory": "./.vitepress/dist",
 		"not_found_handling": "single-page-application",
 	},
 }

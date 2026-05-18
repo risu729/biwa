@@ -10,6 +10,7 @@
 	],
 	"exclude": ["node_modules", "dist"],
 	"compilerOptions": {
-		"types": ["bun"]
+		"tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tsbuildinfo",
+		"types": ["bun", "vite/client"]
 	}
 }
