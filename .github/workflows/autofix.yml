@@ -26,24 +26,20 @@ jobs:
     permissions:
       contents: read # for checkout
 
+    env:
+      MISE_RUSTUP_HOME: /home/runner/.local/share/mise/rustup
+      MISE_CARGO_HOME: /home/runner/.local/share/mise/cargo
+
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      - name: Configure mise Rust homes
-        run: |
-          {
-            echo "MISE_RUSTUP_HOME=${HOME}/.local/share/mise/rustup"
-            echo "MISE_CARGO_HOME=${HOME}/.local/share/mise/cargo"
-          } >> "${GITHUB_ENV}"
-
       - name: Install mise
         uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
         with:
           version: 2026.5.11
-          cache_key: "{{default}}-rustup-cargo-home-v2"
 
       - name: Update mise lockfile
         if: github.event.pull_request.user.login == 'renovate[bot]'
