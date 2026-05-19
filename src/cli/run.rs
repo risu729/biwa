@@ -5,7 +5,7 @@ use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
 use crate::{
 	ssh::exec::{ExecuteCommandOptions, connect, execute_command},
-	ssh::sync::sync_project,
+	ssh::sync::{Direction, sync_project},
 };
 use clap::Args;
 use tracing::warn;
@@ -77,6 +77,7 @@ pub(super) async fn run_remote(
 			config,
 			&sync_root,
 			&options,
+			Direction::Push,
 			sync_args.remote_dir.as_deref(),
 			quiet,
 		)
