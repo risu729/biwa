@@ -94,7 +94,7 @@ dir = "docs"
 description = "Start VitePress development server."
 
 ["docs:build"]
-run = "bun run --bun build"
+run = "bun run --bun vitepress build"
 dir = "docs"
 description = "Build VitePress documentation for production."
 
