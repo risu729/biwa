@@ -40,6 +40,7 @@ export default withMermaid(
 						{ link: "/env-vars", text: "Environment Variables" },
 						{ link: "/ssh-key-setup", text: "SSH Key Setup" },
 						{ link: "/shell-completion", text: "Shell Completion" },
+						{ link: "/direct-commands", text: "Direct Commands" },
 						{ link: "/sync-behavior", text: "Sync Behavior" },
 					],
 					text: "Guide",
@@ -47,6 +48,7 @@ export default withMermaid(
 				{
 					items: [
 						{ link: "/cli/", text: "Overview" },
+						{ link: "/cli/activate", text: "biwa activate" },
 						{ link: "/cli/run", text: "biwa run" },
 						{ link: "/cli/sync", text: "biwa sync" },
 						{ link: "/cli/init", text: "biwa init" },
