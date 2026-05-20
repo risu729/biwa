@@ -1,0 +1,90 @@
+name: Docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/docs.yml
+      - docs/**
+      - mise.toml
+      - mise.lock
+      - tasks/docs/**
+      - tasks.toml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/docs.yml
+      - docs/**
+      - mise.toml
+      - mise.lock
+      - tasks/docs/**
+      - tasks.toml
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  docs:
+    name: Build docs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # for checkout
+
+    env:
+      MISE_RUSTUP_HOME: /home/runner/.local/share/mise/rustup
+      MISE_CARGO_HOME: /home/runner/.local/share/mise/cargo
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          version: 2026.5.11
+          install_args: --locked
+        env:
+          MISE_ENABLE_TOOLS: bun,node,wrangler
+
+      - name: Build docs
+        run: mise run docs:build
+
+      - name: Check Cloudflare token
+        id: cloudflare-token
+        if: github.repository == 'risu729/biwa' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [[ -n "${CLOUDFLARE_API_TOKEN}" ]]; then
+            echo "available=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "available=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Upload docs preview
+        if: github.repository == 'risu729/biwa' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.cloudflare-token.outputs.available == 'true'
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WORKER_NAME: biwa-docs
+        run: mise run docs:deploy -- preview
+
+      - name: Deploy docs
+        if: github.repository == 'risu729/biwa' && github.event_name != 'pull_request' && steps.cloudflare-token.outputs.available == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: mise run docs:deploy

@@ -6,7 +6,8 @@
 		"src/**/*.vue",
 		".vitepress/**/*.ts",
 		".vitepress/**/*.vue",
-		"vite-env.d.ts"
+		"vite-env.d.ts",
+		"../tasks/docs/**/*.ts"
 	],
 	"exclude": ["node_modules", "dist"],
 	"compilerOptions": {
