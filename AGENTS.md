@@ -68,18 +68,8 @@ It captures the commands, conventions, and guardrails that are actually used her
 
 - `mise run check` - umbrella task for formatters and linters; may autofix when `LINT` is unset.
 - `LINT=true mise run check` - CI-like check mode without formatting/fix writes.
-- `mise run check:clippy` - clippy, with autofix first unless `LINT=true`.
-- `mise run check:rustfmt` - Rust formatting.
-- `mise run check:cargo-deny` - dependency / license / advisory checks.
-- `mise run check:actionlint` - GitHub Actions lint.
-- `mise run check:ghalint` - GitHub Actions policy lint.
-- `mise run check:pinact` - pinned action verification.
-- `mise run check:zizmor` - GitHub Actions security lint.
-- `mise run check:yamllint` - YAML lint.
-- `mise run check:oxfmt` - format Markdown, JSON, YAML, TOML, TS, JS, CSS, Vue.
-- `mise run check:typos` - spellcheck.
-- `mise run check:oxlint` - docs JS/TS/Vue lint.
-- `mise run check:tsc` - docs TypeScript checks.
+- `hk check --all --step clippy` - run one hk check step.
+- `hk fix --all --step rustfmt --no-stage` - run one hk fix step.
 
 ### Docs And Rendered Artifacts
 
@@ -105,7 +95,7 @@ It captures the commands, conventions, and guardrails that are actually used her
 
 ### Formatting
 
-- Run `cargo fmt` or `mise run check:rustfmt` after Rust edits.
+- Run `cargo fmt` or `hk fix --all --step rustfmt --no-stage` after Rust edits.
 - Rust formatting uses hard tabs; `rustfmt.toml` sets `hard_tabs = true`.
 - Match existing layout and let rustfmt own spacing and wrapping.
 
@@ -136,7 +126,7 @@ It captures the commands, conventions, and guardrails that are actually used her
 ### Clippy Expectations
 
 - This repo opts into aggressive clippy groups: `pedantic`, `nursery`, `cargo`, and `restriction`.
-- `mise run check:clippy` is intentionally strict; do not suppress lints unless it is genuinely necessary and you can justify it clearly.
+- The `clippy` hk step is intentionally strict; do not suppress lints unless it is genuinely necessary and you can justify it clearly.
 - Many specific lints are intentionally allowed in `Cargo.toml`; do not assume a triggered restriction lint means the pattern is always forbidden.
 - Prefer targeted `#[expect(..., reason = "...")]` when a lint suppression is justified.
 - Include a real reason string with each `#[expect]` or `#[allow]`.
@@ -182,7 +172,7 @@ It captures the commands, conventions, and guardrails that are actually used her
 ## Safe Agent Workflow
 
 - Before editing, inspect nearby code and mirror the local style.
-- After Rust edits, at minimum run focused tests plus `mise check:rustfmt`.
+- After Rust edits, at minimum run focused tests plus `hk fix --all --step rustfmt --no-stage`.
 - Before finishing broader changes, prefer `LINT=true mise run check` and relevant tests.
 - If you change generated CLI docs or schema inputs, run the corresponding `mise run render:*` task.
 - If you change snapshots intentionally, run `mise run test:update-snapshot`.
