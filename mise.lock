@@ -216,6 +216,30 @@ checksum = "sha256:a48eb40fc541a440ac0e62a22bfb7984819a1409591b4ce7e20d3d1a01625
 url = "https://github.com/xd009642/tarpaulin/releases/download/0.35.4/cargo-tarpaulin-x86_64-apple-darwin.tar.gz"
 url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/405218940"
 
+[[tools.hk]]
+version = "1.45.0"
+backend = "aqua:jdx/hk"
+
+[tools.hk."platforms.linux-arm64"]
+checksum = "sha256:22293f9c742f0def32299689022891ced7c5c9d5024c91afd33a83e6f714686c"
+url = "https://github.com/jdx/hk/releases/download/v1.45.0/hk-aarch64-unknown-linux-gnu.tar.gz"
+
+[tools.hk."platforms.linux-arm64-musl"]
+checksum = "sha256:81b64f76df8a399f926a4158bfcbef0fa28dcd60b40799b9474ca2ab21d89c02"
+url = "https://github.com/jdx/hk/releases/download/v1.45.0/hk-aarch64-unknown-linux-musl.tar.gz"
+
+[tools.hk."platforms.linux-x64"]
+checksum = "sha256:47a3338403f689cc295d36213cfede4e1098c335d18064416ea9ac2b9739c148"
+url = "https://github.com/jdx/hk/releases/download/v1.45.0/hk-x86_64-unknown-linux-gnu.tar.gz"
+
+[tools.hk."platforms.linux-x64-musl"]
+checksum = "sha256:afdb201d251f35615f00f3880daa5a4e97d7948304473c259245a7123c0fedcf"
+url = "https://github.com/jdx/hk/releases/download/v1.45.0/hk-x86_64-unknown-linux-musl.tar.gz"
+
+[tools.hk."platforms.macos-arm64"]
+checksum = "sha256:17bd1d9eccbfc894c4b0191871a964dc67df80c1bfbee072e5c12d4bb893a8a6"
+url = "https://github.com/jdx/hk/releases/download/v1.45.0/hk-aarch64-apple-darwin.tar.gz"
+
 [[tools.node]]
 version = "25.9.0"
 backend = "core:node"

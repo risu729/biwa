@@ -1,0 +1,92 @@
+amends "package://github.com/jdx/hk/releases/download/v1.45.0/hk@1.45.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v1.45.0/hk@1.45.0#/Builtins.pkl"
+
+local const rustTypes = List("rust")
+local const oxfmtGlobs =
+  List(
+    "**/*.js",
+    "**/*.mjs",
+    "**/*.cjs",
+    "**/*.ts",
+    "**/*.mts",
+    "**/*.cts",
+    "**/*.jsx",
+    "**/*.tsx",
+    "**/*.vue",
+    "**/*.css",
+    "**/*.json",
+    "**/*.jsonc",
+    "**/*.yaml",
+    "**/*.yml",
+    "**/*.md",
+  )
+
+local const lintSteps = new Mapping<String, Step> {
+  ["clippy"] {
+    types = rustTypes
+    check = "cargo clippy --all-targets -- --deny warnings"
+    fix = "cargo clippy --fix --allow-dirty --allow-staged --all-targets > /dev/null 2>&1; cargo clippy --all-targets -- --deny warnings"
+  }
+  ["rustfmt"] {
+    types = rustTypes
+    check = "cargo fmt --check"
+    fix = "cargo fmt"
+  }
+  ["cargo-deny"] {
+    glob = List("Cargo.toml", "Cargo.lock", "deny.toml")
+    check = "cargo-deny --locked check"
+  }
+  ["actionlint"] {
+    glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml")
+    check = "actionlint -color {{ files }}"
+    // SC2312: check-extra-masked-returns. GitHub Actions runs bash with
+    // pipefail, but shellcheck cannot detect that from workflow files.
+    env {
+      ["SHELLCHECK_OPTS"] = "--enable=all --exclude=SC2312"
+    }
+  }
+  ["pinact"] = Builtins.pinact
+  ["ghalint"] = (Builtins.ghalint_workflow) {
+    depends = "pinact"
+  }
+  ["zizmor"] = (Builtins.zizmor) {
+    check_diff = "zizmor --no-progress --pedantic {{ files }}"
+    fix = "zizmor --no-progress --pedantic --fix {{ files }}"
+  }
+  ["yamllint"] = Builtins.yamllint
+  ["oxfmt"] {
+    glob = oxfmtGlobs
+    check = "oxfmt --check"
+    fix = "oxfmt"
+  }
+  ["tombi"] {
+    types = List("toml")
+    check = "tombi format --check && tombi lint --error-on-warnings"
+    fix = "tombi format && tombi lint --error-on-warnings"
+  }
+  ["typos"] {
+    check = "typos"
+    fix = "typos --write-changes"
+  }
+  ["oxlint"] {
+    glob = List(".vitepress/**/*.ts", "**/*.js", "**/*.ts", "**/*.vue")
+    check = "oxlint --report-unused-disable-directives-severity error"
+    fix = "oxlint --report-unused-disable-directives-severity error --fix"
+    dir = "docs"
+  }
+  ["tsc"] {
+    glob = List(".vitepress/**/*.ts", "**/*.ts", "**/*.vue", "tsconfig*.json")
+    check = "bun run vue-tsc && bun run tsc"
+    dir = "docs"
+  }
+}
+
+hooks {
+  ["check"] {
+    steps = lintSteps
+  }
+  ["fix"] {
+    fix = true
+    steps = lintSteps
+  }
+}

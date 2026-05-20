@@ -19,74 +19,9 @@ description = "Update test snapshots."
 tools = { cargo-insta = "1.46.3" }
 
 [check]
-depends = ["check:*"]
-description = "Run all linters and formatters. Set LINT=true to check formatting without applying it."
-
-["check:clippy"]
-run = [
-	"{% if env.LINT is undefined %}cargo clippy --fix --allow-dirty --allow-staged --all-targets > /dev/null 2>&1{% endif %}",
-	"cargo clippy --all-targets -- --deny warnings",
-]
-description = "Run Clippy to lint Rust code."
-
-["check:rustfmt"]
-run = "cargo fmt {% if env.LINT is defined %}--check{% endif %}"
-description = "Run Rustfmt to format Rust code."
-
-["check:cargo-deny"]
-run = "cargo-deny --locked check"
-description = "Run cargo-deny to check for unsafe dependencies."
-
-["check:actionlint"]
-run = "actionlint -color"
-# SC2312: check-extra-masked-returns
-# pipefail is set by shell: bash in GitHub Actions but cannot be detected by shellcheck
-# ref: https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions#defaultsrunshell
-env.SHELLCHECK_OPTS = "--enable=all --exclude=SC2312"
-description = "Run actionlint to check GitHub Actions workflows."
-
-["check:ghalint"]
-wait_for = ["check:pinact"]
-run = "ghalint run"
-description = "Run ghalint to check GitHub Actions workflows."
-
-["check:pinact"]
-run = "pinact run --verify {% if env.LINT is defined %}--check{% endif %}"
-description = "Run pinact to pin/check pinned GitHub Actions dependencies in workflows."
-
-["check:zizmor"]
-run = "zizmor --pedantic {% if env.LINT is undefined %}--fix{% endif %} ."
-env.GH_TOKEN = "{{ env.GITHUB_TOKEN }}"
-description = "Run Zizmor to check GitHub Actions workflows."
-
-["check:yamllint"]
-run = "yamllint --strict ."
-description = "Run yamllint to lint YAML files."
-
-["check:oxfmt"]
-run = "oxfmt {% if env.LINT is defined %}--check{% endif %}"
-description = "Run oxfmt to format JS, TS, CSS, Vue, JSON, JSONC, YAML, and Markdown files."
-
-["check:tombi"]
-run = [
-	"tombi format {% if env.LINT is defined %}--check{% endif %}",
-	"tombi lint --error-on-warnings",
-]
-description = "Run tombi to format TOML files."
-
-["check:typos"]
-run = "typos {% if env.LINT is undefined %}--write-changes{% endif %}"
-description = "Run typos to check typo in files."
-
-["check:oxlint"]
-run = "oxlint --report-unused-disable-directives-severity error {% if env.LINT is undefined %}--fix{% endif %}"
-dir = "docs"
-description = "Run oxlint to lint VitePress documentation."
-
-["check:tsc"]
-run = ["bun run vue-tsc", "bun run tsc"]
-dir = "docs"
-description = "Run tsc to check TypeScript files in docs."
+run = "hk {% if env.LINT is defined %}check{% else %}fix --no-stage{% endif %} --all --no-progress --no-fail-fast"
+env.GH_TOKEN = "{% if env.GITHUB_TOKEN is defined %}{{ env.GITHUB_TOKEN }}{% endif %}"
+description = "Run hk linters and formatters. Set LINT=true to check without applying fixes."
 
 ["docs:dev"]
 run = "bun run --bun vitepress dev"
