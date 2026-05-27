@@ -3,7 +3,7 @@ rust = { version = "1.95.0", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.19.7"
 "github:xd009642/tarpaulin" = "0.35.4"
 usage = "3.3.0"
-hk = "1.45.0"
+hk = "1.46.0"
 actionlint = "1.7.12"
 # used in actionlint
 shellcheck = "0.11.0"
