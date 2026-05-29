@@ -512,6 +512,9 @@ provenance = "github-attestations"
 version = "4.93.0"
 backend = "npm:wrangler"
 
+[tools.wrangler.options]
+allow_builds = '["esbuild", "sharp", "workerd"]'
+
 [[tools.yamllint]]
 version = "1.38.0"
 backend = "pipx:yamllint"
