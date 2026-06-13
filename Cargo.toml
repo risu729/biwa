@@ -12,7 +12,7 @@ include = ["/README.md", "/src/**/*.rs"]
 
 [dependencies]
 bytes = "=1.11.1"
-chrono = { version = "=0.4.44", features = ["serde"] }
+chrono = { version = "=0.4.45", features = ["serde"] }
 clap = { version = "=4.6.1", features = ["derive"] }
 color-eyre = "=0.6.5"
 confique = { version = "=0.4.0", features = ["json5", "toml", "yaml"] }
