@@ -58,7 +58,7 @@ ctor = "=1.0.6"
 insta = { version = "=1.47.2", features = ["json"] }
 pretty_assertions = { version = "=1.4.1", features = ["unstable"] }
 rstest = "=0.26.1"
-serial_test = "=3.4.0"
+serial_test = "=3.5.0"
 tempfile = "=3.27.0"
 
 [lints.clippy]
