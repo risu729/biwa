@@ -4,7 +4,15 @@ version "0.1.0"
 about "CLI to execute commands on UNSW CSE servers from local"
 usage "Usage: biwa [OPTIONS] [COMMAND]"
 flag "-v --verbose" help="Set the verbosity level." var=#true global=#true count=#true {
-    long_help "Set the verbosity level.\n\nCan be used multiple times to increase verbosity (e.g., -v, -vv, -vvv).\nBy default, only warnings and errors are shown.\n-v: info\n-vv: debug\n-vvv: trace"
+    long_help #"""
+Set the verbosity level.
+
+Can be used multiple times to increase verbosity (e.g., -v, -vv, -vvv).
+By default, only warnings and errors are shown.
+-v: info
+-vv: debug
+-vvv: trace
+"""#
 }
 flag "-q --quiet" help="Suppress biwa internal logs, only showing remote command output" global=#true
 flag "-s --silent" help="Suppress all output, including remote command stdout/stderr" global=#true
