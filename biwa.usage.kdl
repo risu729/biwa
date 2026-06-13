@@ -9,6 +9,17 @@ flag "-v --verbose" help="Set the verbosity level." var=#true global=#true count
 flag "-q --quiet" help="Suppress biwa internal logs, only showing remote command output" global=#true
 flag "-s --silent" help="Suppress all output, including remote command stdout/stderr" global=#true
 arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true
+cmd activate help="Print shell activation code and manage direct command shims" {
+    flag --shell help="Print activation code for this shell" {
+        arg <SHELL> {
+            choices bash zsh fish
+        }
+    }
+    cmd install help="Create or update configured static command shims" {
+        flag "-f --force" help="Replace existing shim files and ignore local command conflicts"
+    }
+    cmd doctor help="Print diagnostic information for direct command activation"
+}
 cmd run help="Run commands on remote host" {
     alias r
     flag --skip-sync help="Skip automatic synchronization before running the command (automatically set if --remote-dir is used)"

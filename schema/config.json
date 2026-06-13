@@ -13,6 +13,17 @@
         "quota_thresholds": {}
       }
     },
+    "direct": {
+      "description": "Direct command shim configuration.",
+      "$ref": "#/$defs/DirectConfig",
+      "default": {
+        "allow": [],
+        "bin_dir": null,
+        "default_args": {},
+        "enabled": false,
+        "prefer_local": true
+      }
+    },
     "env": {
       "description": "Environment variables configuration.",
       "$ref": "#/$defs/EnvConfig",
@@ -94,6 +105,48 @@
               "$ref": "#/$defs/HumanDuration"
             }
           }
+        }
+      }
+    },
+    "DirectConfig": {
+      "description": "Direct command shim settings.",
+      "type": "object",
+      "properties": {
+        "allow": {
+          "description": "Regular expressions matching command names that may dispatch remotely.\n\nHigher-priority config layers replace this list instead of appending to it.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "bin_dir": {
+          "description": "Directory containing direct command shims. If unset, uses the platform data directory.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default_args": {
+          "description": "`biwa run` options inserted before the direct command name.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "default": {}
+        },
+        "enabled": {
+          "description": "Enable direct command dispatch when biwa is invoked through an allowed shim name.",
+          "type": "boolean",
+          "default": false
+        },
+        "prefer_local": {
+          "description": "Keep local commands earlier in PATH ahead of biwa shims.",
+          "type": "boolean",
+          "default": true
         }
       }
     },
