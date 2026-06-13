@@ -512,7 +512,7 @@ url = "https://github.com/astral-sh/uv/releases/download/0.11.19/uv-x86_64-apple
 provenance = "github-attestations"
 
 [[tools.wrangler]]
-version = "4.93.0"
+version = "4.93.1"
 backend = "npm:wrangler"
 
 [tools.wrangler.options]
