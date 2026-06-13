@@ -31,3 +31,11 @@ Exclude files matching these paths or globs
 ### `-i --include… <INCLUDE>`
 
 Only synchronize files matching these paths or globs
+
+### `--pull`
+
+Pull eligible remote project contents into the local sync root
+
+### `--overwrite`
+
+Allow pull to overwrite or delete local files and empty directories
