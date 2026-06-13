@@ -324,15 +324,15 @@ backend = "aqua:jdx/pitchfork"
 
 [tools.pitchfork."platforms.linux-arm64"]
 checksum = "sha256:2495e7423530fbd3ebc7370ed1d4aa1874e318624ec3c3684f89006e2fe1fd41"
-url = "https://github.com/endevco/pitchfork/releases/download/v2.12.1/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.12.1/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
 
 [tools.pitchfork."platforms.linux-x64"]
 checksum = "sha256:c9c844249a4439d5541eaca83cc8a4de180dc2166edf306165fcdd18588a50b7"
-url = "https://github.com/endevco/pitchfork/releases/download/v2.12.1/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.12.1/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
 
 [tools.pitchfork."platforms.macos-arm64"]
 checksum = "sha256:b19d93a4cfd588bc86ebdffe5cf89c724cbe51d916a6db21e6f4ee3eaeeadf6a"
-url = "https://github.com/endevco/pitchfork/releases/download/v2.12.1/pitchfork-aarch64-apple-darwin.tar.gz"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.12.1/pitchfork-aarch64-apple-darwin.tar.gz"
 
 [[tools.release-plz]]
 version = "0.3.158"
