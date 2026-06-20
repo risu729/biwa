@@ -75,6 +75,18 @@ Storing your password in a configuration file is **not recommended** for securit
 
 - Environment variable inheritance, wildcard matching, exclusions, and forwarding are documented in detail on [`/env-vars`](/env-vars).
 
+### `[direct]` — Direct Command Settings
+
+| Key            | Type    | Default           | Description                                                    |
+| -------------- | ------- | ----------------- | -------------------------------------------------------------- |
+| `enabled`      | boolean | `false`           | Enable direct command dispatch from allowed shim names         |
+| `bin_dir`      | string? | Platform data dir | Directory where `biwa activate install` creates shim links     |
+| `allow`        | array   | `[]`              | Regular expressions for command names that may dispatch remote |
+| `default_args` | table   | `{}`              | `biwa run` options for exact shim command names                |
+| `prefer_local` | boolean | `true`            | Skip shims that would conflict with earlier local commands     |
+
+Direct commands are documented in detail on [`/direct-commands`](/direct-commands).
+
 ### `[sync]` — Synchronization Settings
 
 | Key                   | Type    | Default                                                | Description                                                                   |
