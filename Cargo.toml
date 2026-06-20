@@ -11,7 +11,7 @@ categories = ["command-line-utilities"]
 include = ["/README.md", "/src/**/*.rs"]
 
 [dependencies]
-bytes = "=1.11.1"
+bytes = "=1.12.0"
 chrono = { version = "=0.4.44", features = ["serde"] }
 clap = { version = "=4.6.1", features = ["derive"] }
 color-eyre = "=0.6.5"
