@@ -38,7 +38,7 @@ lockfile_platforms = [
 ]
 
 [env]
-'_'.path = ["target/debug/"]
+'_'.path = ["target/debug"]
 HK_PKL_BACKEND = "pklr"
 
 [task_config]
