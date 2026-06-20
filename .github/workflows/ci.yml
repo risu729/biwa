@@ -7,6 +7,11 @@ on:
   pull_request:
     branches:
       - main
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
   workflow_dispatch:
   schedule:
     - cron: "0 0 * * SUN"
@@ -24,18 +29,25 @@ defaults:
 jobs:
   paths:
     name: Detect changes
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
+      contents: read # for checkout and changed files
       pull-requests: read # for changed files
 
     outputs:
       build: ${{ steps.filter.outputs.build }}
+      docs: ${{ steps.filter.outputs.docs }}
       test: ${{ steps.filter.outputs.test }}
       schema: ${{ steps.filter.outputs.schema }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
       - name: Check release-affecting files
         id: filter
         uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
@@ -45,6 +57,11 @@ jobs:
               - 'mise.toml'
               - 'mise.lock'
               - '.github/workflows/ci.yml'
+            docs:
+              - *ci
+              - 'docs/**'
+              - 'tasks/docs/**'
+              - 'tasks.toml'
             build: &build
               - *ci
               - 'Cargo.toml'
@@ -64,6 +81,34 @@ jobs:
               - 'schema/**'
               - 'tasks/schema/**'
               - 'tasks.toml'
+
+  pr-title:
+    name: Lint PR title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read # for semantic PR title linting
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          # always sync with release-plz.toml
+          # `Revert` or `Reapply` PR titles can't be parsed
+          # ref: https://github.com/amannn/action-semantic-pull-request/issues/278
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            style
+            build
+            ci
+            chore
+            revert
 
   test:
     name: Test
@@ -193,13 +238,73 @@ jobs:
       actions: read # for release artifact downloads
     uses: ./.github/workflows/release.yml
 
+  docs:
+    name: Build docs
+    needs:
+      - paths
+    if: ${{ always() && !cancelled() && !failure() && (needs.paths.outputs.docs == 'true' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # for checkout
+
+    env:
+      MISE_RUSTUP_HOME: /home/runner/.local/share/mise/rustup
+      MISE_CARGO_HOME: /home/runner/.local/share/mise/cargo
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Install mise
+        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          version: 2026.6.0
+          install_args: --locked
+        env:
+          MISE_ENABLE_TOOLS: bun,node,wrangler
+
+      - name: Build docs
+        run: mise run docs:build
+
+      - name: Check Cloudflare token
+        id: cloudflare-token
+        if: github.repository == 'risu729/biwa' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [[ -n "${CLOUDFLARE_API_TOKEN}" ]]; then
+            echo "available=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "available=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Upload docs preview
+        if: github.repository == 'risu729/biwa' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.cloudflare-token.outputs.available == 'true'
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          WORKER_NAME: biwa-docs
+        run: mise run docs:deploy -- preview
+
+      - name: Deploy docs
+        if: github.repository == 'risu729/biwa' && github.event_name != 'pull_request' && steps.cloudflare-token.outputs.available == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: mise run docs:deploy
+
   ci-check:
     name: CI Check
     needs:
+      - pr-title
       - test
       - lint
       - build
       - schema
+      - docs
     # ref: https://github.com/aquaproj/aqua-registry/pull/38449#issuecomment-3038859524
     if: always()
     runs-on: ubuntu-24.04
