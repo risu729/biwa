@@ -319,20 +319,20 @@ url = "https://github.com/suzuki-shunsuke/pinact/releases/download/v3.10.1/pinac
 provenance = "github-attestations"
 
 [[tools.pitchfork]]
-version = "2.13.1"
+version = "2.14.0"
 backend = "aqua:jdx/pitchfork"
 
 [tools.pitchfork."platforms.linux-arm64"]
-checksum = "sha256:cf57cea6aad2a462224070874a81f8a756758dea403b146636fc3a9fb591b1cc"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.13.1/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:2ca2ff562d6c4d3659abce0c9b354f644f613f488736bfdbfcd95e81a77c7cf5"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.14.0/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
 
 [tools.pitchfork."platforms.linux-x64"]
-checksum = "sha256:c7860dc90c0211391c1479e837359649ceb5c2512c064b0d3304f94b351768be"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.13.1/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:eb43337f5710876a84b14d41225f443da30a50a9b54b14ed63668da9bb02e6d3"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.14.0/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
 
 [tools.pitchfork."platforms.macos-arm64"]
-checksum = "sha256:1357c6ffe9b04dee040d1d2bce642ca5d4dd416ebaadfc3813d672e5b3f0298e"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.13.1/pitchfork-aarch64-apple-darwin.tar.gz"
+checksum = "sha256:c67cafb723f64a095bd10cbc08c392d6f48e1869ad8e747e5b0fd8a9b04f512e"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.14.0/pitchfork-aarch64-apple-darwin.tar.gz"
 
 [[tools.release-plz]]
 version = "0.3.158"
