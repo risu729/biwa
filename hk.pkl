@@ -2,26 +2,51 @@ amends "package://github.com/jdx/hk/releases/download/v1.48.0/hk@1.48.0#/Config.
 import "package://github.com/jdx/hk/releases/download/v1.48.0/hk@1.48.0#/Builtins.pkl"
 
 local const rustTypes = List("rust")
-local const oxfmtGlobs =
-  List(
-    "**/*.js",
-    "**/*.mjs",
-    "**/*.cjs",
-    "**/*.ts",
-    "**/*.mts",
-    "**/*.cts",
-    "**/*.jsx",
-    "**/*.tsx",
-    "**/*.vue",
-    "**/*.css",
-    "**/*.json",
-    "**/*.jsonc",
-    "**/*.yaml",
-    "**/*.yml",
-    "**/*.md",
-  )
 
-local const lintSteps = new Mapping<String, Step> {
+local github = new Group {
+  steps {
+    ["actionlint"] = (Builtins.actionlint) {
+      check = "actionlint -color {{ files }}"
+      // SC2312: check-extra-masked-returns. GitHub Actions runs bash with
+      // pipefail, but shellcheck cannot detect that from workflow files.
+      env {
+        ["SHELLCHECK_OPTS"] = "--enable=all --exclude=SC2312"
+      }
+    }
+    ["pinact"] = (Builtins.pinact) {
+      batch = true
+      check_diff = "pinact run --verify --check {{ files }}"
+      fix = "pinact run --verify {{ files }}"
+    }
+    ["ghalint"] = (Builtins.ghalint_workflow) {
+      depends = "pinact"
+    }
+    ["zizmor"] = (Builtins.zizmor) {
+      batch = true
+      check_diff = "zizmor --no-progress --pedantic {{ files }}"
+      fix = "zizmor --no-progress --pedantic --fix {{ files }}"
+    }
+  }
+}
+
+local docs = new Group {
+  dir = "docs"
+  steps {
+    ["oxlint"] = (Builtins.ox_lint) {
+      batch = true
+      glob = List(".vitepress/**/*.ts", "**/*.js", "**/*.ts", "**/*.vue")
+      check = "oxlint --no-error-on-unmatched-pattern --report-unused-disable-directives-severity error {{ files }}"
+      fix = "oxlint --no-error-on-unmatched-pattern --report-unused-disable-directives-severity error --fix {{ files }}"
+    }
+    ["tsc"] {
+      glob = List(".vitepress/**/*.ts", "**/*.ts", "**/*.vue", "tsconfig*.json")
+      stomp = true
+      check = "bun run vue-tsc && bun run tsc"
+    }
+  }
+}
+
+local const lintSteps = new Mapping<String, Step | Group> {
   ["clippy"] {
     types = rustTypes
     check = "cargo clippy --all-targets -- --deny warnings"
@@ -36,52 +61,36 @@ local const lintSteps = new Mapping<String, Step> {
     glob = List("Cargo.toml", "Cargo.lock", "deny.toml")
     check = "cargo-deny --locked check"
   }
-  ["actionlint"] {
-    glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml")
-    check = "actionlint -color {{ files }}"
-    // SC2312: check-extra-masked-returns. GitHub Actions runs bash with
-    // pipefail, but shellcheck cannot detect that from workflow files.
-    env {
-      ["SHELLCHECK_OPTS"] = "--enable=all --exclude=SC2312"
-    }
-  }
-  ["pinact"] = Builtins.pinact
-  ["ghalint"] = (Builtins.ghalint_workflow) {
-    depends = "pinact"
-  }
-  ["zizmor"] = (Builtins.zizmor) {
-    check_diff = "zizmor --no-progress --pedantic {{ files }}"
-    fix = "zizmor --no-progress --pedantic --fix {{ files }}"
-  }
-  ["yamllint"] = Builtins.yamllint
-  ["oxfmt"] {
-    glob = oxfmtGlobs
-    check = "oxfmt --check"
-    fix = "oxfmt"
+  ["github"] = github
+  ["oxfmt"] = (Builtins.oxfmt) {
+    batch = true
   }
   ["tombi"] {
     types = List("toml")
-    check = "tombi format --check && tombi lint --error-on-warnings"
-    fix = "tombi format && tombi lint --error-on-warnings"
+    batch = true
+    check = "tombi lint {{ files }}"
   }
-  ["typos"] {
-    check = "typos"
-    fix = "typos --write-changes"
+  ["tombi-format"] {
+    types = List("toml")
+    batch = true
+    check_diff = "tombi format --check --diff {{ files }}"
+    fix = "tombi format {{ files }}"
   }
-  ["oxlint"] {
-    glob = List(".vitepress/**/*.ts", "**/*.js", "**/*.ts", "**/*.vue")
-    check = "oxlint --report-unused-disable-directives-severity error"
-    fix = "oxlint --report-unused-disable-directives-severity error --fix"
-    dir = "docs"
+  ["yamllint"] = (Builtins.yamllint) {
+    batch = true
   }
-  ["tsc"] {
-    glob = List(".vitepress/**/*.ts", "**/*.ts", "**/*.vue", "tsconfig*.json")
-    check = "bun run vue-tsc && bun run tsc"
-    dir = "docs"
+  ["typos"] = (Builtins.typos) {
+    batch = true
   }
+  ["docs"] = docs
 }
 
 hooks {
+  ["pre-commit"] {
+    fix = true
+    stash = "git"
+    steps = lintSteps
+  }
   ["check"] {
     steps = lintSteps
   }
