@@ -15,8 +15,6 @@ local github = new Group {
     }
     ["pinact"] = (Builtins.pinact) {
       batch = true
-      check_diff = "pinact run --verify --check {{ files }}"
-      fix = "pinact run --verify {{ files }}"
     }
     ["ghalint"] = (Builtins.ghalint_workflow) {
       depends = "pinact"
@@ -35,8 +33,8 @@ local docs = new Group {
     ["oxlint"] = (Builtins.ox_lint) {
       batch = true
       glob = List(".vitepress/**/*.ts", "**/*.js", "**/*.ts", "**/*.vue")
-      check = "oxlint --no-error-on-unmatched-pattern --report-unused-disable-directives-severity error {{ files }}"
-      fix = "oxlint --no-error-on-unmatched-pattern --report-unused-disable-directives-severity error --fix {{ files }}"
+      check = "oxlint --report-unused-disable-directives-severity error {{ files }}"
+      fix = "oxlint --report-unused-disable-directives-severity error --fix {{ files }}"
     }
     ["tsc"] {
       glob = List(".vitepress/**/*.ts", "**/*.ts", "**/*.vue", "tsconfig*.json")
@@ -63,23 +61,24 @@ local const lintSteps = new Mapping<String, Step | Group> {
   }
   ["github"] = github
   ["oxfmt"] = (Builtins.oxfmt) {
+    // Duplicate .oxfmtrc.json ignorePatterns so hk skips this step when only
+    // ignored paths change; oxfmt ignore alone still runs the step and exits 0.
+    exclude = List("CHANGELOG.md", "docs/src/cli/**", "schema/**", "**/*.toml")
     batch = true
   }
-  ["tombi"] {
-    types = List("toml")
+  ["tombi"] = (Builtins.tombi) {
     batch = true
     check = "tombi lint --error-on-warnings {{ files }}"
   }
-  ["tombi-format"] {
-    types = List("toml")
+  ["tombi-format"] = (Builtins.tombi_format) {
     batch = true
-    check_diff = "tombi format --check --diff {{ files }}"
-    fix = "tombi format {{ files }}"
   }
   ["yamllint"] = (Builtins.yamllint) {
     batch = true
   }
   ["typos"] = (Builtins.typos) {
+    // Duplicate typos.toml extend-exclude for tracked paths matched by **/*.
+    exclude = List(".gitignore", "biwa.usage.kdl", "CHANGELOG.md", "docs/src/cli/**")
     batch = true
   }
   ["docs"] = docs
