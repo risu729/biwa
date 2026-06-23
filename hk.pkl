@@ -68,7 +68,7 @@ local const lintSteps = new Mapping<String, Step | Group> {
   ["tombi"] {
     types = List("toml")
     batch = true
-    check = "tombi lint {{ files }}"
+    check = "tombi lint --error-on-warnings {{ files }}"
   }
   ["tombi-format"] {
     types = List("toml")
