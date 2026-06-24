@@ -66,8 +66,8 @@ It captures the commands, conventions, and guardrails that are actually used her
 
 ### Lint / Format / Check
 
-- `mise run check` - umbrella task for formatters and linters; may autofix when `LINT` is unset.
-- `LINT=true mise run check` - CI-like check mode without formatting/fix writes.
+- `mise run check` - umbrella task for formatters and linters; may autofix when `--lint` is omitted.
+- `mise run check --lint` - CI-like check mode without formatting/fix writes.
 - `hk check --all --step clippy` - run one hk check step.
 - `hk fix --all --step rustfmt --no-stage` - run one hk fix step.
 
@@ -173,7 +173,7 @@ It captures the commands, conventions, and guardrails that are actually used her
 
 - Before editing, inspect nearby code and mirror the local style.
 - After Rust edits, at minimum run focused tests plus `hk fix --all --step rustfmt --no-stage`.
-- Before finishing broader changes, prefer `LINT=true mise run check` and relevant tests.
+- Before finishing broader changes, prefer `mise run check --lint` and relevant tests.
 - If you change generated CLI docs or schema inputs, run the corresponding `mise run render:*` task.
 - If you change snapshots intentionally, run `mise run test:update-snapshot`.
 

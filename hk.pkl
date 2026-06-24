@@ -1,42 +1,16 @@
-amends "package://github.com/jdx/hk/releases/download/v1.48.0/hk@1.48.0#/Config.pkl"
-import "package://github.com/jdx/hk/releases/download/v1.48.0/hk@1.48.0#/Builtins.pkl"
+amends "https://raw.githubusercontent.com/risu729/hk-config/v1.0.0/presets.pkl"
+import "https://raw.githubusercontent.com/risu729/hk-config/v1.0.0/helpers.pkl"
 
-local const rustTypes = List("rust")
-
-local github = new Group {
-  steps {
-    ["actionlint"] = (Builtins.actionlint) {
-      check = "actionlint -color {{ files }}"
-      // SC2312: check-extra-masked-returns. GitHub Actions runs bash with
-      // pipefail, but shellcheck cannot detect that from workflow files.
-      env {
-        ["SHELLCHECK_OPTS"] = "--enable=all --exclude=SC2312"
-      }
-    }
-    ["pinact"] = (Builtins.pinact) {
-      batch = true
-    }
-    ["ghalint"] = (Builtins.ghalint_workflow) {
-      depends = "pinact"
-    }
-    ["zizmor"] = (Builtins.zizmor) {
-      batch = true
-      check_diff = "zizmor --no-progress --pedantic {{ files }}"
-      fix = "zizmor --no-progress --pedantic --fix {{ files }}"
-    }
-  }
-}
+local docsLint = helpers.pick(new Listing { "oxlint" })
 
 local docs = new Group {
   dir = "docs"
   steps {
-    ["oxlint"] = (Builtins.ox_lint) {
-      batch = true
+    ["oxlint"] = (docsLint["oxlint"]) {
       glob = List(".vitepress/**/*.ts", "**/*.js", "**/*.ts", "**/*.vue")
-      check = "oxlint --report-unused-disable-directives-severity error {{ files }}"
-      fix = "oxlint --report-unused-disable-directives-severity error --fix {{ files }}"
     }
-    ["tsc"] {
+    ["tsc"] = new Step {
+      // VitePress: vue-tsc + tsc; not catalog Builtins.tsc (`tsc --noEmit -p …`)
       glob = List(".vitepress/**/*.ts", "**/*.ts", "**/*.vue", "tsconfig*.json")
       stomp = true
       check = "bun run vue-tsc && bun run tsc"
@@ -44,57 +18,25 @@ local docs = new Group {
   }
 }
 
-local const lintSteps = new Mapping<String, Step | Group> {
-  ["clippy"] {
-    types = rustTypes
-    check = "cargo clippy --all-targets -- --deny warnings"
-    fix = "cargo clippy --fix --allow-dirty --allow-staged --all-targets > /dev/null 2>&1; cargo clippy --all-targets -- --deny warnings"
-  }
-  ["rustfmt"] {
-    types = rustTypes
-    check = "cargo fmt --check"
-    fix = "cargo fmt"
-  }
-  ["cargo-deny"] {
-    glob = List("Cargo.toml", "Cargo.lock", "deny.toml")
-    check = "cargo-deny --locked check"
-  }
-  ["github"] = github
-  ["oxfmt"] = (Builtins.oxfmt) {
+local picked = helpers.pick(new Listing {
+  "rust"
+  "github-actions"
+  "oxfmt"
+  "tombi"
+  "yaml"
+  "typos"
+  "hygiene"
+})
+
+hooks = helpers.standardHooks((picked) {
+  ["oxfmt"] = (picked["oxfmt"]) {
     // Duplicate .oxfmtrc.json ignorePatterns so hk skips this step when only
     // ignored paths change; oxfmt ignore alone still runs the step and exits 0.
     exclude = List("CHANGELOG.md", "docs/src/cli/**", "schema/**", "**/*.toml")
-    batch = true
   }
-  ["tombi"] = (Builtins.tombi) {
-    batch = true
-    check = "tombi lint --error-on-warnings {{ files }}"
-  }
-  ["tombi-format"] = (Builtins.tombi_format) {
-    batch = true
-  }
-  ["yamllint"] = (Builtins.yamllint) {
-    batch = true
-  }
-  ["typos"] = (Builtins.typos) {
+  ["typos"] = (picked["typos"]) {
     // Duplicate typos.toml extend-exclude for tracked paths matched by **/*.
     exclude = List(".gitignore", "biwa.usage.kdl", "CHANGELOG.md", "docs/src/cli/**")
-    batch = true
   }
   ["docs"] = docs
-}
-
-hooks {
-  ["pre-commit"] {
-    fix = true
-    stash = "git"
-    steps = lintSteps
-  }
-  ["check"] {
-    steps = lintSteps
-  }
-  ["fix"] {
-    fix = true
-    steps = lintSteps
-  }
-}
+})

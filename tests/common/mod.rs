@@ -37,7 +37,7 @@ fn init_test_env() {
 /// and host connection strings out-of-the-box.
 ///
 /// Parallel tests share the same persisted connection state file; disable automatic background
-/// cleanup so `biwa clean --auto` does not remove other tests’ remote project directories.
+/// cleanup so `biwa clean --auto` does not remove other tests' remote project directories.
 /// The state directory is isolated from the developer's real XDG state.
 pub fn biwa_cmd(args: &[&str]) -> duct::Expression {
 	biwa_cmd_with_port(args, "2222")
