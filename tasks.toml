@@ -19,9 +19,16 @@ description = "Update test snapshots."
 tools = { cargo-insta = "1.46.3" }
 
 [check]
-run = "hk {% if env.LINT is defined %}check{% else %}fix --no-stage{% endif %} --all --no-progress --no-fail-fast"
+usage = '''
+flag "--lint" help="Run hk check instead of fix"
+'''
+run = """
+hk \
+  {% if usage.lint %}check{% else %}fix --no-stage{% endif %} \
+  --all --no-progress --no-fail-fast
+"""
 env.GH_TOKEN = "{% if env.GITHUB_TOKEN is defined %}{{ env.GITHUB_TOKEN }}{% endif %}"
-description = "Run hk linters and formatters. Set LINT=true to check without applying fixes."
+description = "Run hk linters and formatters."
 
 ["docs:dev"]
 run = "bun run --bun vitepress dev"
