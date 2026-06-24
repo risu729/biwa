@@ -1,17 +1,16 @@
 amends "https://raw.githubusercontent.com/risu729/hk-config/v1.0.5/presets.pkl"
 import "https://raw.githubusercontent.com/risu729/hk-config/v1.0.5/helpers.pkl"
 
+local docsLint = helpers.pick(new Listing { "oxlint" })
+
 local docs = new Group {
   dir = "docs"
   steps {
-    ["oxlint"] = new Step {
+    ["oxlint"] = (docsLint["oxlint"]) {
       glob = List(".vitepress/**/*.ts", "**/*.js", "**/*.ts", "**/*.vue")
-      check =
-        "oxlint --deny-warnings --report-unused-disable-directives-severity error {{ files }}"
-      fix =
-        "oxlint --deny-warnings --report-unused-disable-directives-severity error --fix {{ files }}"
     }
     ["tsc"] = new Step {
+      // VitePress: vue-tsc + tsc; not catalog Builtins.tsc (`tsc --noEmit -p …`)
       glob = List(".vitepress/**/*.ts", "**/*.ts", "**/*.vue", "tsconfig*.json")
       stomp = true
       check = "bun run vue-tsc && bun run tsc"
