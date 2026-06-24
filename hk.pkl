@@ -1,5 +1,5 @@
-amends "https://raw.githubusercontent.com/risu729/hk-config/v1.0.2/presets.pkl"
-import "https://raw.githubusercontent.com/risu729/hk-config/v1.0.2/helpers.pkl"
+amends "https://raw.githubusercontent.com/risu729/hk-config/v1.0.4/presets.pkl"
+import "https://raw.githubusercontent.com/risu729/hk-config/v1.0.4/helpers.pkl"
 
 local docs = new Group {
   dir = "docs"
@@ -26,9 +26,9 @@ local picked = helpers.pick(new Listing {
   "github-actions"
   "oxfmt"
   "tombi"
-  "tombi-format"
-  "yamllint"
+  "yaml"
   "typos"
+  "hygiene"
 })
 
 hooks = helpers.standardHooks((picked) {
