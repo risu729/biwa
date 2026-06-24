@@ -2,17 +2,18 @@
 rust = { version = "1.96.0", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.19.9"
 "github:xd009642/tarpaulin" = "0.35.5"
-usage = "3.5.2"
+usage = "3.5.3"
 hk = "1.48.0"
 actionlint = "1.7.12"
 # used in actionlint
 shellcheck = "0.11.0"
 ghalint = "1.5.6"
-pinact = "3.10.1"
+pinact = "4.1.0"
 zizmor = "1.26.1"
 # required for pipx backend
-uv = "0.11.23"
+uv = "0.11.24"
 yamllint = "1.38.0"
+yamlfmt = "0.21.0"
 typos = "1.47.2"
 release-plz = "0.3.158"
 cargo-dist = "0.32.0"
@@ -21,7 +22,7 @@ node = "26.3.1"
 oxlint = "1.63.0"
 oxfmt = "0.48.0"
 pitchfork = "2.14.0"
-tombi = "0.11.5"
+tombi = "1.1.5"
 "npm:ajv-cli" = "5.0.0"
 wrangler = "4.93.0"
 yq = "4.53.3"
@@ -39,7 +40,6 @@ lockfile_platforms = [
 
 [env]
 '_'.path = ["target/debug"]
-HK_PKL_BACKEND = "pklr"
 
 [task_config]
 includes = ["tasks.toml", "tasks/"]

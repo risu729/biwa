@@ -81,8 +81,8 @@ auto = false
 
 Automatic cleanup connects over SSH, reads disk **quota** usage when the server reports it, and applies **`[clean]`** rules:
 
-- **`max_age`** — Maximum age for remote directories under the default layout (`remote_root` + per-project folder names). Expressed as a duration string (`"30d"`, `"12h"`, `"30"` for 30 minutes, and so on). This acts as the baseline “0% quota” threshold.
-- **`quota_thresholds`** — Optional map of quota usage **percentages** (0–100) to maximum directory ages. When reported quota usage is at or above a threshold, directories older than that threshold’s age can be removed. If quota data is unavailable, only the baseline age from `max_age` applies.
+- **`max_age`** — Maximum age for remote directories under the default layout (`remote_root` + per-project folder names). Expressed as a duration string (`"30d"`, `"12h"`, `"30"` for 30 minutes, and so on). This acts as the baseline "0% quota" threshold.
+- **`quota_thresholds`** — Optional map of quota usage **percentages** (0–100) to maximum directory ages. When reported quota usage is at or above a threshold, directories older than that threshold's age can be removed. If quota data is unavailable, only the baseline age from `max_age` applies.
 
 Candidates for removal are **tracked** connection entries that are older than the effective age limit, plus **orphan** directories on the server that look like default biwa project folders under `remote_root`, are no longer listed in local state, and have a remote filesystem modification time older than the effective age limit. Orphan detection only runs when local state already has at least one tracked path for that SSH target, so it is not run on an empty or broken state file.
 
@@ -92,7 +92,7 @@ Background cleanup does not run if another cleanup process already holds the PID
 
 Use the dedicated command for explicit control; see the [CLI reference for `biwa clean`](/cli/clean.md).
 
-- **Default (no extra flags)** — Remove the **current project’s** remote directory (from the computed `remote_root` + unique project name for the current working directory).
+- **Default (no extra flags)** — Remove the **current project's** remote directory (from the computed `remote_root` + unique project name for the current working directory).
 - **`--all`** — Remove every **tracked** remote directory for this SSH host/user/port that matches the default biwa layout under `remote_root`.
 - **`--purge`** — Remove every biwa-layout directory listed under `remote_root` on the server, including projects from other clients and legacy default-layout dirs. Use with care.
 - **`--dry-run`** — Print what would be removed without deleting.

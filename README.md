@@ -19,5 +19,5 @@ Common workflows:
 ```sh
 mise run build
 mise run test
-LINT=true mise run check
+mise run check --lint
 ```
