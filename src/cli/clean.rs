@@ -71,7 +71,7 @@ enum CleanAction {
 /// Which cleanup mode `biwa clean` runs (after handling [`CleanAction::Stop`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum CleanTarget {
-	/// Default: remove only the current project’s remote directory.
+	/// Default: remove only the current project's remote directory.
 	CurrentProject,
 	/// `--auto`: quota / stale connection cleanup (daemon-style).
 	Auto,
