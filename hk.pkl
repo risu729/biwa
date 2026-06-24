@@ -19,9 +19,7 @@ local docs = new Group {
 }
 
 local picked = helpers.pick(new Listing {
-  "clippy"
-  "rustfmt"
-  "cargo-deny"
+  "rust"
   "github-actions"
   "oxfmt"
   "tombi"
