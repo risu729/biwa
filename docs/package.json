@@ -9,7 +9,7 @@
 		"typescript": "6.0.3",
 		"vitepress": "2.0.0-alpha.17",
 		"vitepress-plugin-mermaid": "2.0.17",
-		"vue-tsc": "3.3.5"
+		"vue-tsc": "3.3.6"
 	},
 	"overrides": {
 		"vite": "8.1.1"
