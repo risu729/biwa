@@ -373,33 +373,33 @@ url = "https://github.com/jdx/pitchfork/releases/download/v2.15.0/pitchfork-aarc
 url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/463666885"
 
 [[tools.release-plz]]
-version = "0.3.158"
+version = "0.3.159"
 backend = "aqua:release-plz/release-plz"
 
 [tools.release-plz."platforms.linux-arm64"]
-checksum = "sha256:9358c419819665e89e82e3222d733b8d45cae7bcb2c3644e1ac4ca867dacb7d0"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/416597350"
+checksum = "sha256:58b80ecce86ac24cbecf3f4cf37eeb0412583a0adf3a8ae608b6a4eb71737f35"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.159/release-plz-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442830780"
 
 [tools.release-plz."platforms.linux-arm64-musl"]
-checksum = "sha256:9358c419819665e89e82e3222d733b8d45cae7bcb2c3644e1ac4ca867dacb7d0"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/416597350"
+checksum = "sha256:58b80ecce86ac24cbecf3f4cf37eeb0412583a0adf3a8ae608b6a4eb71737f35"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.159/release-plz-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442830780"
 
 [tools.release-plz."platforms.linux-x64"]
-checksum = "sha256:a98a3e53396ee6ba094ab8e51f20b39a84d4e69ff6a23601940b6a4238438705"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/416597152"
+checksum = "sha256:b634dcb4a1b0724e00e924ab50e685704ef2bf8c6ebb809f4ac2ab16ac8458d9"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.159/release-plz-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442830250"
 
 [tools.release-plz."platforms.linux-x64-musl"]
-checksum = "sha256:a98a3e53396ee6ba094ab8e51f20b39a84d4e69ff6a23601940b6a4238438705"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/416597152"
+checksum = "sha256:b634dcb4a1b0724e00e924ab50e685704ef2bf8c6ebb809f4ac2ab16ac8458d9"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.159/release-plz-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442830250"
 
 [tools.release-plz."platforms.macos-arm64"]
-checksum = "sha256:6f56ddaf3c6c2d658348af4a08b3cfc7b732e1f6cc11d32ba08a35cde70155ca"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.158/release-plz-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/416596823"
+checksum = "sha256:c9ff7e895a018c6d6c1cd62c85d0ff296a8e6dd1647bc816b9251d8056b72e2f"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.159/release-plz-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442829894"
 
 [[tools.rust]]
 version = "1.96.1"
