@@ -31,17 +31,17 @@ env.GH_TOKEN = "{% if env.GITHUB_TOKEN is defined %}{{ env.GITHUB_TOKEN }}{% end
 description = "Run hk linters and formatters."
 
 ["docs:dev"]
-run = "bun run --bun vitepress dev"
+run = "node node_modules/vitepress/bin/vitepress.js dev"
 dir = "docs"
 description = "Start VitePress development server."
 
 ["docs:build"]
-run = "bun run --bun vitepress build"
+run = "node node_modules/vitepress/bin/vitepress.js build"
 dir = "docs"
 description = "Build VitePress documentation for production."
 
 ["docs:preview"]
-run = "bun run --bun vitepress preview"
+run = "node node_modules/vitepress/bin/vitepress.js preview"
 dir = "docs"
 description = "Preview built VitePress documentation."
 
