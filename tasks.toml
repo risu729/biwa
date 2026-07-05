@@ -27,7 +27,6 @@ hk \
   {% if usage.lint %}check{% else %}fix --no-stage{% endif %} \
   --all --no-progress --no-fail-fast
 """
-env.GH_TOKEN = "{% if env.GITHUB_TOKEN is defined %}{{ env.GITHUB_TOKEN }}{% endif %}"
 description = "Run hk linters and formatters."
 
 ["docs:dev"]
