@@ -39,7 +39,7 @@ lockfile_platforms = [
 ]
 
 [env]
-'_'.path = ["target/debug"]
+"_".path = ["target/debug"]
 
 [task_config]
 includes = ["tasks.toml", "tasks/"]
