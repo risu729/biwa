@@ -82,6 +82,8 @@ get_unwrap = "allow"
 implicit_return = "allow"
 # Unit tests and small implementation modules are intentionally colocated
 inline_modules = "allow"
+# Short generic constraints are clearer as inline trait bounds
+inline_trait_bounds = "allow"
 # We allow single char identifiers for brevity
 min_ident_chars = "allow"
 # We shouldn't enable globally
