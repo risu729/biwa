@@ -80,6 +80,10 @@ float_arithmetic = "allow"
 get_unwrap = "allow"
 # We prefer idiomatic Rust code
 implicit_return = "allow"
+# Unit tests and small implementation modules are intentionally colocated
+inline_modules = "allow"
+# Short generic constraints are clearer as inline trait bounds
+inline_trait_bounds = "allow"
 # We allow single char identifiers for brevity
 min_ident_chars = "allow"
 # We shouldn't enable globally
@@ -113,6 +117,8 @@ shadow_reuse = "allow"
 single_call_fn = "allow"
 # Single char lifetime names are more idiomatic
 single_char_lifetime_names = "allow"
+# `core::io` is unstable, so IO types must be imported from `std`
+std_instead_of_core = "allow"
 # mut String is worse than String + "..."
 string_add = "allow"
 # We have some unimplemented features
