@@ -1,6 +1,6 @@
 [tools]
 rust = { version = "1.96.1", profile = "default" }
-"aqua:EmbarkStudios/cargo-deny" = "0.19.9"
+"aqua:EmbarkStudios/cargo-deny" = "0.20.2"
 "github:xd009642/tarpaulin" = "0.37.0"
 usage = "3.5.4"
 hk = "1.48.0"
