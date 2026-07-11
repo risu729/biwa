@@ -4,3 +4,5 @@ pub mod format;
 mod load;
 /// Types for the configuration elements.
 pub mod types;
+/// YAML parsing and template rendering.
+mod yaml;

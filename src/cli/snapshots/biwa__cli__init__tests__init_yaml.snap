@@ -54,8 +54,8 @@ ssh:
   #
   # Can also be specified via environment variable `BIWA_SSH_UMASK`.
   #
-  # Default value: '077'
-  #umask: '077'
+  # Default value: "077"
+  #umask: "077"
 
 # Remote synchronization configuration.
 sync:
@@ -87,8 +87,8 @@ sync:
 
   # Files and directories to exclude during synchronization using globset patterns.
   #
-  # Default value: ['**/.git/**', '**/target/**', '**/node_modules/**']
-  #exclude: ['**/.git/**', '**/target/**', '**/node_modules/**']
+  # Default value: ["**/.git/**", "**/target/**", "**/node_modules/**"]
+  #exclude: ["**/.git/**", "**/target/**", "**/node_modules/**"]
 
   # The synchronization engine to use.
   #
@@ -163,5 +163,5 @@ clean:
   #
   # Example: `{ 80 = "5d" }` means clean dirs older than 5 days when quota ≥ 80%.
   #
-  # Default value: {  }
-  #quota_thresholds: {  }
+  # Default value: {}
+  #quota_thresholds: {}

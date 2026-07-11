@@ -1,5 +1,6 @@
 use super::format::ConfigFormat;
 use super::types::Config;
+use super::yaml;
 use crate::Result;
 use crate::env_vars::{EnvVars, parse_env_var_env};
 use crate::state::default_state_dir;
@@ -157,9 +158,7 @@ impl Config {
 		let content = fs::read_to_string(path).wrap_err("Failed to read config file")?;
 		let mut partial: <Self as confique::Config>::Layer = match format {
 			ConfigFormat::Toml => toml::from_str(&content).wrap_err("Failed to parse TOML")?,
-			ConfigFormat::Yaml => {
-				serde_yaml::from_str(&content).wrap_err("Failed to parse YAML")?
-			}
+			ConfigFormat::Yaml => yaml::from_str(&content).wrap_err("Failed to parse YAML")?,
 			ConfigFormat::Json | ConfigFormat::Json5 => {
 				json5::from_str(&content).wrap_err("Failed to parse JSON")?
 			}
@@ -225,9 +224,7 @@ impl Config {
 			ConfigFormat::Toml => {
 				confique::toml::template::<Self>(confique::toml::FormatOptions::default())
 			}
-			ConfigFormat::Yaml => {
-				confique::yaml::template::<Self>(confique::yaml::FormatOptions::default())
-			}
+			ConfigFormat::Yaml => yaml::template::<Self>(),
 			ConfigFormat::Json | ConfigFormat::Json5 => {
 				confique::json5::template::<Self>(confique::json5::FormatOptions::default())
 			}
@@ -1227,7 +1224,7 @@ user = "user"
 		let dir = tempfile::tempdir()?;
 		let path = dir.path().join("config.yaml");
 		// Write invalid YAML
-		fs::write(&path, "invalid:\n  - \n    - :\n")?;
+		fs::write(&path, "invalid: [unterminated\n")?;
 
 		let result = Config::load_partial(&path, ConfigFormat::Yaml, dir.path());
 		let err = match result {
