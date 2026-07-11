@@ -293,7 +293,7 @@ async fn fetch_remote_state(
 		 (find . -mindepth 1 -type d -print || true) && \
 		 printf '%s\n' {quoted_marker} && \
 		 (find . -type f -exec sha256sum {{}} + || true)",
-		&config.ssh.umask
+		config.ssh.umask
 	);
 
 	let result = client

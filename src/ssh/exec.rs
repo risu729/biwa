@@ -13,13 +13,13 @@ use crate::ui::create_spinner;
 use bytes::Bytes;
 use color_eyre::eyre::{Context as _, Report, bail};
 use console::style;
+use core::io::ErrorKind as IoErrorKind;
 use core::time::Duration;
 use indicatif::ProgressBar;
 use russh::{Channel, ChannelMsg, Pty, Sig, client::Msg};
 use std::env;
 use std::io::{
-	Error as IoError, ErrorKind as IoErrorKind, IsTerminal as _, Read as _, Result as IoResult,
-	stdin as std_stdin,
+	Error as IoError, IsTerminal as _, Read as _, Result as IoResult, stdin as std_stdin,
 };
 use std::thread;
 use tokio::io::{copy, sink, stderr, stdout};
