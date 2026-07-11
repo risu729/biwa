@@ -16,7 +16,7 @@ chrono = { version = "=0.4.45", features = ["serde"] }
 clap = { version = "=4.6.1", features = ["derive"] }
 color-eyre = "=0.6.5"
 confique = { version = "=0.4.0", features = ["json5", "toml", "yaml"] }
-console = "=0.16.3"
+console = "=0.16.4"
 derive_more = { version = "=2.1.1", features = ["deref"] }
 dialoguer = "=0.12.0"
 dirs = "=6.0.0"
