@@ -11,7 +11,7 @@ ghalint = "1.5.6"
 pinact = "4.1.0"
 zizmor = "1.27.0"
 # required for pipx backend
-uv = "0.11.28"
+uv = "0.11.29"
 yamllint = "1.38.0"
 yamlfmt = "0.21.0"
 typos = "1.48.0"
