@@ -1,5 +1,5 @@
 [tools]
-rust = { version = "1.97.0", profile = "default" }
+rust = { version = "1.97.1", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.20.2"
 "github:xd009642/tarpaulin" = "0.37.0"
 usage = "3.5.5"
