@@ -402,7 +402,7 @@ url = "https://github.com/release-plz/release-plz/releases/download/release-plz-
 url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442829894"
 
 [[tools.rust]]
-version = "1.97.0"
+version = "1.97.1"
 backend = "core:rust"
 
 [tools.rust.options]
