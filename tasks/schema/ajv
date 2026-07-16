@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Validate config schema with ajv."
-#MISE depends=["{% if env.CI is defined %}util:noop{% else %}render:schema{% endif %}"]
+#MISE depends=["{% if env.CI is defined %}{% else %}render:schema{% endif %}"]
 
 set -euo pipefail
 
