@@ -52,7 +52,6 @@ jobs:
             docs:
               - *ci
               - 'docs/**'
-              - 'tasks/docs/**'
               - 'tasks.toml'
             build: &build
               - *ci
@@ -214,7 +213,6 @@ jobs:
     env:
       MISE_RUSTUP_HOME: /home/runner/.local/share/mise/rustup
       MISE_CARGO_HOME: /home/runner/.local/share/mise/cargo
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -228,29 +226,15 @@ jobs:
           MISE_ENABLE_TOOLS: bun,node,wrangler
       - name: Build docs
         run: mise run docs:build
-      - name: Check Cloudflare token
-        id: cloudflare-token
-        if: github.repository == 'risu729/biwa' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          if [[ -n "${CLOUDFLARE_API_TOKEN}" ]]; then
-            echo "available=true" >> "${GITHUB_OUTPUT}"
-          else
-            echo "available=false" >> "${GITHUB_OUTPUT}"
-          fi
-      - name: Upload docs preview
-        if: github.repository == 'risu729/biwa' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && steps.cloudflare-token.outputs.available == 'true'
-        env:
-          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          WORKER_NAME: biwa-docs
-        run: mise run docs:deploy -- preview
       - name: Deploy docs
-        if: github.repository == 'risu729/biwa' && github.event_name != 'pull_request' && steps.cloudflare-token.outputs.available == 'true'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: mise run docs:deploy
+        uses: risu729/wrangler-deploy-action@60564f39135d605f8376c7c66ac21ab12b899271 # v1.0.0
+        with:
+          mode: ${{ github.event_name == 'pull_request' && 'preview-or-dry-run' || 'production' }}
+          working-directory: docs
+          config: .vitepress/dist/wrangler.json
+          preview-alias: pr-${{ github.event.pull_request.number }}
+          cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   ci-check:
     name: CI Check
     needs:
