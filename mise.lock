@@ -241,33 +241,33 @@ url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.0/cargo-tarp
 url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/466300168"
 
 [[tools.hk]]
-version = "1.51.0"
+version = "1.52.0"
 backend = "aqua:jdx/hk"
 
 [tools.hk."platforms.linux-arm64"]
-checksum = "sha256:6dc84f63ba365544d36a3436360b69c04fcad50dc29758c826de5a7e363c9809"
-url = "https://github.com/jdx/hk/releases/download/v1.51.0/hk-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/jdx/hk/releases/assets/476588078"
+checksum = "sha256:84504df54a3a945493eeb739d2fe6bf0eef392d74795eeb02eabadfee78a53f8"
+url = "https://github.com/jdx/hk/releases/download/v1.52.0/hk-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/484573027"
 
 [tools.hk."platforms.linux-arm64-musl"]
-checksum = "sha256:e367ad005cd42172431e3df9f14774401b1620f82f09e508c9cf6ee164deeda6"
-url = "https://github.com/jdx/hk/releases/download/v1.51.0/hk-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/hk/releases/assets/476588076"
+checksum = "sha256:b710da09ee7bd09534201cbf9a5b8da62cae8d9d4a6bf1b3c7853b5441fd4678"
+url = "https://github.com/jdx/hk/releases/download/v1.52.0/hk-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/484573029"
 
 [tools.hk."platforms.linux-x64"]
-checksum = "sha256:6ef59a3a06c10141181853bfcbe82bdb939c5a65efe05c762f98a06896b4cc25"
-url = "https://github.com/jdx/hk/releases/download/v1.51.0/hk-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/jdx/hk/releases/assets/476588091"
+checksum = "sha256:d381ec061fda51d5765e7831757107e4c565f195b206feae6fdd298162ab8baa"
+url = "https://github.com/jdx/hk/releases/download/v1.52.0/hk-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/484573049"
 
 [tools.hk."platforms.linux-x64-musl"]
-checksum = "sha256:cced510878bc6b78107b438bbbeff1b4b451623ff965ba81d72345d229c1318f"
-url = "https://github.com/jdx/hk/releases/download/v1.51.0/hk-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/hk/releases/assets/476588095"
+checksum = "sha256:53b9cb859c950a1b6f26100de3335022b071b30205c73c8744762bc67764ab50"
+url = "https://github.com/jdx/hk/releases/download/v1.52.0/hk-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/484573053"
 
 [tools.hk."platforms.macos-arm64"]
-checksum = "sha256:1f19137c63bc3be45c58badd4aa0e14b2718669df93c8f4c1d05b74e5ab6acef"
-url = "https://github.com/jdx/hk/releases/download/v1.51.0/hk-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/jdx/hk/releases/assets/476588079"
+checksum = "sha256:a711ed6d6359ca3084c73e1025af4e9a158727297a8dbe308d6eab44bcad372c"
+url = "https://github.com/jdx/hk/releases/download/v1.52.0/hk-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jdx/hk/releases/assets/484573025"
 
 [[tools.node]]
 version = "26.5.0"
@@ -306,7 +306,7 @@ version = "4.92.0"
 backend = "npm:wrangler"
 
 [[tools.oxfmt]]
-version = "0.58.0"
+version = "0.59.0"
 backend = "npm:oxfmt"
 
 [[tools.oxlint]]
@@ -354,23 +354,23 @@ url_api = "https://api.github.com/repos/suzuki-shunsuke/pinact/releases/assets/4
 provenance = "github-attestations"
 
 [[tools.pitchfork]]
-version = "2.16.0"
+version = "2.17.0"
 backend = "aqua:jdx/pitchfork"
 
 [tools.pitchfork."platforms.linux-arm64"]
-checksum = "sha256:b1af238e6f590ea9367af97db2b171dc8162aa3d685cef483526b1310c8d5b3a"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.16.0/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/471473083"
+checksum = "sha256:267602712322e918610899da58ce1add60603fb5b37abbf526f5a0a569617752"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.17.0/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/480283061"
 
 [tools.pitchfork."platforms.linux-x64"]
-checksum = "sha256:c4d725410aa554169678a28af30e0b42d71a1078f9f59f196566107b22a878dc"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.16.0/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/471281589"
+checksum = "sha256:d6fc52d0de4d8f619a1354b7a22a9193c119e3242f5ff9fdfe82187937aa8517"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.17.0/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/480282789"
 
 [tools.pitchfork."platforms.macos-arm64"]
-checksum = "sha256:273d59d388c79c537a9272c18a193fa2810d0503f179bc4efc4a65cdce548a35"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.16.0/pitchfork-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/471282278"
+checksum = "sha256:5fccff5918391d9106dc52cac3b8fa6ab1feafd7812b185ac78a55cd2788b3b9"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.17.0/pitchfork-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/480289056"
 
 [[tools.release-plz]]
 version = "0.3.159"
@@ -443,43 +443,43 @@ url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellche
 url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056930"
 
 [[tools.tombi]]
-version = "1.2.0"
+version = "1.2.4"
 backend = "aqua:tombi-toml/tombi"
 
 [tools.tombi."platforms.linux-arm64"]
-checksum = "sha256:17aa2e8f50269b5decfef4b09701315ed3ed8da557e23d7d6c16d9263cc455eb"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.0/tombi-cli-1.2.0-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/467173941"
+checksum = "sha256:91504ef7e605fca89ef55aea0a428ee58cf3e435f2650a8a9ce8886dd286b874"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.4/tombi-cli-1.2.4-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/482325750"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.linux-arm64-musl"]
-checksum = "sha256:17aa2e8f50269b5decfef4b09701315ed3ed8da557e23d7d6c16d9263cc455eb"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.0/tombi-cli-1.2.0-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/467173941"
+checksum = "sha256:91504ef7e605fca89ef55aea0a428ee58cf3e435f2650a8a9ce8886dd286b874"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.4/tombi-cli-1.2.4-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/482325750"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.linux-x64"]
-checksum = "sha256:6f253f2fce04314a518f7c710471b4c0cdb0140e5a230092c83c98d8559c2816"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.0/tombi-cli-1.2.0-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/467173957"
+checksum = "sha256:a74364d9c27835cefd9d7d9e4fee0487a7f68bc5289650e61050d6b0c395dc4d"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.4/tombi-cli-1.2.4-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/482325758"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.linux-x64-musl"]
-checksum = "sha256:6f253f2fce04314a518f7c710471b4c0cdb0140e5a230092c83c98d8559c2816"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.0/tombi-cli-1.2.0-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/467173957"
+checksum = "sha256:a74364d9c27835cefd9d7d9e4fee0487a7f68bc5289650e61050d6b0c395dc4d"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.4/tombi-cli-1.2.4-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/482325758"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.macos-arm64"]
-checksum = "sha256:846aedc9ae344673a4deafbff76f5955bf437ec13e24f1b5eeffdf4f58603400"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.0/tombi-cli-1.2.0-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/467173945"
+checksum = "sha256:f05da8a5e619e156057e2e13c452437ac45b0865d73cf371b99763b1b539612b"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.4/tombi-cli-1.2.4-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/482325748"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.macos-x64"]
-checksum = "sha256:453b201e77b1ff9c1a0e0a861dc061809b2111da557073d220ee61ad2af76045"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.0/tombi-cli-1.2.0-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/467173942"
+checksum = "sha256:54c94860225d348d3531a1c1ac81d86b6de315edc2640e143cfe18f2dcb0ca4d"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.4/tombi-cli-1.2.4-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/482325746"
 provenance = "github-attestations"
 
 [[tools.typos]]
@@ -517,81 +517,81 @@ url = "https://github.com/crate-ci/typos/releases/download/v1.48.0/typos-v1.48.0
 url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/462431306"
 
 [[tools.usage]]
-version = "3.5.5"
+version = "3.5.6"
 backend = "aqua:jdx/usage"
 
 [tools.usage."platforms.linux-arm64"]
-checksum = "sha256:d5c8f76b3280f614a26d91994369e73c6cf9daa94e9086130c2d5564308f9ecb"
-url = "https://github.com/jdx/usage/releases/download/v3.5.5/usage-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/usage/releases/assets/476575899"
+checksum = "sha256:f1b46cbf04e0a94128eee475447920dbb7b09ccd45618faae3245d252b217d97"
+url = "https://github.com/jdx/usage/releases/download/v3.5.6/usage-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jdx/usage/releases/assets/484565449"
 
 [tools.usage."platforms.linux-arm64-musl"]
-checksum = "sha256:d5c8f76b3280f614a26d91994369e73c6cf9daa94e9086130c2d5564308f9ecb"
-url = "https://github.com/jdx/usage/releases/download/v3.5.5/usage-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/usage/releases/assets/476575899"
+checksum = "sha256:f1b46cbf04e0a94128eee475447920dbb7b09ccd45618faae3245d252b217d97"
+url = "https://github.com/jdx/usage/releases/download/v3.5.6/usage-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jdx/usage/releases/assets/484565449"
 
 [tools.usage."platforms.linux-x64"]
-checksum = "sha256:29d1502233a931d1b4e42392c529dc928c41c2813db9b737eabe6eb9a03ba9e3"
-url = "https://github.com/jdx/usage/releases/download/v3.5.5/usage-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/usage/releases/assets/476575875"
+checksum = "sha256:03f0d50088bce16ae51cc7593d58dddcd1acd1f70afc0e87ab9a5f08b755b687"
+url = "https://github.com/jdx/usage/releases/download/v3.5.6/usage-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jdx/usage/releases/assets/484565533"
 
 [tools.usage."platforms.linux-x64-musl"]
-checksum = "sha256:29d1502233a931d1b4e42392c529dc928c41c2813db9b737eabe6eb9a03ba9e3"
-url = "https://github.com/jdx/usage/releases/download/v3.5.5/usage-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/usage/releases/assets/476575875"
+checksum = "sha256:03f0d50088bce16ae51cc7593d58dddcd1acd1f70afc0e87ab9a5f08b755b687"
+url = "https://github.com/jdx/usage/releases/download/v3.5.6/usage-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jdx/usage/releases/assets/484565533"
 
 [tools.usage."platforms.macos-arm64"]
-checksum = "sha256:eeccdad9008024f227fa3dd2f40e094e439c2bd8802cfeea58ed911973f3266c"
-url = "https://github.com/jdx/usage/releases/download/v3.5.5/usage-universal-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/jdx/usage/releases/assets/476575330"
+checksum = "sha256:1918694d9f277971b5796b113525b6c3201b3de4c4161f2585dc32bb3aca3eb0"
+url = "https://github.com/jdx/usage/releases/download/v3.5.6/usage-universal-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jdx/usage/releases/assets/484567363"
 
 [tools.usage."platforms.macos-x64"]
-checksum = "sha256:eeccdad9008024f227fa3dd2f40e094e439c2bd8802cfeea58ed911973f3266c"
-url = "https://github.com/jdx/usage/releases/download/v3.5.5/usage-universal-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/jdx/usage/releases/assets/476575330"
+checksum = "sha256:1918694d9f277971b5796b113525b6c3201b3de4c4161f2585dc32bb3aca3eb0"
+url = "https://github.com/jdx/usage/releases/download/v3.5.6/usage-universal-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jdx/usage/releases/assets/484567363"
 
 [[tools.uv]]
-version = "0.11.29"
+version = "0.11.30"
 backend = "aqua:astral-sh/uv"
 
 [tools.uv."platforms.linux-arm64"]
-checksum = "sha256:593d79a797ece3f1dfaaf3e0a973263422a135d9262c7dbc6cd75d9c11acc0b4"
-url = "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/478261262"
+checksum = "sha256:7562a40e4e08b1bfd566bd6aeca55a16ee5ac45211554543e8cdb3c395b47416"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.30/uv-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/483891898"
 provenance = "github-attestations"
 
 [tools.uv."platforms.linux-arm64-musl"]
-checksum = "sha256:593d79a797ece3f1dfaaf3e0a973263422a135d9262c7dbc6cd75d9c11acc0b4"
-url = "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/478261262"
+checksum = "sha256:7562a40e4e08b1bfd566bd6aeca55a16ee5ac45211554543e8cdb3c395b47416"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.30/uv-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/483891898"
 provenance = "github-attestations"
 
 [tools.uv."platforms.linux-x64"]
-checksum = "sha256:46711858adb2a3acaa9cee00f9060688ad1fd5706aecc005b96a6a7f285a00b7"
-url = "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/478261352"
+checksum = "sha256:023fdd3b59fccfb67b365c69fb34182aaaed1d685d367a57571e3c1468a4c70c"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.30/uv-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/483891981"
 provenance = "github-attestations"
 
 [tools.uv."platforms.linux-x64-musl"]
-checksum = "sha256:46711858adb2a3acaa9cee00f9060688ad1fd5706aecc005b96a6a7f285a00b7"
-url = "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/478261352"
+checksum = "sha256:023fdd3b59fccfb67b365c69fb34182aaaed1d685d367a57571e3c1468a4c70c"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.30/uv-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/483891981"
 provenance = "github-attestations"
 
 [tools.uv."platforms.macos-arm64"]
-checksum = "sha256:61c04acc52a33ef0f331e494bdfbedcdb6c26c6970c022ed3699e5860f8930e3"
-url = "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/478261245"
+checksum = "sha256:9bed3567d496d8dab84ecf7a1247551ac94ef1baaebb7b65df008dd93e9dc357"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.30/uv-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/483891875"
 provenance = "github-attestations"
 
 [tools.uv."platforms.macos-x64"]
-checksum = "sha256:c4c4de482da9ccdd076dc4fb5cfe7b740609029385c72f58606be3153602387d"
-url = "https://github.com/astral-sh/uv/releases/download/0.11.29/uv-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/478261331"
+checksum = "sha256:ce285fbbfbe294b1e1bc6c87c8b59d9622b85383b88b2b132a2df5c73e83d7c1"
+url = "https://github.com/astral-sh/uv/releases/download/0.11.30/uv-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/483891965"
 provenance = "github-attestations"
 
 [[tools.wrangler]]
-version = "4.110.0"
+version = "4.112.0"
 backend = "npm:wrangler"
 
 [tools.wrangler.options]

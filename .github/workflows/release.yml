@@ -29,7 +29,7 @@ jobs:
       MISE_CARGO_HOME: /home/runner/.local/share/mise/cargo
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Resolve release mode
@@ -52,9 +52,9 @@ jobs:
           fi
       - name: Install mise
         id: install-mise
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2026.7.7
+          version: 2026.7.11
           install_args: --locked
           cache: ${{ steps.mode.outputs.publishing == 'false' }}
         env:
@@ -91,14 +91,14 @@ jobs:
       MISE_CARGO_HOME: ${{ startsWith(matrix.runner, 'macos') && '/Users/runner/.local/share/mise/cargo' || '/home/runner/.local/share/mise/cargo' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install mise
         id: install-mise
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2026.7.7
+          version: 2026.7.11
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
         env:
@@ -155,7 +155,7 @@ jobs:
           path: target/distrib/
           merge-multiple: true
       - name: Attest build provenance
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-path: target/distrib/*
   build-global-artifacts:
@@ -173,14 +173,14 @@ jobs:
       MISE_CARGO_HOME: /home/runner/.local/share/mise/cargo
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install mise
         id: install-mise
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2026.7.7
+          version: 2026.7.11
           install_args: --locked
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
         env:
@@ -235,13 +235,13 @@ jobs:
       MISE_CARGO_HOME: /home/runner/.local/share/mise/cargo
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Install mise
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2026.7.7
+          version: 2026.7.11
           install_args: --locked
           cache: false
         env:
