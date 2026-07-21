@@ -60,18 +60,13 @@ run = [
 ]
 description = "Generate usage spec and CLI reference docs."
 
-["util:noop"]
-run = ":"
-hide = true
-description = "No-op"
-
 [schema]
 depends = ["schema:*"]
 description = "Validate config schema."
 
 ["schema:tombi"]
 depends = [
-	"{% if env.CI is defined %}util:noop{% else %}render:schema{% endif %}",
+	"{% if env.CI is defined %}{% else %}render:schema{% endif %}",
 ]
 run = "tombi lint --error-on-warnings"
 dir = "schema"
