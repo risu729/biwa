@@ -1,0 +1,18 @@
+amends "https://raw.githubusercontent.com/risu729/hk-config/v1.1.0/presets.pkl"
+
+import "https://raw.githubusercontent.com/risu729/hk-config/v1.1.0/helpers.pkl"
+
+local picked = helpers.pick(new Listing { "oxlint" })
+
+hooks =
+  helpers.standardHooks((picked) {
+    ["oxlint"] = (picked["oxlint"]) {
+      glob = List(".vitepress/**/*.ts", "**/*.js", "**/*.ts", "**/*.vue")
+    }
+    ["tsc"] = new Step {
+      // VitePress: vue-tsc + tsc; not catalog Builtins.tsc (`tsc --noEmit -p …`)
+      glob = List(".vitepress/**/*.ts", "**/*.ts", "**/*.vue", "tsconfig*.json")
+      stomp = true
+      check = "bun run vue-tsc && bun run tsc"
+    }
+  })
