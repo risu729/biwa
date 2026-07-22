@@ -6,8 +6,12 @@ use crate::ssh::sync::{Direction, Options, compute_project_remote_dir, sync_proj
 use crate::state;
 use clap::Args;
 use std::env;
+#[cfg(unix)]
+use std::fs::{Permissions, set_permissions};
 use std::fs::{canonicalize, create_dir_all};
 use std::io;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
@@ -83,7 +87,6 @@ impl SyncArgs {
 			force: self.force,
 			exclude: absolutize_patterns(&self.exclude, &cwd),
 			include: absolutize_patterns(&self.include, &cwd),
-			pull_overwrite: false,
 		}
 	}
 }
@@ -154,7 +157,7 @@ pub(super) fn record_connection_use(config: &Config, remote_dir: &str) {
 	}
 }
 
-/// Synchronize local project files to the remote server.
+/// Synchronize project files with the remote server.
 #[derive(Args, Debug)]
 #[clap(visible_alias = "s")]
 pub(super) struct Sync {
@@ -162,29 +165,27 @@ pub(super) struct Sync {
 	#[clap(flatten)]
 	args: SyncArgs,
 
-	/// Pull eligible remote project contents into the local sync root.
-	#[arg(long)]
+	/// Pull the remote project into the local root, overwriting and deleting local entries.
+	#[arg(long, verbatim_doc_comment)]
 	pull: bool,
-
-	/// Allow pull to overwrite or delete local files and empty directories.
-	#[arg(long, requires = "pull")]
-	overwrite: bool,
 }
 
 impl Sync {
 	/// Run the sync logic.
 	pub async fn run(self, quiet: bool) -> Result<()> {
 		let config = Config::load()?;
-		let mut sync_root = self.args.resolve_sync_root(&config)?;
+		let sync_root = self.args.resolve_sync_root(&config)?;
 		let direction = if self.pull {
-			create_dir_all(&sync_root)?;
-			sync_root = canonicalize(&sync_root)?;
 			Direction::Pull
 		} else {
 			Direction::Push
 		};
-		let mut options = self.args.resolve_options();
-		options.pull_overwrite = self.overwrite;
+		let options = self.args.resolve_options();
+		if self.pull && self.args.remote_dir.is_none() && !sync_root.exists() {
+			create_dir_all(&sync_root)?;
+			#[cfg(unix)]
+			set_permissions(&sync_root, Permissions::from_mode(0o700))?;
+		}
 		let remote_dir = self.args.resolve_remote_dir(&config, &sync_root)?;
 		let client = connect(&config, quiet).await?;
 

@@ -6,7 +6,6 @@ use core::mem::take;
 use gethostname::gethostname;
 use sha2::{Digest as _, Sha256};
 use std::path::Path;
-use tracing::warn;
 
 /// Conservative upper bound for a batched remote `mkdir -p` command.
 pub(super) const MAX_REMOTE_MKDIR_COMMAND_LEN: usize = 4096;
@@ -284,35 +283,4 @@ pub(super) fn build_mkdir_commands(
 	}
 
 	commands
-}
-
-/// Normalizes a remote relative path and rejects absolute or traversal paths.
-pub(super) fn parse_remote_path(raw_path: &str, entry_kind: &str) -> Option<String> {
-	let path = raw_path.strip_prefix("./").unwrap_or(raw_path);
-	if path.is_empty() || path == "." {
-		return None;
-	}
-
-	if path.starts_with('/')
-		|| path == "~"
-		|| path.starts_with("~/")
-		|| path == "$HOME"
-		|| path.starts_with("$HOME/")
-	{
-		warn!(
-			"Skipping remote {entry_kind} with invalid absolute path: {}",
-			path
-		);
-		return None;
-	}
-
-	if path.split('/').any(|comp| comp == "..") {
-		warn!(
-			"Skipping remote {entry_kind} with invalid path traversal components: {}",
-			path
-		);
-		return None;
-	}
-
-	Some(path.to_owned())
 }

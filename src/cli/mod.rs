@@ -65,7 +65,7 @@ struct Cli {
 enum Commands {
 	/// Run commands on remote host.
 	Run(run::Run),
-	/// Synchronize files to remote host.
+	/// Synchronize project files with the remote host.
 	Sync(sync::Sync),
 	/// Clean stale remote project directories.
 	Clean(clean::Clean),
