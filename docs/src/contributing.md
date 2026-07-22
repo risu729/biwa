@@ -50,3 +50,20 @@ mise run docs:dev
 ```
 
 This starts a local development server where you can preview your changes.
+
+## Documentation Deployment
+
+GitHub Actions deploys the documentation Worker through
+`risu729/wrangler-deploy-action`. Maintainers configure repository variable
+`CLOUDFLARE_ACCOUNT_ID` and repository secret `CLOUDFLARE_API_TOKEN`.
+
+The token's minimum permissions are:
+
+- Account `risu`: `Workers Scripts: Edit`.
+- Zone `takuk.me`: `Workers Routes: Read`.
+
+Wrangler reads the zone's Worker routes before publishing the configured Custom
+Domain to detect assignments to another Worker. Cloudflare creates the Custom
+Domain's DNS record and certificate, so `DNS: Edit` is not required. If the
+configuration later uses an ordinary route, replace `Workers Routes: Read`
+with `Workers Routes: Edit`.

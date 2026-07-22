@@ -169,6 +169,13 @@ It captures the commands, conventions, and guardrails that are actually used her
 - `biwa.toml` is gitignored local config and may contain secrets; do not copy its real values into committed docs or code.
 - Avoid committing `.env` contents or values from local config files.
 
+## Cloudflare Docs Deployment
+
+- Deploy docs through `risu729/wrangler-deploy-action`.
+- Keep the token scoped to `Workers Scripts: Edit` on account `risu` and
+  `Workers Routes: Read` on zone `takuk.me`; ordinary routes require
+  `Workers Routes: Edit`, while Custom Domains do not require `DNS: Edit`.
+
 ## Safe Agent Workflow
 
 - Before editing, inspect nearby code and mirror the local style.
