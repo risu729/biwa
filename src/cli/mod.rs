@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::cli::sync::SyncArgs;
+use crate::cli::transfer::TransferArgs;
 use crate::config::types::Config;
 use crate::env_flag;
 use clap::{ArgAction, Parser, Subcommand};
@@ -15,12 +15,16 @@ mod clean;
 mod completion;
 /// Configuration initialization command.
 mod init;
+/// Remote-to-local project mirroring command.
+mod pull;
 /// Command execution on remote hosts.
 mod run;
 /// Configuration schema generation command.
 mod schema;
 /// File synchronization command.
 mod sync;
+/// Shared project transfer arguments and target resolution.
+mod transfer;
 /// Usage specification generation command.
 mod usage;
 
@@ -65,8 +69,13 @@ struct Cli {
 enum Commands {
 	/// Run commands on remote host.
 	Run(run::Run),
-	/// Synchronize project files with the remote host.
+	/// Push local project files to the remote host.
 	Sync(sync::Sync),
+	/// Mirror remote project files into the local root.
+	///
+	/// The remote project is the source of truth. Selected local files and
+	/// directories that are absent remotely are deleted.
+	Pull(pull::Pull),
 	/// Clean stale remote project directories.
 	Clean(clean::Clean),
 	/// Initialize a biwa configuration file.
@@ -88,6 +97,7 @@ pub async fn run() -> Result<()> {
 	match cli.command {
 		Some(Commands::Run(cmd)) => cmd.run(output_mode.quiet, output_mode.silent).await?,
 		Some(Commands::Sync(cmd)) => cmd.run(output_mode.quiet).await?,
+		Some(Commands::Pull(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Clean(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Init(cmd)) => cmd.run()?,
 		Some(Commands::Schema(cmd)) => cmd.run()?,
@@ -100,13 +110,13 @@ pub async fn run() -> Result<()> {
 			let config = Config::load()?;
 			run::run_remote(
 				&config,
-				&SyncArgs::default(),
+				&TransferArgs::default(),
 				run::RemoteCommand {
 					command,
 					command_args: args,
 					cli_env_vars: &[],
 				},
-				config.sync.auto,
+				run::RunTransferMode::from_auto(config.sync.auto),
 				output_mode.quiet,
 				output_mode.silent,
 			)
@@ -213,6 +223,19 @@ mod tests {
 		let cli = Cli::parse_from(["biwa", "run", "ls", "-la"]);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
 		assert!(cli.run_command_args.is_empty());
+	}
+
+	#[test]
+	fn cli_pull_is_a_dedicated_subcommand() {
+		let cli = Cli::parse_from(["biwa", "pull"]);
+		assert!(matches!(cli.command, Some(Commands::Pull(_))));
+		Cli::try_parse_from(["biwa", "sync", "--pull"]).unwrap_err();
+	}
+
+	#[test]
+	fn cli_push_is_a_sync_alias() {
+		let cli = Cli::parse_from(["biwa", "push"]);
+		assert!(matches!(cli.command, Some(Commands::Sync(_))));
 	}
 
 	#[test]

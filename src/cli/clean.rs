@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::cli::sync::SyncArgs;
+use crate::cli::transfer::TransferArgs;
 use crate::config::types::{Config, PasswordConfig};
 use crate::duration::HumanDuration;
 use crate::ssh::clean::{
@@ -238,7 +238,7 @@ async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Res
 
 /// Resolves the project root used by the default clean target.
 fn resolve_current_project_root(config: &Config) -> Result<PathBuf> {
-	SyncArgs::default().resolve_sync_root(config)
+	TransferArgs::default().resolve_sync_root(config)
 }
 
 /// Clean all this client's tracked remote directories.

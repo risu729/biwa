@@ -75,7 +75,7 @@
       "type": "object",
       "properties": {
         "auto": {
-          "description": "Enable automatic background cleanup after `run`/`sync`.",
+          "description": "Enable automatic background cleanup after `run`/`sync`/`pull`.",
           "type": "boolean",
           "default": true
         },

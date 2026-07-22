@@ -5,7 +5,8 @@ use crate::Result;
 use crate::config::types::{Config, SftpPermissions, SyncEngine};
 use crate::ssh::client::Client;
 use crate::ui::create_spinner;
-use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
+use alloc::collections::BTreeMap;
+use color_eyre::eyre::{Context as _, ContextCompat as _, bail, eyre};
 use console::style;
 use core::result::Result as CoreResult;
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -20,9 +21,8 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io;
 #[cfg(unix)]
-use std::os::unix::fs::PermissionsExt as _;
+use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
 use std::path::{Component, Path, PathBuf};
-use std::process;
 use tokio::fs::{self as async_fs, File as AsyncFile, OpenOptions as AsyncOpenOptions, metadata};
 use tokio::io::{
 	AsyncReadExt as _, AsyncWriteExt as _, BufReader as AsyncBufReader, copy as async_copy,
@@ -36,6 +36,8 @@ const REMOTE_FILE_MARKER: &str = "__BIWA_FILE_HASHES__";
 const REMOTE_SYMLINK_MARKER: &str = "__BIWA_SYMLINKS__";
 /// Separator emitted by the remote sync-state script before directory paths.
 const REMOTE_DIRECTORY_MARKER: &str = "__BIWA_DIRECTORIES__";
+/// Reserved top-level prefix for private local pull transactions.
+const LOCAL_PULL_STAGE_PREFIX: &str = ".biwa-pull-stage-";
 
 /// Computes the remote directory path for a given project.
 ///
@@ -100,8 +102,37 @@ struct LocalState {
 	symlinks: HashSet<String>,
 }
 
+/// One selected local filesystem entry captured for round-trip conflict checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum LocalSnapshotEntry {
+	/// A regular file with its content digest and local permission bits.
+	File {
+		/// SHA-256 content digest.
+		hash: String,
+		/// Portable Unix permission bits when available.
+		mode: Option<u32>,
+	},
+	/// A directory with its local permission bits.
+	Directory {
+		/// Portable Unix permission bits when available.
+		mode: Option<u32>,
+	},
+	/// A symbolic link, which round-trip mode preserves but never follows.
+	Symlink {
+		/// Link target exactly as stored in the directory entry.
+		target: PathBuf,
+	},
+}
+
+/// Selected local state captured immediately after a round-trip push.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalSnapshot {
+	/// Deterministic path-to-entry map relative to the local project root.
+	entries: BTreeMap<String, LocalSnapshotEntry>,
+}
+
 /// The remote sync state collected from the project directory.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 struct RemoteState {
 	/// The remote files and their hashes.
 	file_hashes: HashMap<String, String>,
@@ -414,6 +445,14 @@ fn should_sync_path(
 	if relative.as_os_str().is_empty() {
 		return Ok(None);
 	}
+	if relative.components().next().is_some_and(|component| {
+		component
+			.as_os_str()
+			.to_string_lossy()
+			.starts_with(LOCAL_PULL_STAGE_PREFIX)
+	}) {
+		return Ok(None);
+	}
 
 	if exclude_globs
 		.as_ref()
@@ -488,6 +527,151 @@ fn collect_local_state(
 	}
 
 	Ok(state)
+}
+
+/// Returns local permission bits used to detect and preserve round-trip changes.
+#[cfg(unix)]
+fn local_permission_mode(path: &Path) -> Result<Option<u32>> {
+	let metadata = fs::symlink_metadata(path)
+		.wrap_err_with(|| format!("Failed to read metadata for {}", path.display()))?;
+	Ok(Some(metadata.permissions().mode() & 0o777))
+}
+
+/// Returns local permission bits used to detect and preserve round-trip changes.
+#[cfg(not(unix))]
+fn local_permission_mode(_path: &Path) -> Result<Option<u32>> {
+	Ok(None)
+}
+
+/// Converts collected local state into a deterministic round-trip snapshot.
+fn snapshot_from_local_state(project_root: &Path, state: &LocalState) -> Result<LocalSnapshot> {
+	let mut entries = BTreeMap::new();
+	for file in &state.files {
+		let path = file.path.to_string_lossy().into_owned();
+		entries.insert(
+			path,
+			LocalSnapshotEntry::File {
+				hash: file.hash.clone(),
+				mode: local_permission_mode(&project_root.join(&file.path))?,
+			},
+		);
+	}
+	let mut directories = state.directories.iter().collect::<Vec<_>>();
+	directories.sort_unstable();
+	for directory in directories {
+		entries.insert(
+			directory.clone(),
+			LocalSnapshotEntry::Directory {
+				mode: local_permission_mode(&project_root.join(directory))?,
+			},
+		);
+	}
+	let mut symlinks = state.symlinks.iter().collect::<Vec<_>>();
+	symlinks.sort_unstable();
+	for symlink in symlinks {
+		let local_path = project_root.join(symlink);
+		entries.insert(
+			symlink.clone(),
+			LocalSnapshotEntry::Symlink {
+				target: fs::read_link(&local_path).wrap_err_with(|| {
+					format!("Failed to read local symlink: {}", local_path.display())
+				})?,
+			},
+		);
+	}
+	Ok(LocalSnapshot { entries })
+}
+
+/// Returns paths whose selected local state differs between two snapshots.
+fn changed_snapshot_paths(expected: &LocalSnapshot, actual: &LocalSnapshot) -> Vec<String> {
+	let mut paths = expected
+		.entries
+		.keys()
+		.chain(actual.entries.keys())
+		.filter(|path| expected.entries.get(*path) != actual.entries.get(*path))
+		.cloned()
+		.collect::<Vec<_>>();
+	paths.sort_unstable();
+	paths.dedup();
+	paths
+}
+
+/// Rejects a round-trip pull when selected local state changed after the push.
+fn ensure_local_snapshot_matches(
+	expected: &LocalSnapshot,
+	actual: &LocalSnapshot,
+	phase: &str,
+) -> Result<()> {
+	let changed_paths = changed_snapshot_paths(expected, actual);
+	if changed_paths.is_empty() {
+		return Ok(());
+	}
+
+	let displayed = changed_paths.iter().take(10).cloned().collect::<Vec<_>>();
+	let suffix = if changed_paths.len() > displayed.len() {
+		format!(
+			" (and {} more)",
+			changed_paths.len().saturating_sub(displayed.len())
+		)
+	} else {
+		String::new()
+	};
+	bail!(
+		"Local files changed {phase}; refusing to overwrite them during round-trip pull: {}{suffix}",
+		displayed.join(", ")
+	)
+}
+
+/// Rejects a workflow when selected local state changed between two snapshots.
+pub fn ensure_local_snapshot_unchanged(
+	expected: &LocalSnapshot,
+	actual: &LocalSnapshot,
+	phase: &str,
+) -> Result<()> {
+	ensure_local_snapshot_matches(expected, actual, phase)
+}
+
+/// Captures selected local state for round-trip synchronization.
+pub async fn snapshot_local_project(
+	project_root: &Path,
+	config: &Config,
+	options: &Options,
+) -> Result<LocalSnapshot> {
+	let state = collect_local_state_async(project_root, config, options).await?;
+	snapshot_from_local_state(project_root, &state)
+}
+
+/// Verifies that a completed round-trip push exactly represents its local baseline remotely.
+pub async fn ensure_remote_matches_local_snapshot(
+	client: &Client,
+	config: &Config,
+	remote_dir: &str,
+	baseline: &LocalSnapshot,
+) -> Result<()> {
+	let mut expected = RemoteState::default();
+	for (path, entry) in &baseline.entries {
+		match entry {
+			LocalSnapshotEntry::File { hash, .. } => {
+				expected.file_hashes.insert(path.clone(), hash.clone());
+			}
+			LocalSnapshotEntry::Directory { .. } => {
+				expected.directories.insert(path.clone());
+			}
+			LocalSnapshotEntry::Symlink { .. } => {}
+		}
+	}
+	collect_parent_directories_into(
+		expected.file_hashes.keys().map(Path::new),
+		&mut expected.directories,
+	);
+
+	let actual = fetch_remote_state(client, config, remote_dir, false).await?;
+	if actual != expected {
+		bail!(
+			"Remote project does not exactly match the completed push; refusing to run a round-trip command"
+		);
+	}
+	Ok(())
 }
 
 /// Extends a directory set with parent directories implied by file paths.
@@ -652,6 +836,7 @@ fn calculate_push_actions(
 			to_delete_files.insert(remote_path);
 		}
 	}
+	to_delete_files.extend(remote_state.symlinks.iter().cloned());
 
 	let mut to_create_dirs = desired_dirs
 		.iter()
@@ -685,6 +870,7 @@ fn calculate_pull_actions(
 	local_state: &LocalState,
 	remote_state: &RemoteState,
 	options: &Options,
+	preserve_local_symlinks: bool,
 ) -> PullActions {
 	let mut desired_dirs = remote_state.directories.clone();
 	collect_parent_directories_into(
@@ -729,7 +915,13 @@ fn calculate_pull_actions(
 		.keys()
 		.filter(|path| !remote_file_set.contains(*path) || desired_dirs.contains(*path))
 		.cloned()
-		.chain(local_state.symlinks.iter().cloned())
+		.chain(
+			local_state
+				.symlinks
+				.iter()
+				.filter(|_| !preserve_local_symlinks)
+				.cloned(),
+		)
 		.collect::<Vec<_>>();
 	file_deletions.sort_unstable();
 	file_deletions.dedup();
@@ -806,22 +998,18 @@ async fn delete_remote_directories(
 	sftp: &SftpSession,
 	remote_dir: &str,
 	relative_paths: &[String],
-) -> usize {
+) -> Result<usize> {
 	let mut deleted = 0_usize;
 	for path in relative_paths {
 		let full_path = format!("{remote_dir}/{path}");
 		let sftp_path = resolve_sftp_path(&full_path);
-		match sftp.remove_dir(sftp_path).await {
-			Ok(()) => {
-				deleted = deleted.saturating_add(1);
-			}
-			Err(error) => {
-				warn!(error = %error, path = sftp_path, "Failed to delete remote directory");
-			}
-		}
+		sftp.remove_dir(sftp_path)
+			.await
+			.wrap_err_with(|| format!("Failed to delete remote directory: {sftp_path}"))?;
+		deleted = deleted.saturating_add(1);
 	}
 
-	deleted
+	Ok(deleted)
 }
 
 /// Collects the set of directories that must exist before uploading files.
@@ -1048,32 +1236,98 @@ struct StagedDownload {
 	staged_path: PathBuf,
 }
 
-/// Creates a private staging directory that does not collide with planned remote paths.
-async fn create_pull_staging_directory(
-	project_root: &Path,
-	actions: &PullActions,
-) -> Result<PathBuf> {
-	for attempt in 0_u8..100 {
-		let name = format!(".biwa-pull-stage-{}-{attempt}", process::id());
-		let prefix = format!("{name}/");
-		let collides = actions
-			.downloads
-			.iter()
-			.any(|download| download.path == name || download.path.starts_with(&prefix))
-			|| actions
-				.directory_creations
-				.iter()
-				.any(|path| path == &name || path.starts_with(&prefix));
-		if collides {
-			continue;
-		}
+/// One local entry moved aside during a transactional pull commit.
+struct PullBackup {
+	/// Original local path.
+	original_path: PathBuf,
+	/// Private backup path on the same filesystem.
+	backup_path: PathBuf,
+	/// Whether the action is counted as a mirror deletion rather than replacement.
+	counts_as_deletion: bool,
+}
 
+/// One staged file installed during a transactional pull commit.
+struct PullInstalledFile {
+	/// Final local path.
+	path: PathBuf,
+	/// Fingerprint captured immediately after installation.
+	fingerprint: LocalSnapshotEntry,
+}
+
+/// Mutable state needed to roll back a pull commit.
+#[derive(Default)]
+struct PullCommitState {
+	/// Existing entries moved into the private backup directory.
+	backups: Vec<PullBackup>,
+	/// Newly installed downloads.
+	installed_files: Vec<PullInstalledFile>,
+	/// Newly created directories, ordered from shallowest to deepest.
+	created_directories: Vec<PathBuf>,
+}
+
+/// Fingerprints one local entry without following symbolic links.
+fn fingerprint_local_entry(path: &Path) -> Result<Option<LocalSnapshotEntry>> {
+	let metadata = match fs::symlink_metadata(path) {
+		Ok(metadata) => metadata,
+		Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+		Err(error) => {
+			return Err(error)
+				.wrap_err_with(|| format!("Failed to inspect local entry: {}", path.display()));
+		}
+	};
+	let file_type = metadata.file_type();
+	if file_type.is_symlink() {
+		return Ok(Some(LocalSnapshotEntry::Symlink {
+			target: fs::read_link(path)
+				.wrap_err_with(|| format!("Failed to read local symlink: {}", path.display()))?,
+		}));
+	}
+	#[expect(
+		clippy::filetype_is_file,
+		reason = "pull fingerprints support only regular files, directories, and symlinks"
+	)]
+	if file_type.is_file() {
+		return Ok(Some(LocalSnapshotEntry::File {
+			hash: hash_file(path)?,
+			mode: local_permission_mode(path)?,
+		}));
+	}
+	if file_type.is_dir() {
+		return Ok(Some(LocalSnapshotEntry::Directory {
+			mode: local_permission_mode(path)?,
+		}));
+	}
+	bail!("Unsupported local entry type: {}", path.display())
+}
+
+/// Creates a private directory with restrictive permissions in the creation syscall.
+fn create_private_local_directory(path: &Path) -> io::Result<()> {
+	let mut builder = fs::DirBuilder::new();
+	#[cfg(unix)]
+	builder.mode(0o700);
+	builder.create(path)
+}
+
+/// Removes a private pull transaction directory, accepting an already-absent path.
+async fn remove_pull_staging_directory(path: &Path) -> Result<()> {
+	match async_fs::remove_dir_all(path).await {
+		Ok(()) => Ok(()),
+		Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+		Err(error) => Err(error).wrap_err_with(|| {
+			format!("Failed to remove pull transaction data: {}", path.display())
+		}),
+	}
+}
+
+/// Creates a private staging directory that does not collide with planned remote paths.
+fn create_pull_staging_directory(project_root: &Path) -> Result<PathBuf> {
+	for _ in 0_u8..100 {
+		let mut random = [0_u8; 16];
+		getrandom::fill(&mut random).wrap_err("Failed to generate a pull transaction name")?;
+		let name = format!("{LOCAL_PULL_STAGE_PREFIX}{}", hex::encode(random));
 		let staging_root = project_root.join(name);
-		match async_fs::create_dir(&staging_root).await {
-			Ok(()) => {
-				restrict_local_directory_permissions(&staging_root).await?;
-				return Ok(staging_root);
-			}
+		match create_private_local_directory(&staging_root) {
+			Ok(()) => return Ok(staging_root),
 			Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
 			Err(error) => {
 				return Err(error).wrap_err("Failed to create pull staging directory");
@@ -1188,7 +1442,39 @@ async fn stage_download(
 	})
 }
 
+/// Restores the pre-command local mode for an existing round-trip file.
+#[cfg(unix)]
+async fn preserve_round_trip_file_mode(
+	staged: &StagedDownload,
+	baseline: Option<&LocalSnapshot>,
+) -> Result<()> {
+	let Some(LocalSnapshotEntry::File {
+		mode: Some(mode), ..
+	}) = baseline.and_then(|snapshot| snapshot.entries.get(&staged.relative_path))
+	else {
+		return Ok(());
+	};
+	async_fs::set_permissions(&staged.staged_path, fs::Permissions::from_mode(*mode))
+		.await
+		.wrap_err_with(|| {
+			format!(
+				"Failed to preserve local file permissions: {}",
+				staged.relative_path
+			)
+		})
+}
+
+/// Restores the pre-command local mode for an existing round-trip file.
+#[cfg(not(unix))]
+async fn preserve_round_trip_file_mode(
+	_staged: &StagedDownload,
+	_baseline: Option<&LocalSnapshot>,
+) -> Result<()> {
+	Ok(())
+}
+
 /// Deletes local files selected by a pull operation.
+#[cfg(test)]
 async fn delete_local_files(project_root: &Path, relative_paths: &[String]) -> Result<usize> {
 	let mut deleted = 0_usize;
 	for relative_path in relative_paths {
@@ -1219,6 +1505,7 @@ async fn delete_local_files(project_root: &Path, relative_paths: &[String]) -> R
 }
 
 /// Deletes local directories selected by a pull operation.
+#[cfg(test)]
 async fn delete_local_directories(project_root: &Path, relative_paths: &[String]) -> Result<usize> {
 	let mut deleted = 0_usize;
 	for relative_path in relative_paths {
@@ -1317,16 +1604,15 @@ async fn apply_sync_actions(
 	for path in &actions.file_deletions {
 		let full_path = format!("{remote_dir}/{path}");
 		let sftp_path = resolve_sftp_path(&full_path);
-		if let Err(e) = sftp.remove_file(sftp_path).await {
-			warn!(error = %e, path = sftp_path, "Failed to delete remote file");
-		} else {
-			stats.deleted = stats.deleted.saturating_add(1);
-		}
+		sftp.remove_file(sftp_path)
+			.await
+			.wrap_err_with(|| format!("Failed to delete remote file: {sftp_path}"))?;
+		stats.deleted = stats.deleted.saturating_add(1);
 	}
 
 	// Remove deleted directories deepest-first so parents become empty first.
 	stats.deleted = stats.deleted.saturating_add(
-		delete_remote_directories(&sftp, remote_dir, &actions.directory_deletions).await,
+		delete_remote_directories(&sftp, remote_dir, &actions.directory_deletions).await?,
 	);
 
 	// Pre-create directories respecting umask.
@@ -1371,16 +1657,375 @@ async fn apply_sync_actions(
 	Ok(())
 }
 
-/// Executes pull actions by deleting local paths, creating local directories, and downloading files.
-async fn apply_pull_actions(
-	client: &Client,
-	config: &Config,
-	project_root: &Path,
-	remote_dir: &str,
-	actions: PullActions,
-	stats: &mut Stats,
-	spinner: Option<&ProgressBar>,
+/// Moves one existing local entry into the private transaction backup.
+async fn backup_local_entry(
+	state: &mut PullCommitState,
+	relative_path: &str,
+	original_path: PathBuf,
+	backup_root: &Path,
+	counts_as_deletion: bool,
+	baseline: Option<&LocalSnapshot>,
 ) -> Result<()> {
+	let backup_path = backup_root.join(state.backups.len().to_string());
+	async_fs::rename(&original_path, &backup_path)
+		.await
+		.wrap_err_with(|| format!("Failed to back up local entry: {}", original_path.display()))?;
+	state.backups.push(PullBackup {
+		original_path,
+		backup_path: backup_path.clone(),
+		counts_as_deletion,
+	});
+	if let Some(baseline) = baseline {
+		let expected = baseline.entries.get(relative_path);
+		let actual = fingerprint_local_entry(&backup_path)?;
+		if actual.as_ref() != expected {
+			bail!(
+				"Local entry changed immediately before pull commit; refusing to overwrite it: {relative_path}"
+			);
+		}
+	}
+	Ok(())
+}
+
+/// Backs up files, symlinks, and file replacements before a pull commit.
+async fn backup_pull_file_targets(
+	project_root: &Path,
+	backup_root: &Path,
+	actions: &PullActions,
+	state: &mut PullCommitState,
+	baseline: Option<&LocalSnapshot>,
+) -> Result<()> {
+	let deletion_paths = actions
+		.file_deletions
+		.iter()
+		.cloned()
+		.collect::<HashSet<_>>();
+	let mut paths = actions
+		.file_deletions
+		.iter()
+		.cloned()
+		.chain(
+			actions
+				.downloads
+				.iter()
+				.map(|download| download.path.clone()),
+		)
+		.collect::<Vec<_>>();
+	paths.sort_unstable();
+	paths.dedup();
+
+	for relative_path in paths {
+		let local_path = checked_local_path(project_root, &relative_path)?;
+		match async_fs::symlink_metadata(&local_path).await {
+			Ok(metadata) if metadata.file_type().is_dir() && !metadata.file_type().is_symlink() => {
+				// File-vs-directory replacements are handled with directory targets below.
+			}
+			Ok(_) => {
+				backup_local_entry(
+					state,
+					&relative_path,
+					local_path,
+					backup_root,
+					deletion_paths.contains(&relative_path),
+					baseline,
+				)
+				.await?;
+			}
+			Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+			Err(error) => {
+				return Err(error).wrap_err_with(|| {
+					format!("Failed to inspect local entry: {}", local_path.display())
+				});
+			}
+		}
+	}
+	Ok(())
+}
+
+/// Returns whether a local directory currently has no entries.
+async fn local_directory_is_empty(path: &Path) -> Result<bool> {
+	let mut entries = async_fs::read_dir(path)
+		.await
+		.wrap_err_with(|| format!("Failed to read local directory: {}", path.display()))?;
+	Ok(entries.next_entry().await?.is_none())
+}
+
+/// Backs up empty directories selected for deletion or file replacement.
+async fn backup_pull_directory_targets(
+	project_root: &Path,
+	backup_root: &Path,
+	actions: &PullActions,
+	state: &mut PullCommitState,
+	baseline: Option<&LocalSnapshot>,
+) -> Result<()> {
+	let replacement_paths = actions
+		.downloads
+		.iter()
+		.map(|download| download.path.as_str())
+		.collect::<HashSet<_>>();
+	for relative_path in &actions.directory_deletions {
+		let local_path = checked_local_path(project_root, relative_path)?;
+		match async_fs::symlink_metadata(&local_path).await {
+			Ok(metadata) if metadata.file_type().is_symlink() => {
+				bail!(
+					"Refusing to replace local symlink as a directory: {}",
+					local_path.display()
+				);
+			}
+			Ok(metadata) if metadata.file_type().is_dir() => {
+				if !local_directory_is_empty(&local_path).await? {
+					if baseline.is_some() {
+						bail!(
+							"Local directory changed immediately before pull commit; refusing to overwrite it: {}",
+							local_path.display()
+						);
+					}
+					if replacement_paths.contains(relative_path.as_str()) {
+						bail!(
+							"Refusing to overwrite non-empty local directory with remote file: {}",
+							local_path.display()
+						);
+					}
+					warn!(
+						path = %local_path.display(),
+						"Skipping non-empty local directory selected for pull deletion"
+					);
+					continue;
+				}
+				backup_local_entry(
+					state,
+					relative_path,
+					local_path,
+					backup_root,
+					true,
+					baseline,
+				)
+				.await?;
+			}
+			Ok(_) => {
+				bail!(
+					"Refusing to delete local non-directory as a directory: {}",
+					local_path.display()
+				);
+			}
+			Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+			Err(error) => {
+				return Err(error).wrap_err_with(|| {
+					format!(
+						"Failed to inspect local directory: {}",
+						local_path.display()
+					)
+				});
+			}
+		}
+	}
+	Ok(())
+}
+
+/// Creates selected remote directories and records newly created paths for rollback.
+async fn create_pull_directories(
+	project_root: &Path,
+	actions: &PullActions,
+	state: &mut PullCommitState,
+	baseline: Option<&LocalSnapshot>,
+) -> Result<()> {
+	for relative_path in &actions.directory_creations {
+		let local_path = checked_local_path(project_root, relative_path)?;
+		let existed = async_fs::symlink_metadata(&local_path).await.is_ok();
+		let was_backed_up = state
+			.backups
+			.iter()
+			.any(|backup| backup.original_path == local_path);
+		if baseline.is_some_and(|snapshot| !snapshot.entries.contains_key(relative_path))
+			&& existed
+			&& !was_backed_up
+		{
+			bail!(
+				"Local entry appeared immediately before pull commit; refusing to overwrite it: {}",
+				local_path.display()
+			);
+		}
+		ensure_local_directory(project_root, relative_path).await?;
+		if !existed {
+			state.created_directories.push(local_path);
+		}
+	}
+	Ok(())
+}
+
+/// Installs all verified staged downloads into their final paths.
+async fn install_staged_downloads(
+	project_root: &Path,
+	staged_downloads: &[StagedDownload],
+	state: &mut PullCommitState,
+) -> Result<()> {
+	for staged in staged_downloads {
+		let local_path = ensure_local_file_parent(project_root, &staged.relative_path).await?;
+		if async_fs::symlink_metadata(&local_path).await.is_ok() {
+			bail!(
+				"Refusing to install a downloaded file over an unexpected local entry: {}",
+				local_path.display()
+			);
+		}
+		async_fs::rename(&staged.staged_path, &local_path)
+			.await
+			.wrap_err_with(|| {
+				format!("Failed to commit downloaded file: {}", local_path.display())
+			})?;
+		let fingerprint = fingerprint_local_entry(&local_path)?
+			.wrap_err("Installed pull file disappeared before it could be verified")?;
+		state.installed_files.push(PullInstalledFile {
+			path: local_path,
+			fingerprint,
+		});
+	}
+	Ok(())
+}
+
+/// Restores the local tree after a failed pull commit.
+async fn rollback_pull_commit(state: &PullCommitState) -> Result<()> {
+	for installed in state.installed_files.iter().rev() {
+		if fingerprint_local_entry(&installed.path)?.as_ref() != Some(&installed.fingerprint) {
+			bail!(
+				"Refusing to remove a locally modified pull result during rollback: {}",
+				installed.path.display()
+			);
+		}
+		match async_fs::remove_file(&installed.path).await {
+			Ok(()) => {}
+			Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+			Err(error) => {
+				return Err(error).wrap_err_with(|| {
+					format!(
+						"Failed to remove installed file during rollback: {}",
+						installed.path.display()
+					)
+				});
+			}
+		}
+	}
+	for created_path in state.created_directories.iter().rev() {
+		match async_fs::remove_dir(created_path).await {
+			Ok(()) => {}
+			Err(error)
+				if matches!(
+					error.kind(),
+					io::ErrorKind::NotFound | io::ErrorKind::DirectoryNotEmpty
+				) => {}
+			Err(error) => {
+				return Err(error).wrap_err_with(|| {
+					format!(
+						"Failed to remove created directory during rollback: {}",
+						created_path.display()
+					)
+				});
+			}
+		}
+	}
+	for backup in state.backups.iter().rev() {
+		if let Some(parent) = backup.original_path.parent() {
+			async_fs::create_dir_all(parent).await.wrap_err_with(|| {
+				format!(
+					"Failed to restore parent directory during rollback: {}",
+					parent.display()
+				)
+			})?;
+		}
+		if async_fs::symlink_metadata(&backup.original_path)
+			.await
+			.is_ok()
+		{
+			bail!(
+				"Refusing to overwrite an unexpected local entry during rollback: {}",
+				backup.original_path.display()
+			);
+		}
+		async_fs::rename(&backup.backup_path, &backup.original_path)
+			.await
+			.wrap_err_with(|| {
+				format!(
+					"Failed to restore local entry during rollback: {}",
+					backup.original_path.display()
+				)
+			})?;
+	}
+	Ok(())
+}
+
+/// Applies a pull mutation plan using same-filesystem backups for rollback.
+async fn commit_pull_transaction(
+	project_root: &Path,
+	staging_root: &Path,
+	actions: &PullActions,
+	staged_downloads: &[StagedDownload],
+	baseline: Option<&LocalSnapshot>,
+) -> Result<(usize, usize)> {
+	let backup_root = staging_root.join("backups");
+	if let Err(error) = create_private_local_directory(&backup_root) {
+		let error = eyre!(error).wrap_err("Failed to create pull backup directory");
+		if let Err(cleanup_error) = remove_pull_staging_directory(staging_root).await {
+			return Err(error).wrap_err(format!(
+				"Pull transaction setup failed and cleanup also failed: {cleanup_error}. Partial data remains at {}",
+				staging_root.display()
+			));
+		}
+		return Err(error);
+	}
+
+	let mut state = PullCommitState::default();
+	let commit_result = async {
+		backup_pull_file_targets(project_root, &backup_root, actions, &mut state, baseline).await?;
+		backup_pull_directory_targets(project_root, &backup_root, actions, &mut state, baseline)
+			.await?;
+		create_pull_directories(project_root, actions, &mut state, baseline).await?;
+		install_staged_downloads(project_root, staged_downloads, &mut state).await
+	}
+	.await;
+
+	if let Err(commit_error) = commit_result {
+		if let Err(rollback_error) = rollback_pull_commit(&state).await {
+			return Err(commit_error).wrap_err(format!(
+				"Pull commit failed and rollback also failed: {rollback_error}. Recovery data remains at {}",
+				staging_root.display()
+			));
+		}
+		if let Err(cleanup_error) = remove_pull_staging_directory(staging_root).await {
+			return Err(commit_error).wrap_err(format!(
+				"Pull commit failed and local changes were rolled back, but transaction cleanup also failed: {cleanup_error}. Partial data remains at {}",
+				staging_root.display()
+			));
+		}
+		return Err(commit_error).wrap_err("Pull commit failed; local changes were rolled back");
+	}
+
+	let deleted = state
+		.backups
+		.iter()
+		.filter(|backup| backup.counts_as_deletion)
+		.count();
+	Ok((deleted, state.installed_files.len()))
+}
+
+/// Executes pull actions by deleting local paths, creating local directories, and downloading files.
+#[expect(
+	clippy::too_many_lines,
+	reason = "pull staging, precondition verification, commit, and cleanup form one transaction"
+)]
+async fn apply_pull_actions(
+	context: &SyncExecution<'_>,
+	actions: PullActions,
+	expected_remote_state: &RemoteState,
+	baseline: Option<&LocalSnapshot>,
+	stats: &mut Stats,
+) -> Result<()> {
+	let SyncExecution {
+		client,
+		config,
+		project_root,
+		remote_dir,
+		spinner,
+		..
+	} = context;
 	if actions.file_deletions.is_empty()
 		&& actions.directory_creations.is_empty()
 		&& actions.directory_deletions.is_empty()
@@ -1389,28 +2034,37 @@ async fn apply_pull_actions(
 		return Ok(());
 	}
 
-	if actions.downloads.is_empty() {
-		return apply_local_pull_actions(project_root, &actions, stats).await;
+	let staging_root = create_pull_staging_directory(project_root)?;
+	let downloads_root = staging_root.join("downloads");
+	if let Err(error) = create_private_local_directory(&downloads_root) {
+		let error = eyre!(error).wrap_err("Failed to create pull downloads directory");
+		if let Err(cleanup_error) = remove_pull_staging_directory(&staging_root).await {
+			return Err(error).wrap_err(format!(
+				"Pull transaction setup failed and cleanup also failed: {cleanup_error}. Partial data remains at {}",
+				staging_root.display()
+			));
+		}
+		return Err(error);
 	}
-
-	let channel = client
-		.get_channel()
-		.await
-		.wrap_err("Failed to get SFTP channel")?;
-	channel
-		.request_subsystem(true, "sftp")
-		.await
-		.wrap_err("Failed to request SFTP subsystem")?;
-	let sftp = SftpSession::new(channel.into_stream())
-		.await
-		.wrap_err("Failed to initialize SFTP session")?;
-
-	let staging_root = create_pull_staging_directory(project_root, &actions).await?;
 	let total_to_download = actions.downloads.len();
 	let stage_result = async {
+		if actions.downloads.is_empty() {
+			return Ok::<_, color_eyre::Report>(Vec::new());
+		}
+		let channel = client
+			.get_channel()
+			.await
+			.wrap_err("Failed to get SFTP channel")?;
+		channel
+			.request_subsystem(true, "sftp")
+			.await
+			.wrap_err("Failed to request SFTP subsystem")?;
+		let sftp = SftpSession::new(channel.into_stream())
+			.await
+			.wrap_err("Failed to initialize SFTP session")?;
 		let mut staged_downloads = Vec::with_capacity(total_to_download);
 		for (index, download) in actions.downloads.iter().enumerate() {
-			if let Some(spinner) = spinner {
+			if let Some(spinner) = *spinner {
 				spinner.set_message(format!(
 					"Downloading files... ({}/{total_to_download})",
 					index.saturating_add(1)
@@ -1418,16 +2072,16 @@ async fn apply_pull_actions(
 			}
 
 			let remote_path = format!("{remote_dir}/{}", download.path);
-			staged_downloads.push(
-				stage_download(
-					&sftp,
-					&remote_path,
-					&staging_root,
-					download,
-					config.ssh.umask.as_u32(),
-				)
-				.await?,
-			);
+			let staged = stage_download(
+				&sftp,
+				&remote_path,
+				&downloads_root,
+				download,
+				config.ssh.umask.as_u32(),
+			)
+			.await?;
+			preserve_round_trip_file_mode(&staged, baseline).await?;
+			staged_downloads.push(staged);
 		}
 		Ok::<_, color_eyre::Report>(staged_downloads)
 	}
@@ -1435,43 +2089,53 @@ async fn apply_pull_actions(
 	let staged_downloads = match stage_result {
 		Ok(downloads) => downloads,
 		Err(error) => {
-			#[expect(clippy::unused_result_ok, reason = "Cleanup failure is secondary")]
-			async_fs::remove_dir_all(&staging_root).await.ok();
+			if let Err(cleanup_error) = remove_pull_staging_directory(&staging_root).await {
+				return Err(error).wrap_err(format!(
+					"Pull staging failed and transaction cleanup also failed: {cleanup_error}. Partial data remains at {}",
+					staging_root.display()
+				));
+			}
 			return Err(error);
 		}
 	};
 
-	let commit_result = async {
-		apply_local_pull_actions(project_root, &actions, stats).await?;
-		for staged in staged_downloads {
-			let local_path = ensure_local_file_parent(project_root, &staged.relative_path).await?;
-			if let Ok(metadata) = async_fs::symlink_metadata(&local_path).await
-				&& metadata.file_type().is_dir()
-				&& !metadata.file_type().is_symlink()
-			{
-				bail!(
-					"Refusing to overwrite local directory with remote file: {}",
-					local_path.display()
-				);
-			}
-			async_fs::rename(&staged.staged_path, &local_path)
-				.await
-				.wrap_err_with(|| {
-					format!("Failed to commit downloaded file: {}", local_path.display())
-				})?;
-			stats.downloaded = stats.downloaded.saturating_add(1);
+	if let Err(error) = verify_pull_preconditions(context, expected_remote_state, baseline).await {
+		if let Err(cleanup_error) = remove_pull_staging_directory(&staging_root).await {
+			return Err(error).wrap_err(format!(
+				"Pull precondition check failed and transaction cleanup also failed: {cleanup_error}. Partial data remains at {}",
+				staging_root.display()
+			));
 		}
-		Ok::<_, color_eyre::Report>(())
+		return Err(error);
 	}
+	let commit_result = commit_pull_transaction(
+		project_root,
+		&staging_root,
+		&actions,
+		&staged_downloads,
+		baseline,
+	)
 	.await;
-	#[expect(clippy::unused_result_ok, reason = "Cleanup failure is secondary")]
-	async_fs::remove_dir_all(&staging_root).await.ok();
-	commit_result?;
+	let (deleted, downloaded) = match commit_result {
+		Ok(counts) => counts,
+		Err(error) => return Err(error),
+	};
+	remove_pull_staging_directory(&staging_root)
+		.await
+		.wrap_err_with(|| {
+			format!(
+				"Pull was committed, but private backup cleanup failed; recovery copies remain at {}",
+				staging_root.display()
+			)
+		})?;
+	stats.deleted = stats.deleted.saturating_add(deleted);
+	stats.downloaded = stats.downloaded.saturating_add(downloaded);
 
 	Ok(())
 }
 
 /// Applies the local filesystem side of a pull operation.
+#[cfg(test)]
 async fn apply_local_pull_actions(
 	project_root: &Path,
 	actions: &PullActions,
@@ -1550,6 +2214,36 @@ fn filter_remote_state_for_pull(
 	Ok(filtered)
 }
 
+/// Revalidates remote and local state immediately before a pull commit.
+async fn verify_pull_preconditions(
+	context: &SyncExecution<'_>,
+	expected_remote_state: &RemoteState,
+	baseline: Option<&LocalSnapshot>,
+) -> Result<()> {
+	let remote_state =
+		fetch_remote_state(context.client, context.config, context.remote_dir, false).await?;
+	let remote_state = filter_remote_state_for_pull(
+		remote_state,
+		context.project_root,
+		&context.config.sync.exclude,
+		context.options,
+	)?;
+	ensure_no_reserved_pull_paths(&remote_state)?;
+	ensure_no_remote_symlinks(&remote_state)?;
+	if &remote_state != expected_remote_state {
+		bail!(
+			"Remote project changed while pull data was being prepared; local files were not modified"
+		);
+	}
+
+	if let Some(baseline) = baseline {
+		let actual =
+			snapshot_local_project(context.project_root, context.config, context.options).await?;
+		ensure_local_snapshot_matches(baseline, &actual, "after the remote command completed")?;
+	}
+	Ok(())
+}
+
 /// Rejects selected remote symlinks before pulling to avoid ambiguous local writes.
 fn ensure_no_remote_symlinks(remote_state: &RemoteState) -> Result<()> {
 	if remote_state.symlinks.is_empty() {
@@ -1562,6 +2256,64 @@ fn ensure_no_remote_symlinks(remote_state: &RemoteState) -> Result<()> {
 		"Refusing to pull remote symlink entries: {}",
 		symlinks.join(", ")
 	);
+}
+
+/// Rejects remote entries in the namespace reserved for private pull transactions.
+fn ensure_no_reserved_pull_paths(remote_state: &RemoteState) -> Result<()> {
+	let mut reserved = remote_state
+		.file_hashes
+		.keys()
+		.chain(remote_state.directories.iter())
+		.chain(remote_state.symlinks.iter())
+		.filter(|path| {
+			path.split('/')
+				.next()
+				.is_some_and(|component| component.starts_with(LOCAL_PULL_STAGE_PREFIX))
+		})
+		.cloned()
+		.collect::<Vec<_>>();
+	reserved.sort_unstable();
+	reserved.dedup();
+	if reserved.is_empty() {
+		return Ok(());
+	}
+	bail!(
+		"Remote project uses Biwa's reserved pull transaction namespace: {}",
+		reserved.join(", ")
+	)
+}
+
+/// Rejects remote entries that would collide with a preserved baseline symlink.
+fn ensure_no_round_trip_symlink_collisions(
+	remote_state: &RemoteState,
+	baseline: &LocalSnapshot,
+) -> Result<()> {
+	let remote_paths = remote_state
+		.file_hashes
+		.keys()
+		.chain(remote_state.directories.iter());
+	let mut collisions = baseline
+		.entries
+		.iter()
+		.filter_map(|(path, entry)| {
+			if !matches!(entry, LocalSnapshotEntry::Symlink { .. }) {
+				return None;
+			}
+			let prefix = format!("{path}/");
+			remote_paths
+				.clone()
+				.any(|remote_path| remote_path == path || remote_path.starts_with(&prefix))
+				.then(|| path.clone())
+		})
+		.collect::<Vec<_>>();
+	collisions.sort_unstable();
+	if collisions.is_empty() {
+		return Ok(());
+	}
+	bail!(
+		"Remote results collide with preserved local symlinks: {}",
+		collisions.join(", ")
+	)
 }
 
 /// Shared execution inputs for one sync operation.
@@ -1620,6 +2372,7 @@ async fn execute_pull_sync(
 	context: &SyncExecution<'_>,
 	local_state: &LocalState,
 	remote_state: RemoteState,
+	baseline: Option<&LocalSnapshot>,
 	stats: &mut Stats,
 ) -> Result<()> {
 	let remote_state = filter_remote_state_for_pull(
@@ -1628,12 +2381,23 @@ async fn execute_pull_sync(
 		&context.config.sync.exclude,
 		context.options,
 	)?;
+	ensure_no_reserved_pull_paths(&remote_state)?;
 	ensure_no_remote_symlinks(&remote_state)?;
+	if let Some(baseline) = baseline {
+		let actual = snapshot_from_local_state(context.project_root, local_state)?;
+		ensure_local_snapshot_matches(baseline, &actual, "while the remote command was running")?;
+		ensure_no_round_trip_symlink_collisions(&remote_state, baseline)?;
+	}
 	ensure_sync_file_limit(
 		remote_state.file_hashes.len(),
 		context.config.sync.sftp.max_files_to_sync,
 	)?;
-	let actions = calculate_pull_actions(local_state, &remote_state, context.options);
+	let actions = calculate_pull_actions(
+		local_state,
+		&remote_state,
+		context.options,
+		baseline.is_some(),
+	);
 	ensure_pull_action_limit(&actions, context.config.sync.sftp.max_files_to_sync)?;
 	stats.unchanged = actions.unchanged;
 	info!(
@@ -1645,16 +2409,7 @@ async fn execute_pull_sync(
 		"Calculated pull synchronization actions"
 	);
 
-	apply_pull_actions(
-		context.client,
-		context.config,
-		context.project_root,
-		context.remote_dir,
-		actions,
-		stats,
-		context.spinner,
-	)
-	.await
+	apply_pull_actions(context, actions, &remote_state, baseline, stats).await
 }
 
 /// Collects local synchronization state without blocking the async runtime.
@@ -1671,17 +2426,36 @@ async fn collect_local_state_async(
 		.wrap_err("Failed to join blocking task")?
 }
 
-/// Synchronizes a project to a remote server.
-#[expect(clippy::module_name_repetitions, reason = "No better name exists")]
-pub async fn sync_project(
-	client: &Client,
-	config: &Config,
-	project_root: &Path,
-	options: &Options,
-	direction: Direction,
-	remote_dir_override: Option<&str>,
+/// Fully resolved inputs shared by push and pull entrypoints.
+struct ProjectTransfer<'a> {
+	/// Connected SSH client.
+	client: &'a Client,
+	/// Loaded configuration.
+	config: &'a Config,
+	/// Local project root.
+	project_root: &'a Path,
+	/// Resolved remote project directory.
+	remote_dir: &'a str,
+	/// Direction-neutral transfer options.
+	options: &'a Options,
+	/// Suppress progress output.
 	quiet: bool,
+}
+
+/// Synchronizes a project in one explicit direction.
+async fn sync_project(
+	transfer: ProjectTransfer<'_>,
+	direction: Direction,
+	baseline: Option<&LocalSnapshot>,
 ) -> Result<Stats> {
+	let ProjectTransfer {
+		client,
+		config,
+		project_root,
+		remote_dir,
+		options,
+		quiet,
+	} = transfer;
 	if config.sync.engine != SyncEngine::Sftp {
 		bail!("Only SFTP sync engine is currently supported");
 	}
@@ -1691,8 +2465,7 @@ pub async fn sync_project(
 			force = options.force,
 			include_patterns = options.include.len(),
 			exclude_patterns = options.exclude.len(),
-			has_remote_override = remote_dir_override.is_some(),
-			"Starting project synchronization"
+		"Starting project synchronization"
 	);
 
 	let spinner = if quiet {
@@ -1705,20 +2478,10 @@ pub async fn sync_project(
 		Some(create_spinner(message.to_owned()))
 	};
 
-	// The default remote path hashes the canonical local root, so it must exist first.
-	// An explicit pull source can be validated before creating a missing destination.
-	if direction == Direction::Pull && remote_dir_override.is_none() {
-		ensure_local_pull_root(project_root).await?;
-	}
-	let remote_dir = match remote_dir_override {
-		Some(remote_dir) => remote_dir.to_owned(),
-		None => compute_project_remote_dir(config, project_root)?,
-	};
-
 	let remote_state =
-		fetch_remote_state(client, config, &remote_dir, direction == Direction::Push).await?;
+		fetch_remote_state(client, config, remote_dir, direction == Direction::Push).await?;
 	debug!(
-		remote_dir = %remote_dir,
+		remote_dir,
 		remote_directories = remote_state.directories.len(),
 		remote_files = remote_state.file_hashes.len(),
 		remote_symlinks = remote_state.symlinks.len(),
@@ -1744,7 +2507,7 @@ pub async fn sync_project(
 		client,
 		config,
 		project_root,
-		remote_dir: &remote_dir,
+		remote_dir,
 		options,
 		spinner: spinner.as_ref(),
 	};
@@ -1753,7 +2516,7 @@ pub async fn sync_project(
 			execute_push_sync(&execution, &local_state, &remote_state, &mut stats).await?;
 		}
 		Direction::Pull => {
-			execute_pull_sync(&execution, &local_state, remote_state, &mut stats).await?;
+			execute_pull_sync(&execution, &local_state, remote_state, baseline, &mut stats).await?;
 		}
 	}
 
@@ -1765,7 +2528,7 @@ pub async fn sync_project(
 		match direction {
 			Direction::Push => {
 				eprintln!(
-					"{} Sync completed: {} uploaded, {} deleted, {} unchanged",
+					"{} Push completed: {} uploaded, {} deleted, {} unchanged",
 					style("✓").green().bold(),
 					stats.uploaded,
 					stats.deleted,
@@ -1774,7 +2537,7 @@ pub async fn sync_project(
 			}
 			Direction::Pull => {
 				eprintln!(
-					"{} Sync completed: {} downloaded, {} deleted, {} unchanged",
+					"{} Pull completed: {} downloaded, {} deleted, {} unchanged",
 					style("✓").green().bold(),
 					stats.downloaded,
 					stats.deleted,
@@ -1785,6 +2548,58 @@ pub async fn sync_project(
 	}
 
 	Ok(stats)
+}
+
+/// Pushes the selected local project state to one resolved remote directory.
+pub async fn push_project(
+	client: &Client,
+	config: &Config,
+	project_root: &Path,
+	remote_dir: &str,
+	options: &Options,
+	quiet: bool,
+) -> Result<Stats> {
+	sync_project(
+		ProjectTransfer {
+			client,
+			config,
+			project_root,
+			remote_dir,
+			options,
+			quiet,
+		},
+		Direction::Push,
+		None,
+	)
+	.await
+}
+
+/// Pulls one resolved remote directory into the selected local project root.
+///
+/// When `baseline` is present, local drift is rejected and pre-existing local
+/// symlinks and file modes are preserved for safe round-trip operation.
+pub async fn pull_project(
+	client: &Client,
+	config: &Config,
+	project_root: &Path,
+	remote_dir: &str,
+	options: &Options,
+	baseline: Option<&LocalSnapshot>,
+	quiet: bool,
+) -> Result<Stats> {
+	sync_project(
+		ProjectTransfer {
+			client,
+			config,
+			project_root,
+			remote_dir,
+			options,
+			quiet,
+		},
+		Direction::Pull,
+		baseline,
+	)
+	.await
 }
 
 /// Section of the NUL-framed remote inventory protocol.
@@ -1871,7 +2686,7 @@ fn parse_remote_state(output: &str) -> Result<RemoteState> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use pretty_assertions::assert_eq;
+	use pretty_assertions::{assert_eq, assert_ne};
 	use std::fs;
 	use tempfile::tempdir;
 
@@ -2206,6 +3021,7 @@ mod tests {
 				symlinks: HashSet::new(),
 			},
 			&Options::default(),
+			false,
 		);
 
 		assert_eq!(
@@ -2233,6 +3049,21 @@ mod tests {
 
 		assert_eq!(actions.file_deletions, vec!["stale.txt".to_owned()]);
 		assert!(actions.uploads.is_empty());
+	}
+
+	#[test]
+	fn calculate_push_actions_deletes_unsupported_remote_symlinks() {
+		let actions = calculate_push_actions(
+			&LocalState::default(),
+			&RemoteState {
+				file_hashes: HashMap::new(),
+				directories: HashSet::new(),
+				symlinks: HashSet::from(["link".to_owned()]),
+			},
+			&Options::default(),
+		);
+
+		assert_eq!(actions.file_deletions, vec!["link".to_owned()]);
 	}
 
 	#[test]
@@ -2266,7 +3097,8 @@ mod tests {
 			symlinks: HashSet::new(),
 		};
 
-		let actions = calculate_pull_actions(&local_state, &remote_state, &Options::default());
+		let actions =
+			calculate_pull_actions(&local_state, &remote_state, &Options::default(), false);
 		assert!(actions.downloads.is_empty());
 		assert_eq!(actions.unchanged, 1);
 
@@ -2277,6 +3109,7 @@ mod tests {
 				force: true,
 				..Options::default()
 			},
+			false,
 		);
 		assert_eq!(actions.downloads, vec![download("same.txt", "same")]);
 	}
@@ -2298,6 +3131,7 @@ mod tests {
 				symlinks: HashSet::new(),
 			},
 			&Options::default(),
+			false,
 		);
 
 		assert_eq!(actions.file_deletions, vec!["stale.txt".to_owned()]);
@@ -2316,9 +3150,51 @@ mod tests {
 			},
 			&RemoteState::default(),
 			&Options::default(),
+			false,
 		);
 
 		assert_eq!(actions.file_deletions, vec!["link".to_owned()]);
+	}
+
+	#[test]
+	fn calculate_round_trip_pull_preserves_local_symlinks() {
+		let actions = calculate_pull_actions(
+			&LocalState {
+				files: Vec::new(),
+				directories: HashSet::new(),
+				symlinks: HashSet::from(["link".to_owned()]),
+			},
+			&RemoteState::default(),
+			&Options::default(),
+			true,
+		);
+
+		assert!(actions.file_deletions.is_empty());
+	}
+
+	#[test]
+	fn local_snapshot_reports_content_drift() {
+		let expected = LocalSnapshot {
+			entries: BTreeMap::from([(
+				"file.txt".to_owned(),
+				LocalSnapshotEntry::File {
+					hash: "before".to_owned(),
+					mode: Some(0o644),
+				},
+			)]),
+		};
+		let actual = LocalSnapshot {
+			entries: BTreeMap::from([(
+				"file.txt".to_owned(),
+				LocalSnapshotEntry::File {
+					hash: "after".to_owned(),
+					mode: Some(0o644),
+				},
+			)]),
+		};
+
+		let error = ensure_local_snapshot_unchanged(&expected, &actual, "during test").unwrap_err();
+		assert!(error.to_string().contains("file.txt"), "error: {error}");
 	}
 
 	#[test]
@@ -2331,6 +3207,7 @@ mod tests {
 			},
 			&RemoteState::default(),
 			&Options::default(),
+			false,
 		);
 
 		assert_eq!(
@@ -2402,36 +3279,159 @@ mod tests {
 		);
 	}
 
-	#[tokio::test]
-	async fn create_pull_staging_directory_retries_existing_name() {
+	#[test]
+	fn create_pull_staging_directory_uses_private_random_names() {
 		let dir = tempdir().unwrap();
-		let attempt_zero = dir
-			.path()
-			.join(format!(".biwa-pull-stage-{}-0", process::id()));
-		fs::create_dir_all(&attempt_zero).unwrap();
+
+		let first = create_pull_staging_directory(dir.path()).unwrap();
+		let second = create_pull_staging_directory(dir.path()).unwrap();
+		assert_ne!(first, second);
+		assert!(
+			first
+				.file_name()
+				.unwrap()
+				.to_string_lossy()
+				.starts_with(LOCAL_PULL_STAGE_PREFIX)
+		);
+		assert!(first.is_dir());
+
+		#[cfg(unix)]
+		assert_eq!(
+			fs::metadata(&first).unwrap().permissions().mode() & 0o777,
+			0o700
+		);
+	}
+
+	#[tokio::test]
+	async fn pull_commit_failure_restores_backed_up_files() {
+		let dir = tempdir().unwrap();
+		let first = dir.path().join("first.txt");
+		let second = dir.path().join("second.txt");
+		fs::write(&first, "first original").unwrap();
+		fs::write(&second, "second original").unwrap();
+		let staging_root = dir.path().join(".biwa-pull-stage-test");
+		let downloads_root = staging_root.join("downloads");
+		fs::create_dir_all(&downloads_root).unwrap();
+		let staged_first = downloads_root.join("first.txt");
+		fs::write(&staged_first, "first remote").unwrap();
+		let staged_downloads = vec![
+			StagedDownload {
+				relative_path: "first.txt".to_owned(),
+				staged_path: staged_first,
+			},
+			StagedDownload {
+				relative_path: "second.txt".to_owned(),
+				staged_path: downloads_root.join("missing-second.txt"),
+			},
+		];
 		let actions = PullActions {
-			downloads: Vec::new(),
+			downloads: vec![
+				download("first.txt", "hash"),
+				download("second.txt", "hash"),
+			],
 			unchanged: 0,
 			file_deletions: Vec::new(),
 			directory_creations: Vec::new(),
 			directory_deletions: Vec::new(),
 		};
 
-		let staging_root = create_pull_staging_directory(dir.path(), &actions)
-			.await
-			.unwrap();
-		assert_eq!(
-			staging_root,
-			dir.path()
-				.join(format!(".biwa-pull-stage-{}-1", process::id()))
-		);
-		assert!(staging_root.is_dir());
+		let error =
+			commit_pull_transaction(dir.path(), &staging_root, &actions, &staged_downloads, None)
+				.await
+				.unwrap_err();
 
-		#[cfg(unix)]
+		assert!(error.to_string().contains("rolled back"), "error: {error}");
+		assert_eq!(fs::read_to_string(first).unwrap(), "first original");
+		assert_eq!(fs::read_to_string(second).unwrap(), "second original");
+		assert!(!staging_root.exists());
+	}
+
+	#[tokio::test]
+	async fn pull_commit_rejects_late_edit_and_restores_it() {
+		let dir = tempdir().unwrap();
+		let local_path = dir.path().join("result.txt");
+		fs::write(&local_path, "baseline").unwrap();
+		let baseline = LocalSnapshot {
+			entries: BTreeMap::from([(
+				"result.txt".to_owned(),
+				fingerprint_local_entry(&local_path).unwrap().unwrap(),
+			)]),
+		};
+		fs::write(&local_path, "late local edit").unwrap();
+
+		let staging_root = dir.path().join(".biwa-pull-stage-test");
+		let downloads_root = staging_root.join("downloads");
+		fs::create_dir_all(&downloads_root).unwrap();
+		let staged_path = downloads_root.join("result.txt");
+		fs::write(&staged_path, "remote result").unwrap();
+		let actions = PullActions {
+			downloads: vec![download("result.txt", "hash")],
+			unchanged: 0,
+			file_deletions: Vec::new(),
+			directory_creations: Vec::new(),
+			directory_deletions: Vec::new(),
+		};
+		let staged_downloads = vec![StagedDownload {
+			relative_path: "result.txt".to_owned(),
+			staged_path,
+		}];
+
+		let error = commit_pull_transaction(
+			dir.path(),
+			&staging_root,
+			&actions,
+			&staged_downloads,
+			Some(&baseline),
+		)
+		.await
+		.unwrap_err();
+
+		assert!(error.to_string().contains("rolled back"), "error: {error}");
+		assert_eq!(fs::read_to_string(local_path).unwrap(), "late local edit");
+		assert!(!staging_root.exists());
+	}
+
+	#[tokio::test]
+	async fn pull_commit_rejects_late_creation_and_restores_it() {
+		let dir = tempdir().unwrap();
+		let local_path = dir.path().join("result.txt");
+		let baseline = LocalSnapshot {
+			entries: BTreeMap::new(),
+		};
+		fs::write(&local_path, "late local creation").unwrap();
+
+		let staging_root = dir.path().join(".biwa-pull-stage-test");
+		let downloads_root = staging_root.join("downloads");
+		fs::create_dir_all(&downloads_root).unwrap();
+		let staged_path = downloads_root.join("result.txt");
+		fs::write(&staged_path, "remote result").unwrap();
+		let actions = PullActions {
+			downloads: vec![download("result.txt", "hash")],
+			unchanged: 0,
+			file_deletions: Vec::new(),
+			directory_creations: Vec::new(),
+			directory_deletions: Vec::new(),
+		};
+		let staged_downloads = vec![StagedDownload {
+			relative_path: "result.txt".to_owned(),
+			staged_path,
+		}];
+
+		let _error = commit_pull_transaction(
+			dir.path(),
+			&staging_root,
+			&actions,
+			&staged_downloads,
+			Some(&baseline),
+		)
+		.await
+		.unwrap_err();
+
 		assert_eq!(
-			fs::metadata(&staging_root).unwrap().permissions().mode() & 0o777,
-			0o700
+			fs::read_to_string(local_path).unwrap(),
+			"late local creation"
 		);
+		assert!(!staging_root.exists());
 	}
 
 	#[tokio::test]

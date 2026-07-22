@@ -19,20 +19,22 @@ flag "-s --silent" help="Suppress all output, including remote command stdout/st
 arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true
 cmd run help="Run commands on remote host" {
     alias r
-    flag --skip-sync help="Skip automatic synchronization before running the command (automatically set if --remote-dir is used)"
-    flag --sync help="Force automatic synchronization before running the command"
-    flag --sync-root help="Base directory to start the synchronization from. Overrides the default sync root" {
+    flag --skip-sync help="Skip automatic synchronization before running the command (automatically selected if --remote-dir is used)"
+    flag --sync help="Push project files before running, even when sync.auto is disabled or --remote-dir is set"
+    flag --pull help="Push before running, then mirror the remote project back after a successful command. May overwrite or delete local files."
+    flag --pull-always help="Push before running, then mirror the remote project back after any confirmed exit status. May overwrite or delete local files."
+    flag --sync-root help="Local project root used for synchronization" {
         arg <SYNC_ROOT>
     }
-    flag --sync-cwd help="Use the current working directory as the default sync root instead of the nearest Git root"
+    flag --sync-cwd help="Use the current working directory as the local project root instead of the nearest Git root"
     flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
         arg <REMOTE_DIR>
     }
-    flag "-f --force" help="Force synchronization of all files, ignoring incremental hash checks"
+    flag "-f --force" help="Transfer selected files even when content hashes match"
     flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
         arg <EXCLUDE>
     }
-    flag "-i --include" help="Only synchronize files matching these paths or globs" var=#true {
+    flag "-i --include" help="Only transfer files matching these paths or globs" var=#true {
         arg <INCLUDE>
     }
     flag --env help="Send environment variables to the remote process. Supports `NAME`, `NAME=value`, wildcard patterns like `NODE_*`, and exclusions like `!*PATH`" var=#true {
@@ -41,23 +43,43 @@ cmd run help="Run commands on remote host" {
     arg <COMMAND> help="The command to run"
     arg "[COMMAND_ARGS]…" help="The arguments for the command" required=#false double_dash=automatic var=#true
 }
-cmd sync help="Synchronize project files with the remote host" {
-    alias s
-    flag --sync-root help="Base directory to start the synchronization from. Overrides the default sync root" {
+cmd sync help="Push local project files to the remote host" {
+    alias s push
+    flag --sync-root help="Local project root used for synchronization" {
         arg <SYNC_ROOT>
     }
-    flag --sync-cwd help="Use the current working directory as the default sync root instead of the nearest Git root"
+    flag --sync-cwd help="Use the current working directory as the local project root instead of the nearest Git root"
     flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
         arg <REMOTE_DIR>
     }
-    flag "-f --force" help="Force synchronization of all files, ignoring incremental hash checks"
+    flag "-f --force" help="Transfer selected files even when content hashes match"
     flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
         arg <EXCLUDE>
     }
-    flag "-i --include" help="Only synchronize files matching these paths or globs" var=#true {
+    flag "-i --include" help="Only transfer files matching these paths or globs" var=#true {
         arg <INCLUDE>
     }
-    flag --pull help="Pull the remote project into the local root, overwriting and deleting local entries."
+}
+cmd pull help="Mirror remote project files into the local root" {
+    long_help #"""
+Mirror remote project files into the local root.
+
+The remote project is the source of truth. Selected local files and directories that are absent remotely are deleted.
+"""#
+    flag --sync-root help="Local project root used for synchronization" {
+        arg <SYNC_ROOT>
+    }
+    flag --sync-cwd help="Use the current working directory as the local project root instead of the nearest Git root"
+    flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
+        arg <REMOTE_DIR>
+    }
+    flag "-f --force" help="Transfer selected files even when content hashes match"
+    flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
+        arg <EXCLUDE>
+    }
+    flag "-i --include" help="Only transfer files matching these paths or globs" var=#true {
+        arg <INCLUDE>
+    }
 }
 cmd clean help="Clean stale remote project directories" {
     alias c

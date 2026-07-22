@@ -20,19 +20,27 @@ The arguments for the command
 
 ### `--skip-sync`
 
-Skip automatic synchronization before running the command (automatically set if --remote-dir is used)
+Skip automatic synchronization before running the command (automatically selected if --remote-dir is used)
 
 ### `--sync`
 
-Force automatic synchronization before running the command
+Push project files before running, even when sync.auto is disabled or --remote-dir is set
+
+### `--pull`
+
+Push before running, then mirror the remote project back after a successful command. May overwrite or delete local files.
+
+### `--pull-always`
+
+Push before running, then mirror the remote project back after any confirmed exit status. May overwrite or delete local files.
 
 ### `--sync-root <SYNC_ROOT>`
 
-Base directory to start the synchronization from. Overrides the default sync root
+Local project root used for synchronization
 
 ### `--sync-cwd`
 
-Use the current working directory as the default sync root instead of the nearest Git root
+Use the current working directory as the local project root instead of the nearest Git root
 
 ### `-d --remote-dir <REMOTE_DIR>`
 
@@ -40,7 +48,7 @@ Override the remote project directory path. Bypasses the default `remote_root` +
 
 ### `-f --force`
 
-Force synchronization of all files, ignoring incremental hash checks
+Transfer selected files even when content hashes match
 
 ### `-e --exclude… <EXCLUDE>`
 
@@ -48,7 +56,7 @@ Exclude files matching these paths or globs
 
 ### `-i --include… <INCLUDE>`
 
-Only synchronize files matching these paths or globs
+Only transfer files matching these paths or globs
 
 ### `--env… <ENV_VARS>`
 

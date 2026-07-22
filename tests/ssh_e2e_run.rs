@@ -151,6 +151,276 @@ fn e2e_run_command() -> Result<()> {
 }
 
 #[test]
+fn e2e_run_pull_round_trip_applies_remote_results() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+
+	let output = biwa_cmd(&[
+		"run",
+		"--pull",
+		"sh",
+		"-c",
+		"test \"$(cat input.txt)\" = local && rm input.txt && printf remote > result.txt",
+	])
+	.dir(dir.path())
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(!dir.path().join("input.txt").exists());
+	pretty_assertions::assert_eq!(fs::read_to_string(dir.path().join("result.txt"))?, "remote");
+	assert!(stderr.contains("Push completed"), "stderr: {stderr}");
+	assert!(stderr.contains("Pull completed"), "stderr: {stderr}");
+	Ok(())
+}
+
+#[test]
+fn e2e_run_pull_skips_pull_after_nonzero_exit() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+
+	let output = biwa_cmd(&[
+		"run",
+		"--pull",
+		"sh",
+		"-c",
+		"printf partial > result.txt; exit 7",
+	])
+	.dir(dir.path())
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(!dir.path().join("result.txt").exists());
+	assert!(
+		stderr.contains("results were not pulled"),
+		"stderr: {stderr}"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_pull_always_pulls_after_nonzero_exit() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+
+	let output = biwa_cmd(&[
+		"run",
+		"--pull-always",
+		"sh",
+		"-c",
+		"printf partial > result.txt; exit 7",
+	])
+	.dir(dir.path())
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(!output.status.success(), "stderr: {stderr}");
+	pretty_assertions::assert_eq!(
+		fs::read_to_string(dir.path().join("result.txt"))?,
+		"partial"
+	);
+	assert!(stderr.contains("Pull completed"), "stderr: {stderr}");
+	assert!(stderr.contains("exited with code 7"), "stderr: {stderr}");
+	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_run_pull_always_pulls_after_signal_exit() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+
+	let output = biwa_cmd(&[
+		"run",
+		"--pull-always",
+		"sh",
+		"-c",
+		"printf partial > result.txt; kill -TERM $$",
+	])
+	.dir(dir.path())
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(!output.status.success(), "stderr: {stderr}");
+	pretty_assertions::assert_eq!(
+		fs::read_to_string(dir.path().join("result.txt"))?,
+		"partial"
+	);
+	assert!(stderr.contains("Pull completed"), "stderr: {stderr}");
+	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_run_pull_failure_preserves_local_and_remote_results() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+
+	let output = biwa_cmd(&[
+		"run",
+		"--pull",
+		"sh",
+		"-c",
+		"printf remote > result.txt && ln -s result.txt result-link",
+	])
+	.dir(dir.path())
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("command succeeded, but pulling results"),
+		"stderr: {stderr}"
+	);
+	pretty_assertions::assert_eq!(fs::read_to_string(dir.path().join("input.txt"))?, "local");
+	assert!(!dir.path().join("result.txt").exists());
+	assert!(!dir.path().join("result-link").exists());
+
+	let recovery_check = biwa_cmd(&["run", "-d", &remote_dir, "test", "-L", "result-link"])
+		.dir(dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		recovery_check.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&recovery_check.stderr)
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_pull_rejects_local_edits_during_command() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let local_file = dir.path().join("shared.txt");
+	fs::write(&local_file, "baseline")?;
+
+	let mut child = biwa_process(&[
+		"--quiet",
+		"run",
+		"--pull",
+		"sh",
+		"-c",
+		"printf 'ready\\n'; sleep 0.5; printf remote > shared.txt",
+	]);
+	child
+		.current_dir(dir.path())
+		.env("BIWA_CLEAN_AUTO", "false")
+		.stdout(Stdio::piped())
+		.stderr(Stdio::piped());
+	let mut child = child.spawn()?;
+	let stdout = child
+		.stdout
+		.take()
+		.ok_or_else(|| eyre!("missing child stdout"))?;
+	let mut stdout = BufReader::new(stdout);
+	let mut ready = String::new();
+	stdout.read_line(&mut ready)?;
+	pretty_assertions::assert_eq!(ready, "ready\n");
+	fs::write(&local_file, "local edit")?;
+
+	let output = child.wait_with_output()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	pretty_assertions::assert_eq!(fs::read_to_string(&local_file)?, "local edit");
+	assert!(stderr.contains("Local files changed"), "stderr: {stderr}");
+	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_run_pull_preserves_local_symlink() -> Result<()> {
+	use std::os::unix::fs::symlink;
+
+	let dir = tempfile::tempdir()?;
+	let outside = tempfile::tempdir()?;
+	let link = dir.path().join("link");
+	symlink(outside.path(), &link)?;
+
+	let output = biwa_cmd(&["run", "--pull", "true"])
+		.dir(dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(fs::symlink_metadata(link)?.file_type().is_symlink());
+	Ok(())
+}
+
+#[test]
+fn e2e_run_pull_forces_push_for_explicit_remote_dir() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+	let remote_dir = format!("{}-round-trip", common::get_remote_project_dir(dir.path())?);
+
+	let output = biwa_cmd(&[
+		"run",
+		"--pull",
+		"--remote-dir",
+		&remote_dir,
+		"sh",
+		"-c",
+		"cat input.txt > result.txt",
+	])
+	.dir(dir.path())
+	.env("BIWA_SYNC_AUTO", "false")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(output.status.success(), "stderr: {stderr}");
+	pretty_assertions::assert_eq!(fs::read_to_string(dir.path().join("result.txt"))?, "local");
+	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_run_pull_preserves_existing_local_file_mode() -> Result<()> {
+	use std::os::unix::fs::PermissionsExt as _;
+
+	let dir = tempfile::tempdir()?;
+	let script = dir.path().join("script.sh");
+	fs::write(&script, "before")?;
+	fs::set_permissions(&script, fs::Permissions::from_mode(0o755))?;
+
+	let output = biwa_cmd(&["run", "--pull", "sh", "-c", "printf after > script.sh"])
+		.dir(dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(output.status.success(), "stderr: {stderr}");
+	pretty_assertions::assert_eq!(fs::read_to_string(&script)?, "after");
+	pretty_assertions::assert_eq!(fs::metadata(script)?.permissions().mode() & 0o777, 0o755);
+	Ok(())
+}
+
+#[test]
 fn e2e_run_forwards_sigint_without_pty() -> Result<()> {
 	run_sigint_forwarding_case(false)
 }

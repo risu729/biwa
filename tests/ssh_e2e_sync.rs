@@ -79,7 +79,7 @@ fn e2e_sync_basic() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_downloads_remote_file() -> Result<()> {
+fn e2e_pull_downloads_remote_file() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 
@@ -106,7 +106,7 @@ fn e2e_sync_pull_downloads_remote_file() -> Result<()> {
 		String::from_utf8_lossy(&setup_output.stderr)
 	);
 
-	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -130,7 +130,7 @@ fn e2e_sync_pull_downloads_remote_file() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_updates_changed_and_remote_only_files() -> Result<()> {
+fn e2e_pull_updates_changed_and_remote_only_files() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(
 		dir.path().join("generated.md"),
@@ -161,7 +161,7 @@ fn e2e_sync_pull_updates_changed_and_remote_only_files() -> Result<()> {
 		String::from_utf8_lossy(&setup_output.stderr)
 	);
 
-	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -179,7 +179,7 @@ fn e2e_sync_pull_updates_changed_and_remote_only_files() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_overwrites_changed_file() -> Result<()> {
+fn e2e_pull_overwrites_changed_file() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("source.md"), "local")?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
@@ -207,7 +207,7 @@ fn e2e_sync_pull_overwrites_changed_file() -> Result<()> {
 		String::from_utf8_lossy(&setup_output.stderr)
 	);
 
-	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -221,7 +221,7 @@ fn e2e_sync_pull_overwrites_changed_file() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_deletes_local_file_missing_remotely() -> Result<()> {
+fn e2e_pull_deletes_local_file_missing_remotely() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("stale.txt"), "stale")?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
@@ -249,7 +249,7 @@ fn e2e_sync_pull_deletes_local_file_missing_remotely() -> Result<()> {
 		String::from_utf8_lossy(&setup_output.stderr)
 	);
 
-	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -263,19 +263,16 @@ fn e2e_sync_pull_deletes_local_file_missing_remotely() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_missing_remote_dir_preserves_local_files() -> Result<()> {
+fn e2e_pull_missing_remote_dir_preserves_local_files() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("local.txt"), "local")?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 
-	let output = biwa_cmd_tilde(
-		&["sync", "--pull", "--remote-dir", &remote_proj_dir],
-		dir.path(),
-	)
-	.stdout_capture()
-	.stderr_capture()
-	.unchecked()
-	.run()?;
+	let output = biwa_cmd_tilde(&["pull", "--remote-dir", &remote_proj_dir], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	assert!(!output.status.success(), "stderr: {stderr}");
 	assert!(
@@ -288,7 +285,7 @@ fn e2e_sync_pull_missing_remote_dir_preserves_local_files() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_missing_remote_dir_does_not_create_explicit_root() -> Result<()> {
+fn e2e_pull_missing_remote_dir_does_not_create_explicit_root() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let sync_root = dir.path().join("new-root");
 	let sync_root_arg = sync_root.to_string_lossy().into_owned();
@@ -296,8 +293,7 @@ fn e2e_sync_pull_missing_remote_dir_does_not_create_explicit_root() -> Result<()
 
 	let output = biwa_cmd_tilde(
 		&[
-			"sync",
-			"--pull",
+			"pull",
 			"--sync-root",
 			&sync_root_arg,
 			"--remote-dir",
@@ -317,7 +313,7 @@ fn e2e_sync_pull_missing_remote_dir_does_not_create_explicit_root() -> Result<()
 }
 
 #[test]
-fn e2e_sync_pull_creates_explicit_root_after_validating_remote() -> Result<()> {
+fn e2e_pull_creates_explicit_root_after_validating_remote() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let sync_root = dir.path().join("new-root");
 	let sync_root_arg = sync_root.to_string_lossy().into_owned();
@@ -344,8 +340,7 @@ fn e2e_sync_pull_creates_explicit_root_after_validating_remote() -> Result<()> {
 
 	let output = biwa_cmd_tilde(
 		&[
-			"sync",
-			"--pull",
+			"pull",
 			"--sync-root",
 			&sync_root_arg,
 			"--remote-dir",
@@ -370,7 +365,7 @@ fn e2e_sync_pull_creates_explicit_root_after_validating_remote() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_inventory_failure_preserves_local_files() -> Result<()> {
+fn e2e_pull_inventory_failure_preserves_local_files() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("protected.txt"), "local")?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
@@ -398,7 +393,7 @@ fn e2e_sync_pull_inventory_failure_preserves_local_files() -> Result<()> {
 		String::from_utf8_lossy(&setup_output.stderr)
 	);
 
-	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -414,7 +409,7 @@ fn e2e_sync_pull_inventory_failure_preserves_local_files() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_creates_and_removes_empty_dirs() -> Result<()> {
+fn e2e_pull_creates_and_removes_empty_dirs() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::create_dir_all(dir.path().join("stale"))?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
@@ -442,7 +437,7 @@ fn e2e_sync_pull_creates_and_removes_empty_dirs() -> Result<()> {
 		String::from_utf8_lossy(&setup_output.stderr)
 	);
 
-	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -457,7 +452,7 @@ fn e2e_sync_pull_creates_and_removes_empty_dirs() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_respects_include_scope() -> Result<()> {
+fn e2e_pull_respects_include_scope() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("local-only.txt"), "keep")?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
@@ -485,7 +480,7 @@ fn e2e_sync_pull_respects_include_scope() -> Result<()> {
 		String::from_utf8_lossy(&setup_output.stderr)
 	);
 
-	let output = biwa_cmd_tilde(&["sync", "--pull", "--include", "kept.txt"], dir.path())
+	let output = biwa_cmd_tilde(&["pull", "--include", "kept.txt"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -503,7 +498,7 @@ fn e2e_sync_pull_respects_include_scope() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_ignores_gitignored_remote_files() -> Result<()> {
+fn e2e_pull_ignores_gitignored_remote_files() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join(".gitignore"), "ignored.txt\n")?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
@@ -531,7 +526,7 @@ fn e2e_sync_pull_ignores_gitignored_remote_files() -> Result<()> {
 		String::from_utf8_lossy(&setup_output.stderr)
 	);
 
-	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -545,7 +540,7 @@ fn e2e_sync_pull_ignores_gitignored_remote_files() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_pull_respects_explicit_remote_dir_sync_root_and_exclude() -> Result<()> {
+fn e2e_pull_respects_explicit_remote_dir_sync_root_and_exclude() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let sync_root = dir.path().join("local-root");
 	fs::create_dir_all(sync_root.join("excluded"))?;
@@ -577,8 +572,7 @@ fn e2e_sync_pull_respects_explicit_remote_dir_sync_root_and_exclude() -> Result<
 
 	let output = biwa_cmd_tilde(
 		&[
-			"sync",
-			"--pull",
+			"pull",
 			"--sync-root",
 			".",
 			"--remote-dir",
@@ -609,7 +603,63 @@ fn e2e_sync_pull_respects_explicit_remote_dir_sync_root_and_exclude() -> Result<
 }
 
 #[test]
-fn e2e_sync_pull_rejects_remote_symlink() -> Result<()> {
+fn e2e_pull_missing_relative_sync_root_respects_exclude() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let sync_root = dir.path().join("new-root");
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1/keep\" \"$1/excluded\" && printf included > \"$1/keep/file.txt\" && printf excluded > \"$1/excluded/file.txt\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(
+		&[
+			"pull",
+			"--sync-root",
+			"new-root",
+			"--remote-dir",
+			&remote_proj_dir,
+			"--exclude",
+			"new-root/excluded/**",
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert_eq!(
+		fs::read_to_string(sync_root.join("keep/file.txt"))?,
+		"included"
+	);
+	assert!(!sync_root.join("excluded/file.txt").exists());
+
+	Ok(())
+}
+
+#[test]
+fn e2e_pull_rejects_remote_symlink() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 
@@ -636,7 +686,7 @@ fn e2e_sync_pull_rejects_remote_symlink() -> Result<()> {
 		String::from_utf8_lossy(&setup_output.stderr)
 	);
 
-	let output = biwa_cmd_tilde(&["sync", "--pull"], dir.path())
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
