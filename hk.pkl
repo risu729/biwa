@@ -17,6 +17,14 @@ local picked =
 
 hooks =
   helpers.standardHooks((picked) {
+    ["hygiene"] = (picked["hygiene"] as Group) {
+      steps = ((picked["hygiene"] as Group).steps) {
+        ["newlines"] = ((picked["hygiene"] as Group).steps["newlines"]) {
+          // release-plz generates CHANGELOG.md without a trailing newline.
+          exclude = List("CHANGELOG.md")
+        }
+      }
+    }
     ["oxfmt"] = (picked["oxfmt"]) {
       // Duplicate .oxfmtrc.json ignorePatterns so hk skips this step when only
       // ignored paths change; oxfmt ignore alone still runs the step and exits 0.
