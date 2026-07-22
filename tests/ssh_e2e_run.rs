@@ -183,6 +183,8 @@ fn e2e_run_pull_skips_pull_after_nonzero_exit() -> Result<()> {
 	let local_root = dir.path().join("project");
 	fs::create_dir_all(&local_root)?;
 	fs::write(local_root.join("input.txt"), "local")?;
+	fs::create_dir_all(local_root.join("ignored"))?;
+	fs::write(local_root.join("ignored/keep.txt"), "keep local")?;
 	let remote_dir = format!("{}-recovery", common::get_remote_project_dir(&local_root)?);
 
 	let output = biwa_cmd(&[
@@ -194,6 +196,11 @@ fn e2e_run_pull_skips_pull_after_nonzero_exit() -> Result<()> {
 			.ok_or_else(|| eyre!("non-UTF-8 test path"))?,
 		"--remote-dir",
 		&remote_dir,
+		"--force",
+		"--include",
+		"project/**",
+		"--exclude",
+		"project/ignored/**",
 		"sh",
 		"-c",
 		"printf partial > result.txt; exit 7",
@@ -217,8 +224,57 @@ fn e2e_run_pull_skips_pull_after_nonzero_exit() -> Result<()> {
 		"stderr: {stderr}"
 	);
 	assert!(
-		stderr.contains("`--sync-root` set to the exact local path"),
+		stderr.contains("To recover the exact resolved transfer scope"),
 		"stderr: {stderr}"
+	);
+	assert!(stderr.contains("--force"), "stderr: {stderr}");
+	assert!(
+		stderr.contains(&dir.path().join("project/**").display().to_string()),
+		"stderr: {stderr}"
+	);
+	assert!(
+		stderr.contains(&dir.path().join("project/ignored/**").display().to_string()),
+		"stderr: {stderr}"
+	);
+
+	let command_start = stderr
+		.find("biwa pull --sync-root=")
+		.ok_or_else(|| eyre!("recovery command missing from stderr: {stderr}"))?;
+	let command = stderr
+		.get(command_start..)
+		.ok_or_else(|| eyre!("recovery command offset was not a character boundary"))?
+		.lines()
+		.next()
+		.ok_or_else(|| eyre!("recovery command was empty"))?;
+	let arguments = shell_words::split(command)?;
+	if arguments.first().map(String::as_str) != Some("biwa") {
+		return Err(eyre!("invalid recovery executable: {arguments:?}"));
+	}
+	let recovery_args: Vec<_> = arguments
+		.get(1..)
+		.ok_or_else(|| eyre!("recovery command had no arguments"))?
+		.iter()
+		.map(String::as_str)
+		.collect();
+	let recovery_cwd = tempfile::tempdir()?;
+	let recovery = biwa_cmd(&recovery_args)
+		.dir(recovery_cwd.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		recovery.status.success(),
+		"recovery stderr: {}",
+		String::from_utf8_lossy(&recovery.stderr)
+	);
+	pretty_assertions::assert_eq!(
+		fs::read_to_string(local_root.join("result.txt"))?,
+		"partial"
+	);
+	pretty_assertions::assert_eq!(
+		fs::read_to_string(local_root.join("ignored/keep.txt"))?,
+		"keep local"
 	);
 	Ok(())
 }
@@ -360,6 +416,91 @@ fn e2e_run_pull_rejects_local_edits_during_command() -> Result<()> {
 	assert!(!output.status.success(), "stderr: {stderr}");
 	pretty_assertions::assert_eq!(fs::read_to_string(&local_file)?, "local edit");
 	assert!(stderr.contains("Local files changed"), "stderr: {stderr}");
+	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_run_pull_sigint_during_staging_preserves_local_tree() -> Result<()> {
+	use nix::sys::signal::{Signal, kill};
+	use nix::unistd::Pid;
+	use std::io::Result as IoResult;
+
+	const FILE_COUNT: usize = 300;
+	let dir = tempfile::tempdir()?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+	for index in 0..FILE_COUNT {
+		fs::write(
+			dir.path().join(format!("file-{index:04}.txt")),
+			format!("local-{index:04}"),
+		)?;
+	}
+
+	let mut child = biwa_process(&[
+		"run",
+		"--pull",
+		"--remote-dir",
+		&remote_dir,
+		"sh",
+		"-c",
+		"for file in ./*.txt; do printf remote > \"$file\"; done",
+	]);
+	child
+		.current_dir(dir.path())
+		.env("BIWA_CLEAN_AUTO", "false")
+		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", FILE_COUNT.to_string())
+		.stdout(Stdio::null())
+		.stderr(Stdio::piped());
+	let mut child = child.spawn()?;
+	let deadline = Instant::now() + Duration::from_secs(20);
+	loop {
+		let staging_has_download = fs::read_dir(dir.path())?
+			.filter_map(IoResult::ok)
+			.filter(|entry| {
+				entry
+					.file_name()
+					.to_string_lossy()
+					.starts_with(".biwa-pull-stage-")
+			})
+			.any(|entry| {
+				fs::read_dir(entry.path().join("downloads"))
+					.is_ok_and(|mut entries| entries.next().is_some())
+			});
+		if staging_has_download {
+			let pid = i32::try_from(child.id())?;
+			kill(Pid::from_raw(pid), Signal::SIGINT)?;
+			break;
+		}
+		if let Some(status) = child.try_wait()? {
+			return Err(eyre!(
+				"run --pull exited before staging could be interrupted: {status}"
+			));
+		}
+		if Instant::now() >= deadline {
+			child.kill()?;
+			return Err(eyre!("timed out waiting for run --pull staging"));
+		}
+		thread::sleep(Duration::from_millis(1));
+	}
+
+	let output = child.wait_with_output()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("interrupted"), "stderr: {stderr}");
+	for index in 0..FILE_COUNT {
+		pretty_assertions::assert_eq!(
+			fs::read_to_string(dir.path().join(format!("file-{index:04}.txt")))?,
+			format!("local-{index:04}")
+		);
+	}
+	assert!(
+		!fs::read_dir(dir.path())?
+			.filter_map(IoResult::ok)
+			.any(|entry| entry
+				.file_name()
+				.to_string_lossy()
+				.starts_with(".biwa-pull-stage-"))
+	);
 	Ok(())
 }
 

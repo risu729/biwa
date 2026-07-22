@@ -6,8 +6,8 @@ use crate::env_vars::parse_cli_env_vars;
 use crate::{
 	ssh::exec::{ExecuteCommandOptions, connect, execute_command_status},
 	ssh::sync::{
-		ensure_local_snapshot_unchanged, ensure_remote_matches_local_snapshot, pull_project,
-		push_project, snapshot_local_project,
+		Options, ensure_local_snapshot_unchanged, ensure_remote_matches_local_snapshot,
+		pull_project, push_project, snapshot_local_project,
 	},
 };
 use clap::Args;
@@ -106,12 +106,44 @@ pub(super) struct RemoteCommand<'a> {
 	pub cli_env_vars: &'a [String],
 }
 
-/// Returns recovery guidance that preserves both resolved targets and the transfer scope.
-fn pull_recovery_guidance(local_root: &Path, remote_dir: &str) -> String {
-	format!(
-		"Remote results remain at {remote_dir}. To recover them, run `biwa pull` with `--sync-root` set to the exact local path {} and `--remote-dir` set to that exact remote path; reuse the same `--include` and `--exclude` options",
-		local_root.display()
-	)
+/// Renders a recovery command that preserves both resolved targets and the transfer scope.
+fn pull_recovery_command(local_root: &Path, remote_dir: &str, options: &Options) -> Option<String> {
+	let local_root = local_root.to_str()?;
+	let mut command = vec![
+		"biwa pull".to_owned(),
+		format!("--sync-root={}", shell_words::quote(local_root)),
+		format!("--remote-dir={}", shell_words::quote(remote_dir)),
+	];
+	if options.force {
+		command.push("--force".to_owned());
+	}
+	for include in &options.include {
+		command.push(format!("--include={}", shell_words::quote(include)));
+	}
+	for exclude in &options.exclude {
+		command.push(format!("--exclude={}", shell_words::quote(exclude)));
+	}
+	Some(command.join(" "))
+}
+
+/// Returns recovery guidance for skipped or failed post-command pulls.
+fn pull_recovery_guidance(
+	local_root: &Path,
+	remote_dir: &str,
+	options: &Options,
+	pull_failed: bool,
+) -> String {
+	let retry = if pull_failed {
+		"After resolving the pull error, retry the exact resolved transfer scope with"
+	} else {
+		"To recover the exact resolved transfer scope, run"
+	};
+	let Some(command) = pull_recovery_command(local_root, remote_dir, options) else {
+		return format!(
+			"Remote results remain at {remote_dir}. The local root is not valid UTF-8, so an exact recovery command cannot be rendered; rerun `biwa pull` with the original OS-native path and transfer options."
+		);
+	};
+	format!("Remote results remain at {remote_dir}. {retry}: {command}")
 }
 
 /// Shared execution path for remote commands (used by both `biwa run` and implicit `biwa <args>`).
@@ -186,7 +218,12 @@ pub(super) async fn run_remote(
 		)
 		.await
 		.wrap_err_with(|| {
-			let recovery = pull_recovery_guidance(&transfer.local_root, &transfer.remote_dir);
+			let recovery = pull_recovery_guidance(
+				&transfer.local_root,
+				&transfer.remote_dir,
+				&transfer.options,
+				true,
+			);
 			if exit_status == 0 {
 				format!(
 					"Remote command succeeded, but pulling results from {} failed. {recovery}",
@@ -205,7 +242,12 @@ pub(super) async fn run_remote(
 
 	if exit_status != 0 {
 		if transfer_mode == RunTransferMode::PullOnSuccess {
-			let recovery = pull_recovery_guidance(&transfer.local_root, &transfer.remote_dir);
+			let recovery = pull_recovery_guidance(
+				&transfer.local_root,
+				&transfer.remote_dir,
+				&transfer.options,
+				false,
+			);
 			bail!(
 				"Remote command exited with code {exit_status}; results were not pulled. {recovery}"
 			);
@@ -261,8 +303,10 @@ impl Run {
 #[cfg(test)]
 mod tests {
 	use crate::cli::{Cli, Commands};
+	use crate::ssh::sync::Options;
 	use clap::Parser as _;
 	use pretty_assertions::{assert_eq, assert_matches};
+	use std::path::Path;
 
 	#[test]
 	fn run_command() {
@@ -392,6 +436,49 @@ mod tests {
 		assert!(!PullOnSuccess.should_pull(7));
 		assert!(PullAlways.should_pull(0));
 		assert!(PullAlways.should_pull(7));
+	}
+
+	#[test]
+	fn recovery_command_round_trips_adversarial_option_values() {
+		let options = Options {
+			force: true,
+			include: vec!["/tmp/project/a b/**".to_owned()],
+			exclude: vec!["-excluded/**".to_owned()],
+		};
+		let command =
+			super::pull_recovery_command(Path::new("/tmp/project a"), "-remote", &options).unwrap();
+		let arguments = shell_words::split(&command).unwrap();
+
+		assert_eq!(
+			arguments,
+			vec![
+				"biwa",
+				"pull",
+				"--sync-root=/tmp/project a",
+				"--remote-dir=-remote",
+				"--force",
+				"--include=/tmp/project/a b/**",
+				"--exclude=-excluded/**",
+			]
+		);
+		let parsed = Cli::try_parse_from(arguments).unwrap();
+		assert_matches!(parsed.command, Some(Commands::Pull(_)));
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn recovery_guidance_does_not_claim_exactness_for_non_utf8_roots() {
+		use std::ffi::OsStr;
+		use std::os::unix::ffi::OsStrExt as _;
+
+		let root = Path::new(OsStr::from_bytes(b"/tmp/project-\xff"));
+		let guidance = super::pull_recovery_guidance(root, "remote", &Options::default(), false);
+
+		assert!(guidance.contains("not valid UTF-8"), "guidance: {guidance}");
+		assert!(
+			guidance.contains("cannot be rendered"),
+			"guidance: {guidance}"
+		);
 	}
 
 	#[test]

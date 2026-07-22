@@ -8,6 +8,7 @@ use crate::ui::create_spinner;
 use alloc::collections::BTreeMap;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail, eyre};
 use console::style;
+use core::future::{Future, pending};
 use core::result::Result as CoreResult;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::Match;
@@ -21,15 +22,18 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io;
 #[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+use std::io::Seek as _;
+#[cfg(unix)]
+use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _, PermissionsExt as _};
 use std::path::{Component, Path, PathBuf};
 use tokio::fs::{self as async_fs, File as AsyncFile, OpenOptions as AsyncOpenOptions, metadata};
 use tokio::io::{
 	AsyncReadExt as _, AsyncWriteExt as _, BufReader as AsyncBufReader, copy as async_copy,
 };
 #[cfg(unix)]
-use tokio::signal::unix::{Signal, SignalKind, signal};
-use tokio::task::spawn_blocking;
+use tokio::signal::unix::{SignalKind, signal};
+use tokio::sync::watch;
+use tokio::task::{JoinHandle, spawn_blocking, yield_now};
 use tracing::{debug, info, warn};
 
 /// Separator emitted by the remote sync-state script before file hash lines.
@@ -379,8 +383,12 @@ fn checked_local_path(root: &Path, relative_path: &str) -> Result<PathBuf> {
 
 /// Returns whether a relative path enters Git's administrative metadata namespace.
 fn is_git_metadata_path(path: &Path) -> bool {
-	path.components()
-		.any(|component| component.as_os_str() == ".git")
+	path.components().any(|component| {
+		component
+			.as_os_str()
+			.to_str()
+			.is_some_and(|name| name.eq_ignore_ascii_case(".git"))
+	})
 }
 
 /// Returns whether a remote relative path should participate in pull synchronization.
@@ -447,6 +455,26 @@ fn hash_file(path: &Path) -> Result<String> {
 		},
 	)
 	.wrap_err_with(|| format!("Failed to hash file: {}", path.display()))?;
+	Ok(hex::encode(hasher.finalize()))
+}
+
+/// Computes SHA-256 through an already-open readable file handle.
+#[cfg(unix)]
+fn hash_open_file(file: &File) -> Result<String> {
+	let mut file = file
+		.try_clone()
+		.wrap_err("Failed to clone staged file handle")?;
+	file.rewind()
+		.wrap_err("Failed to rewind staged file handle")?;
+	let mut reader = io::BufReader::new(file);
+	let mut hasher = Sha256::new();
+	io::copy(
+		&mut reader,
+		&mut HasherWriter {
+			hasher: &mut hasher,
+		},
+	)
+	.wrap_err("Failed to hash installed pull file")?;
 	Ok(hex::encode(hasher.finalize()))
 }
 
@@ -724,7 +752,9 @@ fn build_remote_state_script(config: &Config, remote_dir: &str, create_remote_di
 	};
 	let normalize_remote_dirs = if create_remote_dir {
 		let dir_mode = format!("{:04o}", 0o777 & !config.ssh.umask.as_u32());
-		format!("(find . -type d -exec chmod {dir_mode} {{}} + || true) &&")
+		format!(
+			"(chmod {dir_mode} . && find . -mindepth 1 -iname .git -prune -o -type d -exec chmod {dir_mode} {{}} + || true) &&"
+		)
 	} else {
 		String::new()
 	};
@@ -738,11 +768,11 @@ fn build_remote_state_script(config: &Config, remote_dir: &str, create_remote_di
 		 cd -- {quoted_remote_dir} && \
 		 {normalize_remote_dirs} \
 		 printf '%s\\0' {quoted_directory_marker} && \
-		 find . -mindepth 1 -name .git -prune -o -type d -print0 && \
+		 find . -mindepth 1 -iname .git -prune -o -type d -print0 && \
 		 printf '%s\\0' {quoted_symlink_marker} && \
-		 find . -name .git -prune -o -type l -print0 && \
+		 find . -iname .git -prune -o -type l -print0 && \
 		 printf '%s\\0' {quoted_marker} && \
-		 find . -name .git -prune -o -type f -exec sha256sum -z {{}} +",
+		 find . -iname .git -prune -o -type f -exec sha256sum -z {{}} +",
 		config.ssh.umask
 	)
 }
@@ -1275,6 +1305,11 @@ struct StagedDownload {
 	relative_path: String,
 	/// Temporary path containing the verified bytes.
 	staged_path: PathBuf,
+	/// Verified content and final permission fingerprint.
+	fingerprint: LocalSnapshotEntry,
+	/// Readable handle retained across restrictive permission changes for safe rollback.
+	#[cfg(unix)]
+	rollback_file: Option<File>,
 }
 
 /// One local entry moved aside during a transactional pull commit.
@@ -1295,6 +1330,9 @@ struct PullInstalledFile {
 	path: PathBuf,
 	/// Fingerprint captured immediately after installation.
 	fingerprint: LocalSnapshotEntry,
+	/// Readable handle to the installed inode, retained for rollback verification.
+	#[cfg(unix)]
+	rollback_file: File,
 }
 
 /// Mutable state needed to roll back a pull commit.
@@ -1387,7 +1425,7 @@ async fn apply_download_permissions(
 	path: &Path,
 	remote_permissions: Option<u32>,
 	umask: u32,
-) -> Result<()> {
+) -> Result<Option<u32>> {
 	let mode = remote_permissions.unwrap_or(0o600) & 0o777 & !umask;
 	async_fs::set_permissions(path, fs::Permissions::from_mode(mode))
 		.await
@@ -1396,7 +1434,8 @@ async fn apply_download_permissions(
 				"Failed to set downloaded file permissions: {}",
 				path.display()
 			)
-		})
+		})?;
+	Ok(Some(mode))
 }
 
 /// Applies remote permission bits to a staged local file.
@@ -1405,8 +1444,8 @@ async fn apply_download_permissions(
 	_path: &Path,
 	_remote_permissions: Option<u32>,
 	_umask: u32,
-) -> Result<()> {
-	Ok(())
+) -> Result<Option<u32>> {
+	Ok(None)
 }
 
 /// Downloads and verifies one remote file inside the private staging tree.
@@ -1432,7 +1471,7 @@ async fn stage_download(
 		.wrap_err_with(|| format!("Failed to open remote file: {remote_path}"))?;
 	let staged_path = ensure_local_file_parent(staging_root, &download.path).await?;
 	let mut open_options = AsyncOpenOptions::new();
-	open_options.write(true).create_new(true);
+	open_options.read(true).write(true).create_new(true);
 	#[cfg(unix)]
 	open_options.mode(0o600);
 	let mut staged_file = open_options
@@ -1460,6 +1499,9 @@ async fn stage_download(
 			.wrap_err_with(|| format!("Failed to stage remote file: {remote_path}"))?;
 	}
 	staged_file.flush().await?;
+	#[cfg(unix)]
+	let rollback_file = staged_file.into_std().await;
+	#[cfg(not(unix))]
 	drop(staged_file);
 
 	let final_attributes = sftp
@@ -1477,18 +1519,25 @@ async fn stage_download(
 			download.expected_hash
 		);
 	}
-	apply_download_permissions(&staged_path, final_attributes.permissions, umask).await?;
+	let mode =
+		apply_download_permissions(&staged_path, final_attributes.permissions, umask).await?;
 
 	Ok(StagedDownload {
 		relative_path: download.path.clone(),
 		staged_path,
+		fingerprint: LocalSnapshotEntry::File {
+			hash: actual_hash,
+			mode,
+		},
+		#[cfg(unix)]
+		rollback_file: Some(rollback_file),
 	})
 }
 
 /// Restores the pre-command local mode for an existing round-trip file.
 #[cfg(unix)]
 async fn preserve_round_trip_file_mode(
-	staged: &StagedDownload,
+	staged: &mut StagedDownload,
 	baseline: Option<&LocalSnapshot>,
 ) -> Result<()> {
 	let Some(LocalSnapshotEntry::File {
@@ -1504,13 +1553,21 @@ async fn preserve_round_trip_file_mode(
 				"Failed to preserve local file permissions: {}",
 				staged.relative_path
 			)
-		})
+		})?;
+	let LocalSnapshotEntry::File {
+		mode: staged_mode, ..
+	} = &mut staged.fingerprint
+	else {
+		bail!("Staged pull entry is not a regular file")
+	};
+	*staged_mode = Some(*mode);
+	Ok(())
 }
 
 /// Restores the pre-command local mode for an existing round-trip file.
 #[cfg(not(unix))]
 async fn preserve_round_trip_file_mode(
-	_staged: &StagedDownload,
+	_staged: &mut StagedDownload,
 	_baseline: Option<&LocalSnapshot>,
 ) -> Result<()> {
 	Ok(())
@@ -1949,25 +2006,74 @@ async fn install_staged_downloads(
 				local_path.display()
 			);
 		}
+		let installed = PullInstalledFile {
+			path: local_path.clone(),
+			fingerprint: staged.fingerprint.clone(),
+			#[cfg(unix)]
+			rollback_file: staged
+				.rollback_file
+				.as_ref()
+				.wrap_err("Staged pull file is missing its rollback handle")?
+				.try_clone()
+				.wrap_err("Failed to retain staged pull file for rollback")?,
+		};
 		async_fs::rename(&staged.staged_path, &local_path)
 			.await
 			.wrap_err_with(|| {
 				format!("Failed to commit downloaded file: {}", local_path.display())
 			})?;
-		let fingerprint = fingerprint_local_entry(&local_path)?
-			.wrap_err("Installed pull file disappeared before it could be verified")?;
-		state.installed_files.push(PullInstalledFile {
-			path: local_path,
-			fingerprint,
-		});
+		state.installed_files.push(installed);
 	}
 	Ok(())
+}
+
+/// Verifies that an installed file still names the inode and bytes staged by this pull.
+#[cfg(unix)]
+#[expect(
+	clippy::filetype_is_file,
+	reason = "rollback verification must reject every entry type except regular files"
+)]
+fn installed_pull_file_matches(installed: &PullInstalledFile) -> Result<bool> {
+	let path_metadata = match fs::symlink_metadata(&installed.path) {
+		Ok(metadata) => metadata,
+		Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+		Err(error) => {
+			return Err(error).wrap_err_with(|| {
+				format!(
+					"Failed to inspect installed pull file: {}",
+					installed.path.display()
+				)
+			});
+		}
+	};
+	if !path_metadata.file_type().is_file() || path_metadata.file_type().is_symlink() {
+		return Ok(false);
+	}
+	let handle_metadata = installed
+		.rollback_file
+		.metadata()
+		.wrap_err("Failed to inspect retained pull file handle")?;
+	if path_metadata.dev() != handle_metadata.dev() || path_metadata.ino() != handle_metadata.ino()
+	{
+		return Ok(false);
+	}
+	let actual = LocalSnapshotEntry::File {
+		hash: hash_open_file(&installed.rollback_file)?,
+		mode: Some(path_metadata.permissions().mode() & 0o777),
+	};
+	Ok(actual == installed.fingerprint)
+}
+
+/// Verifies that an installed file is unchanged before rollback removes it.
+#[cfg(not(unix))]
+fn installed_pull_file_matches(installed: &PullInstalledFile) -> Result<bool> {
+	Ok(fingerprint_local_entry(&installed.path)?.as_ref() == Some(&installed.fingerprint))
 }
 
 /// Restores the local tree after a failed pull commit.
 async fn rollback_pull_commit(state: &PullCommitState) -> Result<()> {
 	for installed in state.installed_files.iter().rev() {
-		if fingerprint_local_entry(&installed.path)?.as_ref() != Some(&installed.fingerprint) {
+		if !installed_pull_file_matches(installed)? {
 			bail!(
 				"Refusing to remove a locally modified pull result during rollback: {}",
 				installed.path.display()
@@ -2034,56 +2140,115 @@ async fn rollback_pull_commit(state: &PullCommitState) -> Result<()> {
 	Ok(())
 }
 
-/// SIGINT and SIGTERM listeners installed before a pull starts mutating the local tree.
-#[cfg(unix)]
+/// Process-termination listeners installed before a pull starts staging results.
 struct PullInterruptListener {
-	/// Interrupt signal stream.
-	interrupt: Signal,
-	/// Termination signal stream.
-	terminate: Signal,
+	/// Shared cancellation state set when a termination signal arrives.
+	receiver: watch::Receiver<bool>,
+	/// Background task that owns the platform signal receivers.
+	task: JoinHandle<()>,
 }
 
 #[cfg(unix)]
+#[expect(
+	clippy::multiple_inherent_impl,
+	reason = "platform-specific signal setup shares platform-neutral cancellation methods"
+)]
 impl PullInterruptListener {
-	/// Installs both Unix termination handlers before the commit begins.
-	fn new() -> Result<Self> {
-		Ok(Self {
-			interrupt: signal(SignalKind::interrupt())
-				.wrap_err("Failed to install pull interrupt handler")?,
-			terminate: signal(SignalKind::terminate())
-				.wrap_err("Failed to install pull termination handler")?,
-		})
-	}
-
-	/// Waits for either ordinary process-termination signal.
+	/// Installs ordinary Unix termination handlers before pull staging begins.
 	#[expect(
 		clippy::integer_division_remainder_used,
 		reason = "tokio::select macro expansion uses remainder internally"
 	)]
-	async fn recv(&mut self) {
-		tokio::select! {
-			_ = self.interrupt.recv() => {}
-			_ = self.terminate.recv() => {}
-		}
+	fn new() -> Result<Self> {
+		let mut interrupt =
+			signal(SignalKind::interrupt()).wrap_err("Failed to install pull interrupt handler")?;
+		let mut terminate = signal(SignalKind::terminate())
+			.wrap_err("Failed to install pull termination handler")?;
+		let mut hangup =
+			signal(SignalKind::hangup()).wrap_err("Failed to install pull hangup handler")?;
+		let mut quit =
+			signal(SignalKind::quit()).wrap_err("Failed to install pull quit handler")?;
+		let (sender, receiver) = watch::channel(false);
+		let task = tokio::spawn(async move {
+			tokio::select! {
+				_ = interrupt.recv() => {}
+				_ = terminate.recv() => {}
+				_ = hangup.recv() => {}
+				_ = quit.recv() => {}
+			}
+			if sender.send(true).is_err() {
+				debug!("Pull interrupt receiver was already dropped");
+			}
+		});
+		Ok(Self { receiver, task })
 	}
 }
-
-/// Cross-platform Ctrl-C listener installed for a pull commit.
-#[cfg(not(unix))]
-struct PullInterruptListener;
 
 #[cfg(not(unix))]
 impl PullInterruptListener {
 	/// Creates the platform interrupt listener.
 	fn new() -> Result<Self> {
-		Ok(Self)
+		let (sender, receiver) = watch::channel(false);
+		let task = tokio::spawn(async move {
+			if tokio::signal::ctrl_c().await.is_ok() && sender.send(true).is_err() {
+				debug!("Pull interrupt receiver was already dropped");
+			}
+		});
+		Ok(Self { receiver, task })
+	}
+}
+
+impl PullInterruptListener {
+	/// Returns whether a termination signal has already arrived.
+	fn interrupted(&self) -> bool {
+		*self.receiver.borrow()
 	}
 
-	/// Waits for Ctrl-C, remaining pending if handler installation fails.
-	async fn recv(&mut self) {
-		if tokio::signal::ctrl_c().await.is_err() {
-			core::future::pending::<()>().await;
+	/// Waits until a termination signal arrives.
+	async fn recv(&self) {
+		if self.interrupted() {
+			return;
 		}
+		let mut receiver = self.receiver.clone();
+		while receiver.changed().await.is_ok() {
+			if *receiver.borrow() {
+				return;
+			}
+		}
+		pending::<()>().await;
+	}
+
+	/// Gives queued signals a chance to propagate, then rejects interrupted work.
+	async fn checkpoint(&self, phase: &str) -> Result<()> {
+		yield_now().await;
+		if self.interrupted() {
+			bail!("Pull interrupted during {phase}");
+		}
+		Ok(())
+	}
+}
+
+impl Drop for PullInterruptListener {
+	fn drop(&mut self) {
+		self.task.abort();
+	}
+}
+
+/// Completes one pre-commit pull phase or aborts it when termination is requested.
+#[expect(
+	clippy::integer_division_remainder_used,
+	reason = "tokio::select macro expansion uses remainder internally"
+)]
+async fn complete_pull_phase<T>(
+	interrupts: &PullInterruptListener,
+	phase: &str,
+	future: impl Future<Output = Result<T>>,
+) -> Result<T> {
+	tokio::pin!(future);
+	tokio::select! {
+		biased;
+		() = interrupts.recv() => Err(eyre!("Pull interrupted during {phase}")),
+		result = &mut future => result,
 	}
 }
 
@@ -2092,14 +2257,14 @@ impl PullInterruptListener {
 	clippy::integer_division_remainder_used,
 	reason = "tokio::select macro expansion uses remainder internally"
 )]
-async fn commit_pull_transaction(
+async fn commit_pull_transaction_with_interrupts(
 	project_root: &Path,
 	staging_root: &Path,
 	actions: &PullActions,
 	staged_downloads: &[StagedDownload],
 	baseline: Option<&LocalSnapshot>,
+	interrupts: &PullInterruptListener,
 ) -> Result<(usize, usize)> {
-	let mut interrupts = PullInterruptListener::new()?;
 	let backup_root = staging_root.join("backups");
 	if let Err(error) = create_private_local_directory(&backup_root) {
 		let error = eyre!(error).wrap_err("Failed to create pull backup directory");
@@ -2169,6 +2334,27 @@ async fn commit_pull_transaction(
 	Ok((deleted, state.installed_files.len()))
 }
 
+/// Applies a pull transaction with a fresh interrupt listener in unit tests.
+#[cfg(test)]
+async fn commit_pull_transaction(
+	project_root: &Path,
+	staging_root: &Path,
+	actions: &PullActions,
+	staged_downloads: &[StagedDownload],
+	baseline: Option<&LocalSnapshot>,
+) -> Result<(usize, usize)> {
+	let interrupts = PullInterruptListener::new()?;
+	commit_pull_transaction_with_interrupts(
+		project_root,
+		staging_root,
+		actions,
+		staged_downloads,
+		baseline,
+		&interrupts,
+	)
+	.await
+}
+
 /// Executes pull actions by deleting local paths, creating local directories, and downloading files.
 #[expect(
 	clippy::too_many_lines,
@@ -2189,6 +2375,10 @@ async fn apply_pull_actions(
 		spinner,
 		..
 	} = context;
+	let interrupts = context
+		.interrupts
+		.wrap_err("Pull interrupt listener was not initialized")?;
+	interrupts.checkpoint("pull planning").await?;
 	if actions.file_deletions.is_empty()
 		&& actions.directory_creations.is_empty()
 		&& actions.directory_deletions.is_empty()
@@ -2210,7 +2400,7 @@ async fn apply_pull_actions(
 		return Err(error);
 	}
 	let total_to_download = actions.downloads.len();
-	let stage_result = async {
+	let stage_result = complete_pull_phase(interrupts, "download staging", async {
 		if actions.downloads.is_empty() {
 			return Ok::<_, color_eyre::Report>(Vec::new());
 		}
@@ -2235,7 +2425,7 @@ async fn apply_pull_actions(
 			}
 
 			let remote_path = format!("{remote_dir}/{}", download.path);
-			let staged = stage_download(
+			let mut staged = stage_download(
 				&sftp,
 				&remote_path,
 				&downloads_root,
@@ -2243,11 +2433,11 @@ async fn apply_pull_actions(
 				config.ssh.umask.as_u32(),
 			)
 			.await?;
-			preserve_round_trip_file_mode(&staged, baseline).await?;
+			preserve_round_trip_file_mode(&mut staged, baseline).await?;
 			staged_downloads.push(staged);
 		}
 		Ok::<_, color_eyre::Report>(staged_downloads)
-	}
+	})
 	.await;
 	let staged_downloads = match stage_result {
 		Ok(downloads) => downloads,
@@ -2262,7 +2452,13 @@ async fn apply_pull_actions(
 		}
 	};
 
-	if let Err(error) = verify_pull_preconditions(context, expected_remote_state, baseline).await {
+	if let Err(error) = complete_pull_phase(
+		interrupts,
+		"precondition verification",
+		verify_pull_preconditions(context, expected_remote_state, baseline),
+	)
+	.await
+	{
 		if let Err(cleanup_error) = remove_pull_staging_directory(&staging_root).await {
 			return Err(error).wrap_err(format!(
 				"Pull precondition check failed and transaction cleanup also failed: {cleanup_error}. Partial data remains at {}",
@@ -2271,12 +2467,13 @@ async fn apply_pull_actions(
 		}
 		return Err(error);
 	}
-	let commit_result = commit_pull_transaction(
+	let commit_result = commit_pull_transaction_with_interrupts(
 		project_root,
 		&staging_root,
 		&actions,
 		&staged_downloads,
 		baseline,
+		interrupts,
 	)
 	.await;
 	let (deleted, downloaded) = match commit_result {
@@ -2492,6 +2689,8 @@ struct SyncExecution<'a> {
 	options: &'a Options,
 	/// Optional progress spinner.
 	spinner: Option<&'a ProgressBar>,
+	/// Pull termination state shared by staging and commit.
+	interrupts: Option<&'a PullInterruptListener>,
 }
 
 /// Plans and applies push synchronization.
@@ -2605,6 +2804,10 @@ struct ProjectTransfer<'a> {
 }
 
 /// Synchronizes a project in one explicit direction.
+#[expect(
+	clippy::too_many_lines,
+	reason = "shared push and pull orchestration keeps one resolved transfer lifecycle"
+)]
 async fn sync_project(
 	transfer: ProjectTransfer<'_>,
 	direction: Direction,
@@ -2621,6 +2824,11 @@ async fn sync_project(
 	if config.sync.engine != SyncEngine::Sftp {
 		bail!("Only SFTP sync engine is currently supported");
 	}
+	let pull_interrupts = if direction == Direction::Pull {
+		Some(PullInterruptListener::new()?)
+	} else {
+		None
+	};
 	info!(
 			project_root = %project_root.display(),
 			direction = ?direction,
@@ -2640,8 +2848,12 @@ async fn sync_project(
 		Some(create_spinner(message.to_owned()))
 	};
 
-	let remote_state =
-		fetch_remote_state(client, config, remote_dir, direction == Direction::Push).await?;
+	let fetch = fetch_remote_state(client, config, remote_dir, direction == Direction::Push);
+	let remote_state = if let Some(interrupts) = pull_interrupts.as_ref() {
+		complete_pull_phase(interrupts, "remote inventory", fetch).await?
+	} else {
+		fetch.await?
+	};
 	debug!(
 		remote_dir,
 		remote_directories = remote_state.directories.len(),
@@ -2653,7 +2865,12 @@ async fn sync_project(
 		ensure_local_pull_root(project_root).await?;
 	}
 
-	let local_state = collect_local_state_async(project_root, config, options).await?;
+	let collect = collect_local_state_async(project_root, config, options);
+	let local_state = if let Some(interrupts) = pull_interrupts.as_ref() {
+		complete_pull_phase(interrupts, "local inventory", collect).await?
+	} else {
+		collect.await?
+	};
 	info!(
 		local_directories = local_state.directories.len(),
 		local_files = local_state.files.len(),
@@ -2665,22 +2882,29 @@ async fn sync_project(
 	}
 
 	let mut stats = Stats::default();
-	let execution = SyncExecution {
-		client,
-		config,
-		project_root,
-		remote_dir,
-		options,
-		spinner: spinner.as_ref(),
-	};
-	match direction {
-		Direction::Push => {
-			execute_push_sync(&execution, &local_state, &remote_state, &mut stats).await?;
-		}
-		Direction::Pull => {
-			execute_pull_sync(&execution, &local_state, remote_state, baseline, &mut stats).await?;
+	{
+		let execution = SyncExecution {
+			client,
+			config,
+			project_root,
+			remote_dir,
+			options,
+			spinner: spinner.as_ref(),
+			interrupts: pull_interrupts.as_ref(),
+		};
+		match direction {
+			Direction::Push => {
+				execute_push_sync(&execution, &local_state, &remote_state, &mut stats).await?;
+			}
+			Direction::Pull => {
+				execute_pull_sync(&execution, &local_state, remote_state, baseline, &mut stats)
+					.await?;
+			}
 		}
 	}
+	// A successful pull commit is the cancellation boundary: reporting an interrupt
+	// after backups are removed would falsely describe durable local changes as failed.
+	drop(pull_interrupts);
 
 	if let Some(s) = spinner {
 		s.finish_and_clear();
@@ -2860,6 +3084,46 @@ mod tests {
 		}
 	}
 
+	/// Builds a staged download with its verified fingerprint and rollback handle.
+	fn staged_download(relative_path: &str, staged_path: PathBuf) -> StagedDownload {
+		let fingerprint = fingerprint_local_entry(&staged_path).unwrap().unwrap();
+		StagedDownload {
+			relative_path: relative_path.to_owned(),
+			#[cfg(unix)]
+			rollback_file: Some(File::open(&staged_path).unwrap()),
+			staged_path,
+			fingerprint,
+		}
+	}
+
+	/// Builds a deliberately missing staged download for commit-failure tests.
+	fn missing_staged_download(relative_path: &str, staged_path: PathBuf) -> StagedDownload {
+		StagedDownload {
+			relative_path: relative_path.to_owned(),
+			staged_path,
+			fingerprint: LocalSnapshotEntry::File {
+				hash: String::new(),
+				mode: None,
+			},
+			#[cfg(unix)]
+			rollback_file: None,
+		}
+	}
+
+	#[tokio::test]
+	async fn pull_interrupt_checkpoint_rejects_a_pretriggered_signal() {
+		let (sender, receiver) = watch::channel(false);
+		sender.send(true).unwrap();
+		let listener = PullInterruptListener {
+			receiver,
+			task: tokio::spawn(async { pending::<()>().await }),
+		};
+
+		let error = listener.checkpoint("pull planning").await.unwrap_err();
+
+		assert_eq!(error.to_string(), "Pull interrupted during pull planning");
+	}
+
 	#[test]
 	fn should_recreate_file_when_permissions_are_missing_or_different() {
 		assert!(should_remove_for_recreate(Err(()), 0o600));
@@ -2942,8 +3206,9 @@ mod tests {
 	fn collect_local_state_excludes_git_metadata_files_and_directories() {
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join(".git"), "gitdir: /safe/local\n").unwrap();
-		fs::create_dir_all(dir.path().join("nested/.git")).unwrap();
-		fs::write(dir.path().join("nested/.git/config"), "metadata").unwrap();
+		fs::create_dir_all(dir.path().join("nested/.GiT")).unwrap();
+		fs::write(dir.path().join("nested/.GiT/config"), "metadata").unwrap();
+		fs::write(dir.path().join(".GIT"), "case alias").unwrap();
 		fs::write(dir.path().join("nested/kept.txt"), "kept").unwrap();
 
 		let state = collect_local_state(dir.path(), &[], &Options::default()).unwrap();
@@ -2953,9 +3218,10 @@ mod tests {
 			.map(|file| file.path.to_string_lossy().into_owned())
 			.collect::<HashSet<_>>();
 		assert!(!files.contains(".git"));
-		assert!(!files.contains("nested/.git/config"));
+		assert!(!files.contains(".GIT"));
+		assert!(!files.contains("nested/.GiT/config"));
 		assert!(files.contains("nested/kept.txt"));
-		assert!(!state.directories.contains("nested/.git"));
+		assert!(!state.directories.contains("nested/.GiT"));
 	}
 
 	#[test]
@@ -3106,10 +3372,10 @@ mod tests {
 
 		let push_script = build_remote_state_script(&config, "~/project", true);
 		assert!(push_script.contains("mkdir -p -- \"$HOME\"/project"));
-		assert!(push_script.contains("find . -type d -exec chmod"));
-		assert!(push_script.contains("find . -mindepth 1 -name .git -prune -o -type d -print0"));
-		assert!(push_script.contains("find . -name .git -prune -o -type l -print0"));
-		assert!(push_script.contains("find . -name .git -prune -o -type f"));
+		assert!(push_script.contains("find . -mindepth 1 -iname .git -prune"));
+		assert!(push_script.contains("find . -mindepth 1 -iname .git -prune -o -type d -print0"));
+		assert!(push_script.contains("find . -iname .git -prune -o -type l -print0"));
+		assert!(push_script.contains("find . -iname .git -prune -o -type f"));
 		assert!(push_script.contains("-print0"));
 		assert!(push_script.contains("sha256sum -z"));
 		assert!(push_script.contains(REMOTE_DIRECTORY_MARKER));
@@ -3118,7 +3384,7 @@ mod tests {
 
 		let pull_script = build_remote_state_script(&config, "~/project", false);
 		assert!(!pull_script.contains("mkdir -p --"));
-		assert!(!pull_script.contains("find . -type d -exec chmod"));
+		assert!(!pull_script.contains("-exec chmod"));
 		assert!(!pull_script.contains("|| true"));
 		assert!(pull_script.contains("remote directory does not exist"));
 		assert!(pull_script.contains("remote directory is not a directory"));
@@ -3499,14 +3765,8 @@ mod tests {
 		let staged_first = downloads_root.join("first.txt");
 		fs::write(&staged_first, "first remote").unwrap();
 		let staged_downloads = vec![
-			StagedDownload {
-				relative_path: "first.txt".to_owned(),
-				staged_path: staged_first,
-			},
-			StagedDownload {
-				relative_path: "second.txt".to_owned(),
-				staged_path: downloads_root.join("missing-second.txt"),
-			},
+			staged_download("first.txt", staged_first),
+			missing_staged_download("second.txt", downloads_root.join("missing-second.txt")),
 		];
 		let actions = PullActions {
 			downloads: vec![
@@ -3530,6 +3790,48 @@ mod tests {
 		assert!(!staging_root.exists());
 	}
 
+	#[cfg(unix)]
+	#[tokio::test]
+	async fn pull_commit_rolls_back_an_installed_unreadable_file() {
+		let dir = tempdir().unwrap();
+		let original = dir.path().join("first.txt");
+		fs::write(&original, "first original").unwrap();
+		let staging_root = dir.path().join(".biwa-pull-stage-test");
+		let downloads_root = staging_root.join("downloads");
+		fs::create_dir_all(&downloads_root).unwrap();
+		let staged_path = downloads_root.join("first.txt");
+		fs::write(&staged_path, "first remote").unwrap();
+		let mut first_staged = staged_download("first.txt", staged_path.clone());
+		fs::set_permissions(&staged_path, fs::Permissions::from_mode(0o000)).unwrap();
+		first_staged.fingerprint = LocalSnapshotEntry::File {
+			hash: hex::encode(Sha256::digest(b"first remote")),
+			mode: Some(0o000),
+		};
+		let staged_downloads = vec![
+			first_staged,
+			missing_staged_download("second.txt", downloads_root.join("missing.txt")),
+		];
+		let actions = PullActions {
+			downloads: vec![
+				download("first.txt", "hash"),
+				download("second.txt", "hash"),
+			],
+			unchanged: 0,
+			file_deletions: Vec::new(),
+			directory_creations: Vec::new(),
+			directory_deletions: Vec::new(),
+		};
+
+		let error =
+			commit_pull_transaction(dir.path(), &staging_root, &actions, &staged_downloads, None)
+				.await
+				.unwrap_err();
+
+		assert!(error.to_string().contains("rolled back"), "error: {error}");
+		assert_eq!(fs::read_to_string(original).unwrap(), "first original");
+		assert!(!staging_root.exists());
+	}
+
 	#[tokio::test]
 	async fn pull_commit_failure_removes_every_created_parent_directory() {
 		let dir = tempdir().unwrap();
@@ -3543,10 +3845,10 @@ mod tests {
 			directory_creations: vec!["new/parent".to_owned()],
 			directory_deletions: Vec::new(),
 		};
-		let staged_downloads = vec![StagedDownload {
-			relative_path: "new/parent/result.txt".to_owned(),
-			staged_path: downloads_root.join("missing.txt"),
-		}];
+		let staged_downloads = vec![missing_staged_download(
+			"new/parent/result.txt",
+			downloads_root.join("missing.txt"),
+		)];
 
 		let error =
 			commit_pull_transaction(dir.path(), &staging_root, &actions, &staged_downloads, None)
@@ -3644,10 +3946,7 @@ mod tests {
 			directory_creations: Vec::new(),
 			directory_deletions: Vec::new(),
 		};
-		let staged_downloads = vec![StagedDownload {
-			relative_path: "result.txt".to_owned(),
-			staged_path,
-		}];
+		let staged_downloads = vec![staged_download("result.txt", staged_path)];
 
 		let error = commit_pull_transaction(
 			dir.path(),
@@ -3685,10 +3984,7 @@ mod tests {
 			directory_creations: Vec::new(),
 			directory_deletions: Vec::new(),
 		};
-		let staged_downloads = vec![StagedDownload {
-			relative_path: "result.txt".to_owned(),
-			staged_path,
-		}];
+		let staged_downloads = vec![staged_download("result.txt", staged_path)];
 
 		let _error = commit_pull_transaction(
 			dir.path(),
@@ -3880,11 +4176,11 @@ mod tests {
 			RemoteState {
 				file_hashes: HashMap::from([
 					(".git".to_owned(), "root".to_owned()),
-					("nested/.git/config".to_owned(), "nested".to_owned()),
+					("nested/.GiT/config".to_owned(), "nested".to_owned()),
 					("kept.txt".to_owned(), "kept".to_owned()),
 				]),
-				directories: HashSet::from(["nested".to_owned(), "nested/.git".to_owned()]),
-				symlinks: HashSet::from(["other/.git/link".to_owned()]),
+				directories: HashSet::from(["nested".to_owned(), "nested/.GiT".to_owned()]),
+				symlinks: HashSet::from(["other/.GIT/link".to_owned()]),
 			},
 			dir.path(),
 			&[],
@@ -4093,6 +4389,22 @@ mod tests {
 
 		let remote_dir = compute_project_remote_dir(&config, project.path()).unwrap();
 		assert!(!remote_dir.contains('/'));
+		assert!(is_default_biwa_remote_dir(
+			&remote_dir,
+			&config.sync.remote_root,
+			&compute_client_host_hash(),
+		));
+	}
+
+	#[test]
+	fn project_remote_dir_and_layout_checks_support_filesystem_root() {
+		let project = tempdir().unwrap();
+		let mut config = Config::default();
+		config.sync.remote_root = PathBuf::from("/");
+
+		let remote_dir = compute_project_remote_dir(&config, project.path()).unwrap();
+		assert!(remote_dir.starts_with('/'));
+		assert_eq!(remote_dir.matches('/').count(), 1);
 		assert!(is_default_biwa_remote_dir(
 			&remote_dir,
 			&config.sync.remote_root,

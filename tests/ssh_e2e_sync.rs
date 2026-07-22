@@ -10,6 +10,8 @@
 
 use color_eyre::eyre::eyre;
 use common::Result;
+#[cfg(unix)]
+use nix::sys::signal::Signal;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 #[cfg(unix)]
@@ -718,7 +720,7 @@ fn e2e_sync_never_transfers_or_deletes_git_metadata() -> Result<()> {
 			"~",
 			"sh",
 			"-c",
-			"mkdir -p \"$1/nested/.git\" && printf 'gitdir: /safe/remote\\n' > \"$1/.git\" && printf 'remote metadata' > \"$1/nested/.git/config\" && printf result > \"$1/result.txt\"",
+			"mkdir -p \"$1/nested/.git\" && chmod 751 \"$1/nested/.git\" && printf 'gitdir: /safe/remote\\n' > \"$1/.git\" && printf 'remote metadata' > \"$1/nested/.git/config\" && printf result > \"$1/result.txt\"",
 			"--",
 			&remote_dir,
 		],
@@ -774,7 +776,7 @@ fn e2e_sync_never_transfers_or_deletes_git_metadata() -> Result<()> {
 			&remote_dir,
 			"sh",
 			"-c",
-			"test \"$(cat .git)\" = 'gitdir: /safe/remote' && test \"$(cat nested/.git/config)\" = 'remote metadata' && test \"$(cat ordinary.txt)\" = upload",
+			"test \"$(cat .git)\" = 'gitdir: /safe/remote' && test \"$(cat nested/.git/config)\" = 'remote metadata' && test \"$(stat -c %a nested/.git)\" = 751 && test \"$(cat ordinary.txt)\" = upload",
 		],
 		dir.path(),
 	)
@@ -791,9 +793,8 @@ fn e2e_sync_never_transfers_or_deletes_git_metadata() -> Result<()> {
 }
 
 #[cfg(unix)]
-#[test]
-fn e2e_pull_sigterm_during_commit_rolls_back_local_tree() -> Result<()> {
-	use nix::sys::signal::{Signal, kill};
+fn run_pull_signal_during_commit(signal: Signal) -> Result<()> {
+	use nix::sys::signal::kill;
 	use nix::unistd::Pid;
 	use std::io::Result as IoResult;
 	use std::process::{Command, Stdio};
@@ -859,7 +860,9 @@ fn e2e_pull_sigterm_during_commit_rolls_back_local_tree() -> Result<()> {
 		.stdout(Stdio::null())
 		.stderr(Stdio::piped());
 	let mut child = command.spawn()?;
-	let deadline = Instant::now() + Duration::from_secs(20);
+	let deadline = Instant::now()
+		.checked_add(Duration::from_secs(20))
+		.ok_or_else(|| eyre!("pull commit deadline overflowed"))?;
 	loop {
 		let commit_started = fs::read_dir(dir.path())?
 			.filter_map(IoResult::ok)
@@ -872,7 +875,7 @@ fn e2e_pull_sigterm_during_commit_rolls_back_local_tree() -> Result<()> {
 			});
 		if commit_started {
 			let pid = i32::try_from(child.id())?;
-			kill(Pid::from_raw(pid), Signal::SIGTERM)?;
+			kill(Pid::from_raw(pid), signal)?;
 			break;
 		}
 		if let Some(status) = child.try_wait()? {
@@ -904,9 +907,22 @@ fn e2e_pull_sigterm_during_commit_rolls_back_local_tree() -> Result<()> {
 			.any(|entry| entry
 				.file_name()
 				.to_string_lossy()
-				.starts_with(".biwa-pull-stage-"))
+				.starts_with(".biwa-pull-stage-")),
+		"pull staging directory remained after rollback"
 	);
 	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_pull_sigterm_during_commit_rolls_back_local_tree() -> Result<()> {
+	run_pull_signal_during_commit(Signal::SIGTERM)
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_pull_sighup_during_commit_rolls_back_local_tree() -> Result<()> {
+	run_pull_signal_during_commit(Signal::SIGHUP)
 }
 
 #[test]

@@ -222,6 +222,8 @@ fn direct_remote_child_name(remote_dir: &str, remote_root: &Path) -> Option<Stri
 	let root = normalize_remote_dir(&remote_root.to_string_lossy()).ok()?;
 	let directory_name = if root == "." {
 		remote_dir.as_str()
+	} else if root == "/" {
+		remote_dir.strip_prefix('/')?
 	} else {
 		let prefix = format!("{root}/");
 		remote_dir.strip_prefix(&prefix)?

@@ -128,7 +128,7 @@ To prevent accidental data overwrites when executing standard commands across di
 
 ## Remote directory cleanup
 
-Biwa stores each successful `biwa sync`, `biwa pull`, and `biwa run` transfer in local state under your [XDG state directory](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) (for example `~/.local/state/biwa/connections.json` on Linux). That lets the tool know which remote project directories belong to this machine and when they were last used.
+Biwa stores active transfer targets before remote work begins so automatic cleanup cannot remove a directory that is in use, then refreshes the record after each successful `biwa sync`, `biwa pull`, and `biwa run` transfer. State is kept under your [XDG state directory](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) (for example `~/.local/state/biwa/connections.json` on Linux). A failed attempt can therefore leave its target recorded for later cleanup.
 
 ### Automatic cleanup after sync, pull, and run
 
