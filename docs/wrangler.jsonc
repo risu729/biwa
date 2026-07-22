@@ -13,4 +13,12 @@
 	"assets": {
 		"not_found_handling": "single-page-application",
 	},
+	"observability": {
+		"logs": {
+			"enabled": true,
+		},
+		"traces": {
+			"enabled": true,
+		},
+	},
 }
