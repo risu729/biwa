@@ -180,11 +180,20 @@ fn e2e_run_pull_round_trip_applies_remote_results() -> Result<()> {
 #[test]
 fn e2e_run_pull_skips_pull_after_nonzero_exit() -> Result<()> {
 	let dir = tempfile::tempdir()?;
-	fs::write(dir.path().join("input.txt"), "local")?;
+	let local_root = dir.path().join("project");
+	fs::create_dir_all(&local_root)?;
+	fs::write(local_root.join("input.txt"), "local")?;
+	let remote_dir = format!("{}-recovery", common::get_remote_project_dir(&local_root)?);
 
 	let output = biwa_cmd(&[
 		"run",
 		"--pull",
+		"--sync-root",
+		local_root
+			.to_str()
+			.ok_or_else(|| eyre!("non-UTF-8 test path"))?,
+		"--remote-dir",
+		&remote_dir,
 		"sh",
 		"-c",
 		"printf partial > result.txt; exit 7",
@@ -197,9 +206,18 @@ fn e2e_run_pull_skips_pull_after_nonzero_exit() -> Result<()> {
 	let stderr = String::from_utf8_lossy(&output.stderr);
 
 	assert!(!output.status.success(), "stderr: {stderr}");
-	assert!(!dir.path().join("result.txt").exists());
+	assert!(!local_root.join("result.txt").exists());
 	assert!(
 		stderr.contains("results were not pulled"),
+		"stderr: {stderr}"
+	);
+	assert!(stderr.contains(&remote_dir), "stderr: {stderr}");
+	assert!(
+		stderr.contains(&local_root.display().to_string()),
+		"stderr: {stderr}"
+	);
+	assert!(
+		stderr.contains("`--sync-root` set to the exact local path"),
 		"stderr: {stderr}"
 	);
 	Ok(())

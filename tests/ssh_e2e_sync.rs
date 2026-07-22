@@ -703,6 +703,265 @@ fn e2e_pull_rejects_remote_symlink() -> Result<()> {
 }
 
 #[test]
+fn e2e_sync_never_transfers_or_deletes_git_metadata() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+	fs::write(dir.path().join(".git"), "gitdir: /safe/local\n")?;
+	fs::create_dir_all(dir.path().join("nested/.git"))?;
+	fs::write(dir.path().join("nested/.git/config"), "local metadata")?;
+	let setup_dir = tempfile::tempdir()?;
+
+	let setup = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1/nested/.git\" && printf 'gitdir: /safe/remote\\n' > \"$1/.git\" && printf 'remote metadata' > \"$1/nested/.git/config\" && printf result > \"$1/result.txt\"",
+			"--",
+			&remote_dir,
+		],
+		setup_dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup.stderr)
+	);
+
+	let pull = biwa_cmd_tilde(&["pull", "--remote-dir", &remote_dir], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		pull.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&pull.stderr)
+	);
+	assert_eq!(
+		fs::read_to_string(dir.path().join(".git"))?,
+		"gitdir: /safe/local\n"
+	);
+	assert_eq!(
+		fs::read_to_string(dir.path().join("nested/.git/config"))?,
+		"local metadata"
+	);
+	assert_eq!(fs::read_to_string(dir.path().join("result.txt"))?, "result");
+
+	fs::write(dir.path().join("ordinary.txt"), "upload")?;
+	let push = biwa_cmd_tilde(&["sync", "--remote-dir", &remote_dir], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		push.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&push.stderr)
+	);
+
+	let check = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"-d",
+			&remote_dir,
+			"sh",
+			"-c",
+			"test \"$(cat .git)\" = 'gitdir: /safe/remote' && test \"$(cat nested/.git/config)\" = 'remote metadata' && test \"$(cat ordinary.txt)\" = upload",
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		check.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&check.stderr)
+	);
+	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_pull_sigterm_during_commit_rolls_back_local_tree() -> Result<()> {
+	use nix::sys::signal::{Signal, kill};
+	use nix::unistd::Pid;
+	use std::io::Result as IoResult;
+	use std::process::{Command, Stdio};
+	use std::thread;
+	use std::time::{Duration, Instant};
+
+	const FILE_COUNT: usize = 500;
+	let dir = tempfile::tempdir()?;
+	let state_dir = tempfile::tempdir()?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+	for index in 0..FILE_COUNT {
+		fs::write(
+			dir.path().join(format!("file-{index:04}.txt")),
+			format!("local-{index:04}"),
+		)?;
+	}
+
+	let initial = biwa_cmd_tilde(&["sync", "--remote-dir", &remote_dir], dir.path())
+		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", FILE_COUNT.to_string())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		initial.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&initial.stderr)
+	);
+	let update = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"-d",
+			&remote_dir,
+			"sh",
+			"-c",
+			"for file in ./*.txt; do printf remote > \"$file\"; done",
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		update.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&update.stderr)
+	);
+
+	let mut command = Command::new(env!("CARGO_BIN_EXE_biwa"));
+	command
+		.args(["pull", "--remote-dir", &remote_dir])
+		.current_dir(dir.path())
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_PASSWORD", "password123")
+		.env("BIWA_SYNC_REMOTE_ROOT", "~/.cache/biwa/projects")
+		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", FILE_COUNT.to_string())
+		.env("BIWA_CLEAN_AUTO", "false")
+		.env("BIWA_STATE_DIR", state_dir.path())
+		.stdout(Stdio::null())
+		.stderr(Stdio::piped());
+	let mut child = command.spawn()?;
+	let deadline = Instant::now() + Duration::from_secs(20);
+	loop {
+		let commit_started = fs::read_dir(dir.path())?
+			.filter_map(IoResult::ok)
+			.any(|entry| {
+				entry
+					.file_name()
+					.to_string_lossy()
+					.starts_with(".biwa-pull-stage-")
+					&& entry.path().join("backups").is_dir()
+			});
+		if commit_started {
+			let pid = i32::try_from(child.id())?;
+			kill(Pid::from_raw(pid), Signal::SIGTERM)?;
+			break;
+		}
+		if let Some(status) = child.try_wait()? {
+			return Err(eyre!(
+				"pull exited before its commit could be interrupted: {status}"
+			));
+		}
+		if Instant::now() >= deadline {
+			child.kill()?;
+			return Err(eyre!("timed out waiting for pull commit to begin"));
+		}
+		thread::sleep(Duration::from_millis(1));
+	}
+
+	let output = child.wait_with_output()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("interrupted"), "stderr: {stderr}");
+	assert!(stderr.contains("rolled back"), "stderr: {stderr}");
+	for index in 0..FILE_COUNT {
+		assert_eq!(
+			fs::read_to_string(dir.path().join(format!("file-{index:04}.txt")))?,
+			format!("local-{index:04}")
+		);
+	}
+	assert!(
+		!fs::read_dir(dir.path())?
+			.filter_map(IoResult::ok)
+			.any(|entry| entry
+				.file_name()
+				.to_string_lossy()
+				.starts_with(".biwa-pull-stage-"))
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_pull_rejects_remote_root_symlink_with_trailing_component() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("sentinel.txt"), "local")?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+	let target_dir = format!("{remote_dir}_target");
+	let setup_dir = tempfile::tempdir()?;
+
+	let setup = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1\" && printf remote > \"$1/remote.txt\" && ln -s \"$1\" \"$2\"",
+			"--",
+			&target_dir,
+			&remote_dir,
+		],
+		setup_dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup.stderr)
+	);
+
+	let remote_with_suffix = format!("{remote_dir}/.");
+	let output = biwa_cmd_tilde(&["pull", "--remote-dir", &remote_with_suffix], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("remote directory is a symlink"),
+		"stderr: {stderr}"
+	);
+	assert_eq!(
+		fs::read_to_string(dir.path().join("sentinel.txt"))?,
+		"local"
+	);
+	assert!(!dir.path().join("remote.txt").exists());
+	Ok(())
+}
+
+#[test]
 fn e2e_sync_absolute_path() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("absolute.txt"), "hello absolute")?;
@@ -1475,7 +1734,8 @@ fn e2e_sync_remote_symlink() -> Result<()> {
 
 	// Now try to run sync, it should fail
 	fs::write(dir.path().join("test.txt"), "test")?;
-	let output = biwa_cmd_tilde(&["sync"], dir.path())
+	let remote_with_slash = format!("{remote_dir}/");
+	let output = biwa_cmd_tilde(&["sync", "--remote-dir", &remote_with_slash], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()

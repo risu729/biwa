@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::config::types::Config;
-use color_eyre::eyre::{Context as _, ContextCompat as _};
+use color_eyre::eyre::{Context as _, ContextCompat as _, bail};
 use core::cmp::Ordering;
 use core::mem::take;
 use gethostname::gethostname;
@@ -16,16 +16,75 @@ pub(super) const MAX_REMOTE_MKDIR_COMMAND_LEN: usize = 4096;
 /// outside the quotes so the shell can expand it. Otherwise, the entire path
 /// is quoted with `shell_words::quote`.
 pub(super) fn shell_quote_path(path: &str) -> String {
-	if path == "~" || path == "$HOME" {
-		return "\"$HOME\"".to_owned();
-	}
-	if let Some(rest) = path
-		.strip_prefix("~/")
-		.or_else(|| path.strip_prefix("$HOME/"))
-	{
+	if let Some(rest) = remote_home_relative_path(path) {
+		if rest.is_empty() {
+			return "\"$HOME\"".to_owned();
+		}
 		return format!("\"$HOME\"/{}", shell_words::quote(rest));
 	}
 	shell_words::quote(path).into_owned()
+}
+
+/// Lexically normalizes a remote target without permitting parent traversal.
+pub(super) fn normalize_remote_dir(remote_dir: &str) -> Result<String> {
+	if remote_dir.is_empty() {
+		bail!("Remote directory must not be empty");
+	}
+
+	let (prefix, remainder) = if remote_dir == "$HOME" {
+		("$HOME", "")
+	} else if let Some(remainder) = remote_dir.strip_prefix("$HOME/") {
+		("$HOME", remainder)
+	} else if remote_dir == "~" {
+		("~", "")
+	} else if let Some(remainder) = remote_dir.strip_prefix("~/") {
+		("~", remainder)
+	} else if let Some(remainder) = remote_dir.strip_prefix('/') {
+		("/", remainder)
+	} else {
+		("", remote_dir)
+	};
+	let mut components = Vec::new();
+	for component in remainder.split('/') {
+		match component {
+			"" | "." => {}
+			".." => {
+				bail!("Remote directory must not contain parent traversal (`..`): {remote_dir}")
+			}
+			other => components.push(other),
+		}
+	}
+
+	let suffix = components.join("/");
+	if prefix == "/" {
+		return Ok(if suffix.is_empty() {
+			"/".to_owned()
+		} else {
+			format!("/{suffix}")
+		});
+	}
+	if prefix.is_empty() {
+		return Ok(if suffix.is_empty() {
+			".".to_owned()
+		} else {
+			suffix
+		});
+	}
+	Ok(if suffix.is_empty() {
+		prefix.to_owned()
+	} else {
+		format!("{prefix}/{suffix}")
+	})
+}
+
+/// Returns a normalized path relative to the remote home directory.
+fn remote_home_relative_path(path: &str) -> Option<&str> {
+	if path == "~" || path == "$HOME" {
+		return Some("");
+	}
+	path.strip_prefix("~/")
+		.or_else(|| path.strip_prefix("$HOME/"))
+		.map(|rest| rest.trim_start_matches('/'))
 }
 
 /// Computes the absolute remote path for a given local file.
@@ -100,11 +159,12 @@ fn compute_unique_project_name(project_root: &Path) -> Result<String> {
 /// This is the directory where synced files are stored on the remote server.
 pub(super) fn compute_project_remote_dir(config: &Config, project_root: &Path) -> Result<String> {
 	let unique_project_name = compute_unique_project_name(project_root)?;
-	Ok(compute_remote_path(
+	let remote_dir = compute_remote_path(
 		&config.sync.remote_root,
 		&unique_project_name,
 		Path::new(""),
-	))
+	);
+	normalize_remote_dir(&remote_dir)
 }
 
 /// Returns true if `remote_dir` is directly under `remote_root` and its final path component
@@ -157,15 +217,15 @@ pub(super) fn is_biwa_remote_dir(remote_dir: &str, remote_root: &Path) -> bool {
 }
 
 /// Returns the direct child component of a remote path under `remote_root`.
-fn direct_remote_child_name<'a>(remote_dir: &'a str, remote_root: &Path) -> Option<&'a str> {
-	let root = remote_root.to_string_lossy();
-	let root = root.trim_end_matches('/');
-	if root.is_empty() {
-		return None;
-	}
-
-	let prefix = format!("{root}/");
-	let directory_name = remote_dir.strip_prefix(&prefix)?;
+fn direct_remote_child_name(remote_dir: &str, remote_root: &Path) -> Option<String> {
+	let remote_dir = normalize_remote_dir(remote_dir).ok()?;
+	let root = normalize_remote_dir(&remote_root.to_string_lossy()).ok()?;
+	let directory_name = if root == "." {
+		remote_dir.as_str()
+	} else {
+		let prefix = format!("{root}/");
+		remote_dir.strip_prefix(&prefix)?
+	};
 	if directory_name.is_empty()
 		|| directory_name == "."
 		|| directory_name == ".."
@@ -174,7 +234,7 @@ fn direct_remote_child_name<'a>(remote_dir: &'a str, remote_root: &Path) -> Opti
 		return None;
 	}
 
-	Some(directory_name)
+	Some(directory_name.to_owned())
 }
 
 /// Returns whether a string is exactly 8 ASCII hex characters.
@@ -186,16 +246,8 @@ fn is_hex_hash(value: &str) -> bool {
 /// It does NOT expand `~/` or `$HOME/` like a shell would. Therefore, we strip them so SFTP
 /// looks in the home directory instead of looking for literal `~` or `$HOME` folders.
 pub(super) fn resolve_sftp_path(remote_path: &str) -> &str {
-	remote_path
-		.strip_prefix("~/")
-		.or_else(|| remote_path.strip_prefix("$HOME/"))
-		.unwrap_or_else(|| {
-			if remote_path == "~" || remote_path == "$HOME" {
-				"."
-			} else {
-				remote_path
-			}
-		})
+	remote_home_relative_path(remote_path)
+		.map_or(remote_path, |path| if path.is_empty() { "." } else { path })
 }
 
 /// Compares remote paths by slash-separated components.

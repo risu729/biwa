@@ -27,6 +27,8 @@ use tokio::fs::{self as async_fs, File as AsyncFile, OpenOptions as AsyncOpenOpt
 use tokio::io::{
 	AsyncReadExt as _, AsyncWriteExt as _, BufReader as AsyncBufReader, copy as async_copy,
 };
+#[cfg(unix)]
+use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio::task::spawn_blocking;
 use tracing::{debug, info, warn};
 
@@ -44,6 +46,11 @@ const LOCAL_PULL_STAGE_PREFIX: &str = ".biwa-pull-stage-";
 /// This is the directory where synced files are stored on the remote server.
 pub fn compute_project_remote_dir(config: &Config, project_root: &Path) -> Result<String> {
 	super::sync_paths::compute_project_remote_dir(config, project_root)
+}
+
+/// Lexically normalizes a remote transfer or cleanup target.
+pub fn normalize_remote_dir(remote_dir: &str) -> Result<String> {
+	super::sync_paths::normalize_remote_dir(remote_dir)
 }
 
 /// Returns the 8-character hex hash of the local machine hostname.
@@ -370,6 +377,12 @@ fn checked_local_path(root: &Path, relative_path: &str) -> Result<PathBuf> {
 	Ok(root.join(checked_relative_path(relative_path)?))
 }
 
+/// Returns whether a relative path enters Git's administrative metadata namespace.
+fn is_git_metadata_path(path: &Path) -> bool {
+	path.components()
+		.any(|component| component.as_os_str() == ".git")
+}
+
 /// Returns whether a remote relative path should participate in pull synchronization.
 fn should_sync_remote_path(
 	root: &Path,
@@ -379,7 +392,11 @@ fn should_sync_remote_path(
 	exclude_globs: Option<&GlobSet>,
 	include_globs: Option<&GlobSet>,
 ) -> Result<bool> {
-	let local_equivalent = root.join(checked_relative_path(relative_path)?);
+	let relative_path = checked_relative_path(relative_path)?;
+	if is_git_metadata_path(&relative_path) {
+		return Ok(false);
+	}
+	let local_equivalent = root.join(relative_path);
 
 	if ignore_matcher.is_ignored(&local_equivalent, is_dir) {
 		return Ok(false);
@@ -443,6 +460,9 @@ fn should_sync_path(
 ) -> Result<Option<PathBuf>> {
 	let relative = path.strip_prefix(root).wrap_err("Failed to strip prefix")?;
 	if relative.as_os_str().is_empty() {
+		return Ok(None);
+	}
+	if is_git_metadata_path(relative) {
 		return Ok(None);
 	}
 	if relative.components().next().is_some_and(|component| {
@@ -718,11 +738,11 @@ fn build_remote_state_script(config: &Config, remote_dir: &str, create_remote_di
 		 cd -- {quoted_remote_dir} && \
 		 {normalize_remote_dirs} \
 		 printf '%s\\0' {quoted_directory_marker} && \
-		 find . -mindepth 1 -type d -print0 && \
+		 find . -mindepth 1 -name .git -prune -o -type d -print0 && \
 		 printf '%s\\0' {quoted_symlink_marker} && \
-		 find . -type l -print0 && \
+		 find . -name .git -prune -o -type l -print0 && \
 		 printf '%s\\0' {quoted_marker} && \
-		 find . -type f -exec sha256sum -z {{}} +",
+		 find . -name .git -prune -o -type f -exec sha256sum -z {{}} +",
 		config.ssh.umask
 	)
 }
@@ -1176,8 +1196,12 @@ async fn ensure_local_pull_root(path: &Path) -> Result<()> {
 	restrict_local_directory_permissions(path).await
 }
 
-/// Ensures a local directory exists under the sync root without traversing symlink components.
-async fn ensure_local_directory(root: &Path, relative_path: &str) -> Result<()> {
+/// Ensures a local directory exists and records each created component immediately.
+async fn ensure_local_directory_recording(
+	root: &Path,
+	relative_path: &str,
+	created_directories: &mut Vec<PathBuf>,
+) -> Result<()> {
 	let relative_path = checked_relative_path(relative_path)?;
 	let mut current = root.to_path_buf();
 
@@ -1203,6 +1227,7 @@ async fn ensure_local_directory(root: &Path, relative_path: &str) -> Result<()> 
 				async_fs::create_dir(&current).await.wrap_err_with(|| {
 					format!("Failed to create local directory: {}", current.display())
 				})?;
+				created_directories.push(current.clone());
 				restrict_local_directory_permissions(&current).await?;
 			}
 			Err(error) => {
@@ -1216,13 +1241,29 @@ async fn ensure_local_directory(root: &Path, relative_path: &str) -> Result<()> 
 	Ok(())
 }
 
+/// Ensures a local directory exists under the sync root without traversing symlink components.
+#[cfg(test)]
+async fn ensure_local_directory(root: &Path, relative_path: &str) -> Result<()> {
+	ensure_local_directory_recording(root, relative_path, &mut Vec::new()).await
+}
+
 /// Ensures the parent directory for a local file exists safely under the sync root.
 async fn ensure_local_file_parent(root: &Path, relative_path: &str) -> Result<PathBuf> {
+	ensure_local_file_parent_recording(root, relative_path, &mut Vec::new()).await
+}
+
+/// Ensures a local file parent exists while recording created directories for rollback.
+async fn ensure_local_file_parent_recording(
+	root: &Path,
+	relative_path: &str,
+	created_directories: &mut Vec<PathBuf>,
+) -> Result<PathBuf> {
 	let relative_path = checked_relative_path(relative_path)?;
 	if let Some(parent) = relative_path.parent()
 		&& !parent.as_os_str().is_empty()
 	{
-		ensure_local_directory(root, &parent.to_string_lossy()).await?;
+		ensure_local_directory_recording(root, &parent.to_string_lossy(), created_directories)
+			.await?;
 	}
 
 	Ok(root.join(relative_path))
@@ -1238,6 +1279,8 @@ struct StagedDownload {
 
 /// One local entry moved aside during a transactional pull commit.
 struct PullBackup {
+	/// Original path relative to the local synchronization root.
+	relative_path: String,
 	/// Original local path.
 	original_path: PathBuf,
 	/// Private backup path on the same filesystem.
@@ -1671,6 +1714,7 @@ async fn backup_local_entry(
 		.await
 		.wrap_err_with(|| format!("Failed to back up local entry: {}", original_path.display()))?;
 	state.backups.push(PullBackup {
+		relative_path: relative_path.to_owned(),
 		original_path,
 		backup_path: backup_path.clone(),
 		counts_as_deletion,
@@ -1684,6 +1728,37 @@ async fn backup_local_entry(
 			);
 		}
 	}
+	Ok(())
+}
+
+/// Revalidates backed-up entries immediately before their recovery copies may be destroyed.
+async fn ensure_pull_backups_unchanged(
+	state: &PullCommitState,
+	baseline: Option<&LocalSnapshot>,
+) -> Result<()> {
+	let Some(baseline) = baseline else {
+		return Ok(());
+	};
+
+	for backup in &state.backups {
+		let expected = baseline.entries.get(&backup.relative_path);
+		let actual = fingerprint_local_entry(&backup.backup_path)?;
+		if actual.as_ref() != expected {
+			bail!(
+				"Local entry changed during pull commit; refusing to discard its recovery copy: {}",
+				backup.relative_path
+			);
+		}
+		if matches!(expected, Some(LocalSnapshotEntry::Directory { .. }))
+			&& !local_directory_is_empty(&backup.backup_path).await?
+		{
+			bail!(
+				"Local directory changed during pull commit; refusing to discard its recovery copy: {}",
+				backup.relative_path
+			);
+		}
+	}
+
 	Ok(())
 }
 
@@ -1845,10 +1920,12 @@ async fn create_pull_directories(
 				local_path.display()
 			);
 		}
-		ensure_local_directory(project_root, relative_path).await?;
-		if !existed {
-			state.created_directories.push(local_path);
-		}
+		ensure_local_directory_recording(
+			project_root,
+			relative_path,
+			&mut state.created_directories,
+		)
+		.await?;
 	}
 	Ok(())
 }
@@ -1860,7 +1937,12 @@ async fn install_staged_downloads(
 	state: &mut PullCommitState,
 ) -> Result<()> {
 	for staged in staged_downloads {
-		let local_path = ensure_local_file_parent(project_root, &staged.relative_path).await?;
+		let local_path = ensure_local_file_parent_recording(
+			project_root,
+			&staged.relative_path,
+			&mut state.created_directories,
+		)
+		.await?;
 		if async_fs::symlink_metadata(&local_path).await.is_ok() {
 			bail!(
 				"Refusing to install a downloaded file over an unexpected local entry: {}",
@@ -1952,7 +2034,64 @@ async fn rollback_pull_commit(state: &PullCommitState) -> Result<()> {
 	Ok(())
 }
 
+/// SIGINT and SIGTERM listeners installed before a pull starts mutating the local tree.
+#[cfg(unix)]
+struct PullInterruptListener {
+	/// Interrupt signal stream.
+	interrupt: Signal,
+	/// Termination signal stream.
+	terminate: Signal,
+}
+
+#[cfg(unix)]
+impl PullInterruptListener {
+	/// Installs both Unix termination handlers before the commit begins.
+	fn new() -> Result<Self> {
+		Ok(Self {
+			interrupt: signal(SignalKind::interrupt())
+				.wrap_err("Failed to install pull interrupt handler")?,
+			terminate: signal(SignalKind::terminate())
+				.wrap_err("Failed to install pull termination handler")?,
+		})
+	}
+
+	/// Waits for either ordinary process-termination signal.
+	#[expect(
+		clippy::integer_division_remainder_used,
+		reason = "tokio::select macro expansion uses remainder internally"
+	)]
+	async fn recv(&mut self) {
+		tokio::select! {
+			_ = self.interrupt.recv() => {}
+			_ = self.terminate.recv() => {}
+		}
+	}
+}
+
+/// Cross-platform Ctrl-C listener installed for a pull commit.
+#[cfg(not(unix))]
+struct PullInterruptListener;
+
+#[cfg(not(unix))]
+impl PullInterruptListener {
+	/// Creates the platform interrupt listener.
+	fn new() -> Result<Self> {
+		Ok(Self)
+	}
+
+	/// Waits for Ctrl-C, remaining pending if handler installation fails.
+	async fn recv(&mut self) {
+		if tokio::signal::ctrl_c().await.is_err() {
+			core::future::pending::<()>().await;
+		}
+	}
+}
+
 /// Applies a pull mutation plan using same-filesystem backups for rollback.
+#[expect(
+	clippy::integer_division_remainder_used,
+	reason = "tokio::select macro expansion uses remainder internally"
+)]
 async fn commit_pull_transaction(
 	project_root: &Path,
 	staging_root: &Path,
@@ -1960,6 +2099,7 @@ async fn commit_pull_transaction(
 	staged_downloads: &[StagedDownload],
 	baseline: Option<&LocalSnapshot>,
 ) -> Result<(usize, usize)> {
+	let mut interrupts = PullInterruptListener::new()?;
 	let backup_root = staging_root.join("backups");
 	if let Err(error) = create_private_local_directory(&backup_root) {
 		let error = eyre!(error).wrap_err("Failed to create pull backup directory");
@@ -1973,14 +2113,37 @@ async fn commit_pull_transaction(
 	}
 
 	let mut state = PullCommitState::default();
-	let commit_result = async {
-		backup_pull_file_targets(project_root, &backup_root, actions, &mut state, baseline).await?;
-		backup_pull_directory_targets(project_root, &backup_root, actions, &mut state, baseline)
+	let (commit_result, interrupted) = {
+		let commit = async {
+			backup_pull_file_targets(project_root, &backup_root, actions, &mut state, baseline)
+				.await?;
+			backup_pull_directory_targets(
+				project_root,
+				&backup_root,
+				actions,
+				&mut state,
+				baseline,
+			)
 			.await?;
-		create_pull_directories(project_root, actions, &mut state, baseline).await?;
-		install_staged_downloads(project_root, staged_downloads, &mut state).await
-	}
-	.await;
+			create_pull_directories(project_root, actions, &mut state, baseline).await?;
+			install_staged_downloads(project_root, staged_downloads, &mut state).await?;
+			ensure_pull_backups_unchanged(&state, baseline).await
+		};
+		tokio::pin!(commit);
+		tokio::select! {
+			biased;
+			() = interrupts.recv() => (commit.as_mut().await, true),
+			result = &mut commit => (result, false),
+		}
+	};
+	let commit_result = if interrupted {
+		match commit_result {
+			Ok(()) => Err(eyre!("Pull interrupted during local commit")),
+			Err(error) => Err(error.wrap_err("Pull interrupted during local commit")),
+		}
+	} else {
+		commit_result
+	};
 
 	if let Err(commit_error) = commit_result {
 		if let Err(rollback_error) = rollback_pull_commit(&state).await {
@@ -2120,16 +2283,15 @@ async fn apply_pull_actions(
 		Ok(counts) => counts,
 		Err(error) => return Err(error),
 	};
-	remove_pull_staging_directory(&staging_root)
-		.await
-		.wrap_err_with(|| {
-			format!(
-				"Pull was committed, but private backup cleanup failed; recovery copies remain at {}",
-				staging_root.display()
-			)
-		})?;
 	stats.deleted = stats.deleted.saturating_add(deleted);
 	stats.downloaded = stats.downloaded.saturating_add(downloaded);
+	if let Err(error) = remove_pull_staging_directory(&staging_root).await {
+		warn!(
+			%error,
+			path = %staging_root.display(),
+			"Pull committed successfully, but private backup cleanup failed; remove the recovery copies manually"
+		);
+	}
 
 	Ok(())
 }
@@ -2777,6 +2939,26 @@ mod tests {
 	}
 
 	#[test]
+	fn collect_local_state_excludes_git_metadata_files_and_directories() {
+		let dir = tempdir().unwrap();
+		fs::write(dir.path().join(".git"), "gitdir: /safe/local\n").unwrap();
+		fs::create_dir_all(dir.path().join("nested/.git")).unwrap();
+		fs::write(dir.path().join("nested/.git/config"), "metadata").unwrap();
+		fs::write(dir.path().join("nested/kept.txt"), "kept").unwrap();
+
+		let state = collect_local_state(dir.path(), &[], &Options::default()).unwrap();
+		let files = state
+			.files
+			.iter()
+			.map(|file| file.path.to_string_lossy().into_owned())
+			.collect::<HashSet<_>>();
+		assert!(!files.contains(".git"));
+		assert!(!files.contains("nested/.git/config"));
+		assert!(files.contains("nested/kept.txt"));
+		assert!(!state.directories.contains("nested/.git"));
+	}
+
+	#[test]
 	fn collect_local_state_includes_empty_directories() {
 		let dir = tempdir().unwrap();
 		fs::create_dir_all(dir.path().join("empty/nested")).unwrap();
@@ -2925,7 +3107,9 @@ mod tests {
 		let push_script = build_remote_state_script(&config, "~/project", true);
 		assert!(push_script.contains("mkdir -p -- \"$HOME\"/project"));
 		assert!(push_script.contains("find . -type d -exec chmod"));
-		assert!(push_script.contains("find . -type l -print"));
+		assert!(push_script.contains("find . -mindepth 1 -name .git -prune -o -type d -print0"));
+		assert!(push_script.contains("find . -name .git -prune -o -type l -print0"));
+		assert!(push_script.contains("find . -name .git -prune -o -type f"));
 		assert!(push_script.contains("-print0"));
 		assert!(push_script.contains("sha256sum -z"));
 		assert!(push_script.contains(REMOTE_DIRECTORY_MARKER));
@@ -3347,6 +3531,95 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn pull_commit_failure_removes_every_created_parent_directory() {
+		let dir = tempdir().unwrap();
+		let staging_root = dir.path().join(".biwa-pull-stage-test");
+		let downloads_root = staging_root.join("downloads");
+		fs::create_dir_all(&downloads_root).unwrap();
+		let actions = PullActions {
+			downloads: vec![download("new/parent/result.txt", "hash")],
+			unchanged: 0,
+			file_deletions: Vec::new(),
+			directory_creations: vec!["new/parent".to_owned()],
+			directory_deletions: Vec::new(),
+		};
+		let staged_downloads = vec![StagedDownload {
+			relative_path: "new/parent/result.txt".to_owned(),
+			staged_path: downloads_root.join("missing.txt"),
+		}];
+
+		let error =
+			commit_pull_transaction(dir.path(), &staging_root, &actions, &staged_downloads, None)
+				.await
+				.unwrap_err();
+
+		assert!(error.to_string().contains("rolled back"), "error: {error}");
+		assert!(!dir.path().join("new").exists());
+		assert!(!staging_root.exists());
+	}
+
+	#[tokio::test]
+	async fn pull_backup_revalidation_detects_late_file_and_directory_changes() {
+		let dir = tempdir().unwrap();
+		let backup_root = dir.path().join("backups");
+		fs::create_dir_all(&backup_root).unwrap();
+		let original_file = dir.path().join("file.txt");
+		let original_directory = dir.path().join("empty");
+		fs::write(&original_file, "baseline").unwrap();
+		fs::create_dir_all(&original_directory).unwrap();
+		let baseline = LocalSnapshot {
+			entries: BTreeMap::from([
+				(
+					"file.txt".to_owned(),
+					fingerprint_local_entry(&original_file).unwrap().unwrap(),
+				),
+				(
+					"empty".to_owned(),
+					fingerprint_local_entry(&original_directory)
+						.unwrap()
+						.unwrap(),
+				),
+			]),
+		};
+		let mut state = PullCommitState::default();
+		backup_local_entry(
+			&mut state,
+			"file.txt",
+			original_file,
+			&backup_root,
+			false,
+			Some(&baseline),
+		)
+		.await
+		.unwrap();
+		backup_local_entry(
+			&mut state,
+			"empty",
+			original_directory,
+			&backup_root,
+			true,
+			Some(&baseline),
+		)
+		.await
+		.unwrap();
+
+		let file_backup = state.backups.first().unwrap().backup_path.clone();
+		let directory_backup = state.backups.last().unwrap().backup_path.clone();
+		fs::write(&file_backup, "late edit").unwrap();
+		let error = ensure_pull_backups_unchanged(&state, Some(&baseline))
+			.await
+			.unwrap_err();
+		assert!(error.to_string().contains("file.txt"), "error: {error}");
+
+		fs::write(file_backup, "baseline").unwrap();
+		fs::write(directory_backup.join("late.txt"), "late").unwrap();
+		let error = ensure_pull_backups_unchanged(&state, Some(&baseline))
+			.await
+			.unwrap_err();
+		assert!(error.to_string().contains("empty"), "error: {error}");
+	}
+
+	#[tokio::test]
 	async fn pull_commit_rejects_late_edit_and_restores_it() {
 		let dir = tempdir().unwrap();
 		let local_path = dir.path().join("result.txt");
@@ -3601,6 +3874,33 @@ mod tests {
 	}
 
 	#[test]
+	fn filter_remote_state_for_pull_excludes_all_git_metadata_components() {
+		let dir = tempdir().unwrap();
+		let filtered = filter_remote_state_for_pull(
+			RemoteState {
+				file_hashes: HashMap::from([
+					(".git".to_owned(), "root".to_owned()),
+					("nested/.git/config".to_owned(), "nested".to_owned()),
+					("kept.txt".to_owned(), "kept".to_owned()),
+				]),
+				directories: HashSet::from(["nested".to_owned(), "nested/.git".to_owned()]),
+				symlinks: HashSet::from(["other/.git/link".to_owned()]),
+			},
+			dir.path(),
+			&[],
+			&Options::default(),
+		)
+		.unwrap();
+
+		assert_eq!(
+			filtered.file_hashes,
+			HashMap::from([("kept.txt".to_owned(), "kept".to_owned())])
+		);
+		assert_eq!(filtered.directories, HashSet::from(["nested".to_owned()]));
+		assert!(filtered.symlinks.is_empty());
+	}
+
+	#[test]
 	fn filter_remote_state_for_pull_respects_nested_ignore_files() {
 		let dir = tempdir().unwrap();
 		fs::create_dir_all(dir.path().join("src").join("nested")).unwrap();
@@ -3770,6 +4070,37 @@ mod tests {
 	}
 
 	#[test]
+	fn project_remote_dir_and_layout_checks_share_normalization() {
+		let project = tempdir().unwrap();
+		let mut config = Config::default();
+		config.sync.remote_root = PathBuf::from("~//.cache/./biwa/projects///");
+
+		let remote_dir = compute_project_remote_dir(&config, project.path()).unwrap();
+		assert!(remote_dir.starts_with("~/.cache/biwa/projects/"));
+		assert!(!remote_dir.contains("//"));
+		assert!(is_default_biwa_remote_dir(
+			&remote_dir,
+			&config.sync.remote_root,
+			&compute_client_host_hash(),
+		));
+	}
+
+	#[test]
+	fn project_remote_dir_and_layout_checks_support_current_remote_directory() {
+		let project = tempdir().unwrap();
+		let mut config = Config::default();
+		config.sync.remote_root = PathBuf::from(".");
+
+		let remote_dir = compute_project_remote_dir(&config, project.path()).unwrap();
+		assert!(!remote_dir.contains('/'));
+		assert!(is_default_biwa_remote_dir(
+			&remote_dir,
+			&config.sync.remote_root,
+			&compute_client_host_hash(),
+		));
+	}
+
+	#[test]
 	fn is_default_biwa_remote_dir_rejects_wrong_root_prefix() {
 		let root = Path::new("libs");
 		let hh = "a1b2c3d4";
@@ -3879,6 +4210,8 @@ mod tests {
 			"\"$HOME\"/.cache/biwa/projects"
 		);
 		assert_eq!(shell_quote_path("$HOME"), "\"$HOME\"");
+		assert_eq!(shell_quote_path("$HOME//foo/bar"), "\"$HOME\"/foo/bar");
+		assert_eq!(shell_quote_path("~///foo/bar"), "\"$HOME\"/foo/bar");
 	}
 
 	#[test]
@@ -3887,6 +4220,9 @@ mod tests {
 		assert_eq!(super::resolve_sftp_path("$HOME/foo/bar"), "foo/bar");
 		assert_eq!(super::resolve_sftp_path("~"), ".");
 		assert_eq!(super::resolve_sftp_path("$HOME"), ".");
+		assert_eq!(super::resolve_sftp_path("~/"), ".");
+		assert_eq!(super::resolve_sftp_path("~//foo/bar"), "foo/bar");
+		assert_eq!(super::resolve_sftp_path("$HOME///foo/bar"), "foo/bar");
 		assert_eq!(super::resolve_sftp_path("/absolute/path"), "/absolute/path");
 		assert_eq!(super::resolve_sftp_path("relative/path"), "relative/path");
 	}

@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::config::types::Config;
-use crate::ssh::sync::{Options, compute_project_remote_dir};
+use crate::ssh::sync::{Options, compute_project_remote_dir, normalize_remote_dir};
 use crate::state;
 use clap::Args;
 use std::env;
@@ -108,10 +108,11 @@ impl TransferArgs {
 
 	/// Resolve the remote directory used for this transfer.
 	fn resolve_remote_dir(&self, config: &Config, sync_root: &Path) -> Result<String> {
-		self.remote_dir.as_deref().map_or_else(
+		let remote_dir = self.remote_dir.as_deref().map_or_else(
 			|| compute_project_remote_dir(config, sync_root),
 			|dir| Ok(dir.to_owned()),
-		)
+		)?;
+		normalize_remote_dir(&remote_dir)
 	}
 
 	/// Resolve direction-neutral transfer options.
@@ -380,5 +381,28 @@ mod tests {
 			),
 			vec!["/abs/path".to_owned(), "/project/relative/path".to_owned()]
 		);
+	}
+
+	#[test]
+	fn normalize_remote_dir_removes_symlink_bypass_suffixes() -> Result<()> {
+		assert_eq!(normalize_remote_dir("link/")?, "link");
+		assert_eq!(normalize_remote_dir("link//./")?, "link");
+		assert_eq!(normalize_remote_dir("link/./child")?, "link/child");
+		assert_eq!(normalize_remote_dir("~/project/.")?, "~/project");
+		assert_eq!(normalize_remote_dir("$HOME/project///")?, "$HOME/project");
+		assert_eq!(
+			normalize_remote_dir("$HOME-user/project")?,
+			"$HOME-user/project"
+		);
+		assert_eq!(normalize_remote_dir("~other/project")?, "~other/project");
+		assert_eq!(normalize_remote_dir("/.")?, "/");
+		assert_eq!(normalize_remote_dir("///")?, "/");
+		for invalid in ["link/../target", "../target"] {
+			let error = normalize_remote_dir(invalid).unwrap_err();
+			assert!(error.to_string().contains("parent traversal"));
+		}
+		let error = normalize_remote_dir("").unwrap_err();
+		assert!(error.to_string().contains("must not be empty"));
+		Ok(())
 	}
 }

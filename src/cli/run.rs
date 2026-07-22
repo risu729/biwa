@@ -12,6 +12,7 @@ use crate::{
 };
 use clap::Args;
 use color_eyre::eyre::{Context as _, bail};
+use std::path::Path;
 use tracing::warn;
 
 /// Run a command on the CSE server.
@@ -105,6 +106,14 @@ pub(super) struct RemoteCommand<'a> {
 	pub cli_env_vars: &'a [String],
 }
 
+/// Returns recovery guidance that preserves both resolved targets and the transfer scope.
+fn pull_recovery_guidance(local_root: &Path, remote_dir: &str) -> String {
+	format!(
+		"Remote results remain at {remote_dir}. To recover them, run `biwa pull` with `--sync-root` set to the exact local path {} and `--remote-dir` set to that exact remote path; reuse the same `--include` and `--exclude` options",
+		local_root.display()
+	)
+}
+
 /// Shared execution path for remote commands (used by both `biwa run` and implicit `biwa <args>`).
 ///
 /// Resolves sync root and working directory, optionally syncs, then runs the command
@@ -177,15 +186,16 @@ pub(super) async fn run_remote(
 		)
 		.await
 		.wrap_err_with(|| {
+			let recovery = pull_recovery_guidance(&transfer.local_root, &transfer.remote_dir);
 			if exit_status == 0 {
 				format!(
-					"Remote command succeeded, but pulling results from {} failed; remote changes remain available",
-					transfer.remote_dir
+					"Remote command succeeded, but pulling results from {} failed. {recovery}",
+					transfer.remote_dir,
 				)
 			} else {
 				format!(
-					"Remote command exited with code {exit_status}, and pulling results from {} also failed",
-					transfer.remote_dir
+					"Remote command exited with code {exit_status}, and pulling results from {} also failed. {recovery}",
+					transfer.remote_dir,
 				)
 			}
 		})?;
@@ -195,8 +205,9 @@ pub(super) async fn run_remote(
 
 	if exit_status != 0 {
 		if transfer_mode == RunTransferMode::PullOnSuccess {
+			let recovery = pull_recovery_guidance(&transfer.local_root, &transfer.remote_dir);
 			bail!(
-				"Remote command exited with code {exit_status}; results were not pulled. Run `biwa pull` to recover remote changes"
+				"Remote command exited with code {exit_status}; results were not pulled. {recovery}"
 			);
 		}
 		bail!("Remote command exited with code {exit_status}");

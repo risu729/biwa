@@ -10,7 +10,7 @@ By default, `biwa sync` pushes local files to the remote server. `biwa run` auto
 - **Directory Tracking**: Synchronizes directory presence as well as file contents, including empty directories.
 - **Cleanup**: Push deletes remote files and directories that no longer exist locally. Pull deletes selected local files and directories that no longer exist remotely.
 - **Ignore files & Standard Filters**: By default, standard filters are used (`.gitignore`, parent git ignores, git excludes). Hidden files (such as `.env`) are **not** ignored by default. You can use the custom `.biwaignore` file to ignore them.
-- **Secure Permissions**: Enforces `0700` for directories. File permissions are preserved from the source filesystem but restricted by the configured remote umask (for example, with `0077`, `0644` becomes `0600` and `0755` becomes `0700`).
+- **Secure Permissions**: Enforces `0700` for newly created directories. Transferred files receive source permissions restricted by the configured remote umask (for example, with `0077`, `0644` becomes `0600` and `0755` becomes `0700`). Files skipped because their content already matches keep their existing destination permissions; round trips also preserve the pre-run local permissions.
 
 If a directory still exists locally after its last file is removed, `biwa sync` will keep it on the remote side as an empty directory instead of deleting it.
 
@@ -43,6 +43,8 @@ Pull requires the remote project directory to already exist. This avoids treatin
 Pull refuses remote symlink entries instead of following or recreating them. Local symlinks in the selected scope are removed rather than followed, and parent symlinks are rejected. Downloads are staged and checked against the inventoried SHA-256 digest before local changes begin.
 
 Top-level names beginning with `.biwa-pull-stage-` are reserved for private local pull transactions. They are excluded from pushes and rejected on pulls.
+
+Git administrative paths named `.git` are never transferred or deleted, including the `.git` file used by linked worktrees and submodules.
 
 ### Push, run, then pull
 
