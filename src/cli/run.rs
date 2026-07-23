@@ -10,7 +10,7 @@ use crate::{
 		pull_project, push_project, snapshot_local_project,
 	},
 };
-use clap::Args;
+use clap::{Args, Parser as _};
 use color_eyre::eyre::{Context as _, bail};
 use std::path::Path;
 use tracing::warn;
@@ -104,6 +104,33 @@ pub(super) struct RemoteCommand<'a> {
 	pub command_args: &'a [String],
 	/// CLI `--env` arguments to merge with config env vars.
 	pub cli_env_vars: &'a [String],
+}
+
+/// Validates configured arguments as `biwa run` options only.
+pub(super) fn validate_direct_options(command: &str, options: &[String]) -> Result<()> {
+	let argv = ["biwa".to_owned(), "run".to_owned()]
+		.into_iter()
+		.chain(options.iter().cloned())
+		.chain([command.to_owned()]);
+	let cli = super::Cli::try_parse_from(argv)
+		.wrap_err_with(|| format!("Invalid direct.commands options for `{command}`"))?;
+
+	if cli.verbose != 0 || cli.quiet || cli.silent {
+		bail!(
+			"`direct.commands.{command}` supports `biwa run` options only; use BIWA_LOG_* environment variables for direct-command output defaults."
+		);
+	}
+
+	let Some(super::Commands::Run(run)) = cli.command else {
+		bail!("`direct.commands.{command}` must contain `biwa run` options only.");
+	};
+	if run.command != command || !run.command_args.is_empty() {
+		bail!(
+			"`direct.commands.{command}` must not include the remote command or remote command arguments."
+		);
+	}
+
+	Ok(())
 }
 
 /// Renders a recovery command that preserves both resolved targets and the transfer scope.

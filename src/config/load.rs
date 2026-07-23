@@ -22,11 +22,26 @@ struct RequiredConfigPresence {
 impl Config {
 	/// Loads the configuration based on global, user, and project-local paths.
 	pub fn load() -> Result<Self> {
+		let (config, required_presence) = Self::load_optional_ssh_with_presence()?;
+		required_presence.ensure_all_present()?;
+		Ok(config)
+	}
+
+	/// Loads only global configuration for commands that do not require SSH settings.
+	pub fn load_global_optional_ssh() -> Result<Self> {
+		let home = homedir::my_home().ok().flatten();
+		let config_dir = dirs::config_dir();
+		debug!(home = ?home, config_dir = ?config_dir, "Loading global configuration");
+		Ok(Self::load_internal_with_presence(home.as_ref(), config_dir.as_ref(), None)?.0)
+	}
+
+	/// Loads configuration and reports whether required SSH settings were provided.
+	fn load_optional_ssh_with_presence() -> Result<(Self, RequiredConfigPresence)> {
 		let home = homedir::my_home().ok().flatten();
 		let config_dir = dirs::config_dir();
 		let cwd = env::current_dir().ok();
 		debug!(home = ?home, config_dir = ?config_dir, cwd = ?cwd, "Loading configuration");
-		Self::load_internal(home.as_ref(), config_dir.as_ref(), cwd.as_ref())
+		Self::load_internal_with_presence(home.as_ref(), config_dir.as_ref(), cwd.as_ref())
 	}
 
 	/// Resolves the local state directory path.
@@ -41,11 +56,11 @@ impl Config {
 	}
 
 	/// Core inner load logic separating the paths.
-	fn load_internal(
+	fn load_internal_with_presence(
 		home: Option<&PathBuf>,
 		config_dir: Option<&PathBuf>,
 		cwd: Option<&PathBuf>,
-	) -> Result<Self> {
+	) -> Result<(Self, RequiredConfigPresence)> {
 		let mut builder = Self::builder().env();
 		let mut required_presence = RequiredConfigPresence::from_env();
 
@@ -136,16 +151,15 @@ impl Config {
 		}
 
 		let mut config = builder.load()?;
-		required_presence.ensure_all_present()?;
-
 		if let Ok(value) = env::var("BIWA_ENV_VARS") {
 			let mut rules = config.env.vars.rules()?;
 			rules.extend(parse_env_var_env(&value)?);
 			config.env.vars = EnvVars::from_rules(rules);
 		}
+		Self::resolve_loaded_paths(&mut config);
 		config.validate()?;
 
-		Ok(config)
+		Ok((config, required_presence))
 	}
 
 	/// Loads a specific partial configuration file based on format.
@@ -183,6 +197,7 @@ impl Config {
 
 		resolve(&mut partial.ssh.key_path);
 		resolve(&mut partial.state_dir);
+		resolve(&mut partial.direct.bin_dir);
 
 		if let Some(exclude_list) = &mut partial.sync.exclude {
 			let root = canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
@@ -199,6 +214,19 @@ impl Config {
 		// Tilde expansion and relative path resolution should happen on the remote server, not locally.
 	}
 
+	/// Resolves loaded local paths that may still come from defaults or environment variables.
+	fn resolve_loaded_paths(config: &mut Self) {
+		if let Some(bin_dir) = &mut config.direct.bin_dir {
+			*bin_dir = expand_tilde(bin_dir);
+			if !bin_dir.as_os_str().is_empty()
+				&& bin_dir.is_relative()
+				&& let Ok(cwd) = env::current_dir()
+			{
+				*bin_dir = cwd.join(&*bin_dir);
+			}
+		}
+	}
+
 	/// Runs post-load validation checks on the configuration.
 	///
 	/// This performs structural/semantic checks that go beyond what deserialization
@@ -209,6 +237,22 @@ impl Config {
 				"Absolute remote_root path detected: {}. It is recommended to use a relative path starting with '~'.",
 				self.sync.remote_root.display()
 			);
+		}
+		if let Some(bin_dir) = &self.direct.bin_dir {
+			if bin_dir.as_os_str().is_empty() {
+				bail!("Invalid direct.bin_dir: path must not be empty");
+			}
+			if !bin_dir.is_absolute() {
+				bail!("Invalid direct.bin_dir: resolved path must be absolute");
+			}
+			#[cfg(unix)]
+			{
+				use std::os::unix::ffi::OsStrExt as _;
+
+				if bin_dir.as_os_str().as_bytes().contains(&b':') {
+					bail!("Invalid direct.bin_dir: path must not contain `:`");
+				}
+			}
 		}
 		for key in self.clean.quota_thresholds.keys() {
 			if *key > 100 {
@@ -251,7 +295,7 @@ impl RequiredConfigPresence {
 	}
 
 	/// Fails when any required SSH setting was not supplied by configuration input.
-	fn ensure_all_present(&self) -> Result<()> {
+	pub fn ensure_all_present(&self) -> Result<()> {
 		let mut missing = Vec::new();
 
 		if !self.ssh_host {
@@ -327,6 +371,7 @@ mod tests {
 	use super::*;
 	use crate::env_vars::{EnvForwardMethod, EnvVarRule, EnvVarSelector, EnvVarSpec};
 	use crate::testing::EnvCleanup;
+	use alloc::collections::BTreeMap;
 	use pretty_assertions::{assert_eq, assert_matches, assert_ne};
 	use rstest::rstest;
 	use serial_test::serial;
@@ -349,6 +394,17 @@ mod tests {
 			EnvCleanup::remove("BIWA_SSH_HOST"),
 			EnvCleanup::remove("BIWA_SSH_USER"),
 		)
+	}
+
+	fn load_internal(
+		home: Option<&PathBuf>,
+		config_dir: Option<&PathBuf>,
+		cwd: Option<&PathBuf>,
+	) -> Result<Config> {
+		let (config, required_presence) =
+			Config::load_internal_with_presence(home, config_dir, cwd)?;
+		required_presence.ensure_all_present()?;
+		Ok(config)
 	}
 
 	#[serial]
@@ -375,7 +431,7 @@ mod tests {
 		let _cleanup1 = EnvCleanup::set("BIWA_SSH_HOST", "env");
 		let _cleanup2 = EnvCleanup::set("BIWA_SSH_PORT", "8080");
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 
 		assert_eq!(config.ssh.host, "env");
 		assert_eq!(config.ssh.port, 8080);
@@ -425,6 +481,10 @@ mod tests {
 		    "max_age": "30days",
 		    "auto": true,
 		    "quota_thresholds": {}
+		  },
+		  "direct": {
+		    "bin_dir": null,
+		    "commands": {}
 		  }
 		}
 		"#);
@@ -444,7 +504,7 @@ ssh.user = "u"
 		)?;
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("h", "u");
 
-		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let result = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
 		assert!(result.is_err());
 		let msg = result.unwrap_err().to_string();
 		assert!(
@@ -461,7 +521,7 @@ ssh.user = "u"
 
 		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "NODE_ENV");
 
-		let config = Config::load_internal(None, None, None)?;
+		let config = load_internal(None, None, None)?;
 		let rules = config.env.vars.rules()?;
 
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
@@ -475,7 +535,7 @@ ssh.user = "u"
 
 		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "NODE_ENV=prod");
 
-		let config = Config::load_internal(None, None, None)?;
+		let config = load_internal(None, None, None)?;
 		let rules = config.env.vars.rules()?;
 
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", "prod"))));
@@ -489,7 +549,7 @@ ssh.user = "u"
 
 		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "NODE_ENV=");
 
-		let config = Config::load_internal(None, None, None)?;
+		let config = load_internal(None, None, None)?;
 		let rules = config.env.vars.rules()?;
 
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value("NODE_ENV", ""))));
@@ -511,7 +571,7 @@ ssh.user = "u"
 
 		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "API_KEY");
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		let rules = config.env.vars.rules()?;
 
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
@@ -526,7 +586,7 @@ ssh.user = "u"
 
 		let _cleanup = EnvCleanup::set("BIWA_ENV_VARS", "NODE_*");
 
-		let config = Config::load_internal(None, None, None)?;
+		let config = load_internal(None, None, None)?;
 		assert_eq!(
 			config.env.vars.rules()?,
 			vec![EnvVarRule::InheritPattern("NODE_*".to_owned()),]
@@ -552,7 +612,7 @@ ssh.user = "u"
 		"#,
 		)?;
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		let rules = config.env.vars.rules()?;
 
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::inherit("NODE_ENV"))));
@@ -576,7 +636,7 @@ ssh.user = "u"
 		"#,
 		)?;
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		let rules = config.env.vars.rules()?;
 
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value(
@@ -609,7 +669,7 @@ ssh.user = "u"
 		"#,
 		)?;
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		let rules = config.env.vars.rules()?;
 
 		assert!(rules.contains(&EnvVarRule::Spec(EnvVarSpec::value(
@@ -639,7 +699,7 @@ ssh.user = "u"
 		"#,
 		)?;
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		assert_eq!(
 			config.env.vars.rules()?,
 			vec![
@@ -682,7 +742,7 @@ ssh.user = "u"
 		let file_path = dir.path().join(format!("biwa.{ext}"));
 		fs::write(&file_path, content)?;
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		assert_eq!(config.hooks.pre_sync.as_deref(), Some(expected));
 		Ok(())
 	}
@@ -705,8 +765,43 @@ ssh.user = "u"
 			"ssh.host = \"subdir\"\nssh.user = \"user\"\n",
 		)?;
 
-		let config = Config::load_internal(None, None, Some(nested).as_ref())?;
+		let config = load_internal(None, None, Some(nested).as_ref())?;
 		assert_eq!(config.ssh.host, "subdir");
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn direct_commands_override_lower_priority_layers() -> Result<()> {
+		let dir = tempdir()?;
+		let root = dir.path();
+		let subdir = root.join("subdir");
+		fs::create_dir_all(&subdir)?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
+		fs::write(
+			root.join("biwa.toml"),
+			"
+[direct]
+[direct.commands]
+parent = []
+",
+		)?;
+		fs::write(
+			subdir.join("biwa.toml"),
+			r#"
+[direct]
+[direct.commands]
+child = ["--skip-sync"]
+"#,
+		)?;
+
+		let config = load_internal(None, None, Some(&subdir))?;
+
+		assert_eq!(
+			config.direct.commands,
+			BTreeMap::from([("child".to_owned(), vec!["--skip-sync".to_owned()])])
+		);
 		Ok(())
 	}
 
@@ -726,7 +821,7 @@ ssh.user = "u"
 		// We need to initialize the home dir so it's a valid path for test logic if needed
 		fs::create_dir_all(&home)?;
 
-		let config = Config::load_internal(Some(&home), None, Some(&project))?;
+		let config = load_internal(Some(&home), None, Some(&project))?;
 
 		assert_ne!(config.ssh.host, "outside");
 		assert_eq!(config.ssh.host, "test-host");
@@ -746,7 +841,7 @@ ssh.user = "u"
 			"ssh.host = \"xdg\"\nssh.user = \"user\"\n",
 		)?;
 
-		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)?;
+		let config = load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)?;
 		assert_eq!(config.ssh.host, "xdg");
 		Ok(())
 	}
@@ -773,7 +868,7 @@ ssh.user = "u"
 		)?;
 
 		// CWD is .config
-		let config = Config::load_internal(None, None, Some(&dot_config))?;
+		let config = load_internal(None, None, Some(&dot_config))?;
 
 		// Should skip .config layer and only use project layer -> "standard"
 		assert_eq!(config.ssh.host, "standard");
@@ -798,7 +893,7 @@ ssh.user = "u"
 		// does NOT match project/.config/.biwa.toml (only .config/biwa)
 		fs::write(dot_config.join(".biwa.toml"), r#"ssh.host = "weird""#)?;
 
-		let config = Config::load_internal(None, None, Some(&subdir))?;
+		let config = load_internal(None, None, Some(&subdir))?;
 
 		// Should NOT load "weird" because .config dir should be skipped as a layer
 		assert_ne!(config.ssh.host, "weird");
@@ -818,7 +913,7 @@ ssh.user = "u"
 		fs::write(home.join("biwa.toml"), r#"ssh.host = "home""#)?;
 		fs::write(config_home.join("biwa/config.toml"), r#"ssh.host = "xdg""#)?;
 
-		let result = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None);
+		let result = load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None);
 		assert_matches!(result, Err(_));
 		Ok(())
 	}
@@ -834,7 +929,7 @@ ssh.user = "u"
 			r#"{"ssh": {"host": "json"}}"#,
 		)?;
 
-		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let result = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
 		assert_matches!(result, Err(_));
 		Ok(())
 	}
@@ -845,7 +940,7 @@ ssh.user = "u"
 		let dir = tempdir()?;
 		let (_cleanup_host, _cleanup_user) = clear_required_ssh_env();
 
-		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let result = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
 		let err = match result {
 			Err(err) => err.to_string(),
 			Ok(_) => bail!("Expected missing required config values to fail"),
@@ -863,7 +958,7 @@ ssh.user = "u"
 		let (_cleanup_host, _cleanup_user) = clear_required_ssh_env();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "configured""#)?;
 
-		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let result = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
 		let err = match result {
 			Err(err) => err.to_string(),
 			Ok(_) => bail!("Expected missing required config values to fail"),
@@ -883,7 +978,7 @@ ssh.user = "u"
 		let _cleanup1 = EnvCleanup::set("BIWA_SSH_HOST", "env-host");
 		let _cleanup2 = EnvCleanup::set("BIWA_SSH_USER", "env-user");
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 
 		assert_eq!(config.ssh.host, "env-host");
 		assert_eq!(config.ssh.user, "env-user");
@@ -905,7 +1000,7 @@ ssh.user = "u"
 		)?;
 
 		// Should error because we found >1 config for the same dir scope
-		let result = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let result = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
 		assert_matches!(result, Err(_));
 		Ok(())
 	}
@@ -922,7 +1017,7 @@ ssh.user = "u"
 			"ssh.host = \"dotconfig\"\nssh.user = \"user\"\n",
 		)?;
 
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		assert_eq!(config.ssh.host, "dotconfig");
 		Ok(())
 	}
@@ -948,7 +1043,7 @@ ssh.user = "u"
 			"ssh.host = \"fallback\"\nssh.user = \"user\"\n",
 		)?;
 
-		let config = Config::load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)?;
+		let config = load_internal(Some(home).as_ref(), Some(config_home).as_ref(), None)?;
 
 		// Should load "fallback", NOT "ignored"
 		assert_eq!(config.ssh.host, "fallback");
@@ -1021,7 +1116,7 @@ user = "user"
 		)?;
 
 		// Load config from subdir
-		let config = Config::load_internal(None, None, Some(&subdir))?;
+		let config = load_internal(None, None, Some(&subdir))?;
 
 		// remote_root should remain as the raw value from the config file
 		assert_eq!(
@@ -1050,7 +1145,7 @@ remote_root = "libs"
 "#,
 		)?;
 
-		let config = Config::load_internal(None, None, Some(&project))?;
+		let config = load_internal(None, None, Some(&project))?;
 
 		assert_eq!(
 			config.sync.remote_root,
@@ -1079,7 +1174,7 @@ remote_root = "global_libs"
 "#,
 		)?;
 
-		let config = Config::load_internal(Some(&home), Some(&config_home), None)?;
+		let config = load_internal(Some(&home), Some(&config_home), None)?;
 		assert_eq!(
 			config.sync.remote_root,
 			PathBuf::from("global_libs"),
@@ -1098,7 +1193,7 @@ remote_root = "xdg_libs"
 "#,
 		)?;
 
-		let config = Config::load_internal(Some(&home), Some(&config_home), None)?;
+		let config = load_internal(Some(&home), Some(&config_home), None)?;
 		assert_eq!(
 			config.sync.remote_root,
 			PathBuf::from("xdg_libs"),
@@ -1128,7 +1223,7 @@ remote_root = "xdg_libs"
 			"[ssh]\nhost = \"other.host\"\nuser = \"user\"\n",
 		)?;
 
-		let config = Config::load_internal(None, None, Some(&child))?;
+		let config = load_internal(None, None, Some(&child))?;
 
 		// key_path should be resolved to parent/my_key, not child/my_key
 		let resolved = config
@@ -1157,7 +1252,7 @@ user = "user"
 		)?;
 
 		let _cleanup = EnvCleanup::remove("BIWA_STATE_DIR");
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		assert_eq!(config.resolved_state_dir(), dir.path().join("state/dir"));
 		Ok(())
 	}
@@ -1186,7 +1281,7 @@ user = "user"
 				.to_str()
 				.ok_or_else(|| color_eyre::eyre::eyre!("utf8 path expected"))?,
 		);
-		let config = Config::load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		assert_eq!(config.resolved_state_dir(), env_state_dir.path());
 		Ok(())
 	}
@@ -1196,9 +1291,76 @@ user = "user"
 	fn state_dir_defaults_to_xdg_when_unset() -> Result<()> {
 		let _cleanup = EnvCleanup::remove("BIWA_STATE_DIR");
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
-		let config = Config::load_internal(None, None, None)?;
+		let config = load_internal(None, None, None)?;
 		assert_eq!(config.resolved_state_dir(), default_state_dir());
 		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn direct_bin_dir_default_uses_xdg_data_home() -> Result<()> {
+		let xdg_data_home = tempfile::tempdir()?;
+		let _cleanup = EnvCleanup::remove("BIWA_DIRECT_BIN_DIR");
+		let _cleanup_xdg = EnvCleanup::set(
+			"XDG_DATA_HOME",
+			xdg_data_home
+				.path()
+				.to_str()
+				.ok_or_else(|| color_eyre::eyre::eyre!("utf8 path expected"))?,
+		);
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+
+		let config = load_internal(None, None, None)?;
+
+		assert_eq!(
+			config.direct.resolved_bin_dir(),
+			xdg_data_home.path().join("biwa/bin")
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn direct_bin_dir_rejects_empty_environment_value() {
+		let _cleanup = EnvCleanup::set("BIWA_DIRECT_BIN_DIR", "");
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+
+		let error = load_internal(None, None, None)
+			.expect_err("an empty direct shim directory should be rejected");
+
+		assert!(
+			error.to_string().contains("direct.bin_dir"),
+			"error was: {error:?}"
+		);
+	}
+
+	#[serial]
+	#[test]
+	fn direct_bin_dir_resolves_relative_environment_value() -> Result<()> {
+		let cwd = env::current_dir()?;
+		let _cleanup = EnvCleanup::set("BIWA_DIRECT_BIN_DIR", "relative-bin");
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+
+		let config = load_internal(None, None, None)?;
+
+		assert_eq!(config.direct.resolved_bin_dir(), cwd.join("relative-bin"));
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[serial]
+	#[test]
+	fn direct_bin_dir_rejects_path_separator() {
+		let _cleanup = EnvCleanup::set("BIWA_DIRECT_BIN_DIR", "/tmp/first:/tmp/second");
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+
+		let error = load_internal(None, None, None)
+			.expect_err("multiple PATH entries should not be accepted as one shim directory");
+
+		assert!(
+			error.to_string().contains("must not contain `:`"),
+			"error was: {error:?}"
+		);
 	}
 
 	#[serial]

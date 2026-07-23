@@ -44,13 +44,33 @@ pub fn biwa_cmd(args: &[&str]) -> duct::Expression {
 }
 
 fn biwa_cmd_with_port(args: &[&str], port: &str) -> duct::Expression {
-	duct::cmd(env!("CARGO_BIN_EXE_biwa"), args)
+	biwa_program_cmd_with_port(env!("CARGO_BIN_EXE_biwa"), args, port)
+}
+
+/// Creates a `duct::Expression` to run a biwa-compatible executable path.
+#[allow(
+	dead_code,
+	reason = "Only some integration test binaries use direct executable helpers."
+)]
+pub fn biwa_program_cmd<T>(program: T, args: &[&str]) -> duct::Expression
+where
+	T: duct::IntoExecutablePath,
+{
+	biwa_program_cmd_with_port(program, args, "2222")
+}
+
+fn biwa_program_cmd_with_port<T>(program: T, args: &[&str], port: &str) -> duct::Expression
+where
+	T: duct::IntoExecutablePath,
+{
+	duct::cmd(program, args)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
 		.env("BIWA_SSH_PORT", port)
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_CLEAN_AUTO", "false")
 		.env("BIWA_STATE_DIR", TEST_STATE_DIR.path())
+		.env("XDG_DATA_HOME", TEST_STATE_DIR.path())
 }
 
 /// Creates a `duct::Expression` to run the `biwa` CLI against the capable SSH server.

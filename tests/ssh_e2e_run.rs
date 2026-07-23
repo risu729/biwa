@@ -8,10 +8,17 @@ use std::io::{BufRead as _, BufReader, Read as _};
 use core::time::Duration;
 mod common;
 use color_eyre::eyre::{WrapErr as _, eyre};
-use common::{Result, biwa_cmd, biwa_cmd_capable};
+use common::{Result, biwa_cmd, biwa_cmd_capable, biwa_program_cmd};
 use rstest::rstest;
 use std::{
-	env, ffi::OsStr, fs, path::PathBuf, process::Command, process::Stdio, thread, time::Instant,
+	env,
+	ffi::OsStr,
+	fs,
+	path::{Path, PathBuf},
+	process::Command,
+	process::Stdio,
+	thread,
+	time::Instant,
 };
 
 fn e2e_timeout_secs() -> u64 {
@@ -1194,6 +1201,184 @@ fn e2e_implicit_run_command_executes_in_resolved_dir() -> Result<()> {
 	assert!(
 		stdout.contains(".cache/biwa/projects/"),
 		"expected path under .cache/biwa/projects/, got: {stdout}"
+	);
+	Ok(())
+}
+
+#[cfg(unix)]
+fn create_biwa_symlink(dir: &Path, name: &str) -> Result<PathBuf> {
+	use std::os::unix::fs::symlink;
+
+	let shim = dir.join(name);
+	symlink(env!("CARGO_BIN_EXE_biwa"), &shim)?;
+	Ok(shim)
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_direct_command_symlink_runs_allowed_remote_command() -> Result<()> {
+	use std::os::unix::fs::PermissionsExt as _;
+
+	let dir = tempfile::tempdir()?;
+	let config_dir = tempfile::tempdir()?;
+	let shim_dir = tempfile::tempdir()?;
+	let remote_command = dir.path().join("1511");
+	fs::write(
+		dir.path().join("biwa.toml"),
+		r#"
+[env.vars]
+PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+"#,
+	)?;
+	fs::create_dir_all(config_dir.path().join("biwa"))?;
+	fs::write(
+		config_dir.path().join("biwa/config.toml"),
+		"[direct.commands]\n1511 = []\n",
+	)?;
+	fs::write(
+		&remote_command,
+		"#!/bin/sh\nprintf 'direct:%s:%s\\n' \"$1\" \"$2\"\n",
+	)?;
+	fs::set_permissions(&remote_command, fs::Permissions::from_mode(0o755))?;
+
+	let shim = create_biwa_symlink(shim_dir.path(), "1511")?;
+	let output = biwa_program_cmd(&shim, &["autotest", "lab01"])
+		.dir(dir.path())
+		.env("HOME", config_dir.path())
+		.env("XDG_CONFIG_HOME", config_dir.path())
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(
+		output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout),
+		"direct:autotest:lab01\n"
+	);
+	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_direct_command_options_are_biwa_run_options() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let config_dir = tempfile::tempdir()?;
+	let shim_dir = tempfile::tempdir()?;
+	let remote_command = "biwa-remote-nosync";
+	let remote_dir = format!(
+		"/tmp/biwa-direct-default-args-{}",
+		dir.path()
+			.file_name()
+			.ok_or_else(|| eyre!("tempdir had no file name"))?
+			.to_string_lossy()
+	);
+	let setup_script = format!(
+		r#"cat > {remote_command} <<'EOF'
+#!/bin/sh
+printf 'nosync:%s\n' "$PWD"
+EOF
+chmod +x {remote_command}
+"#
+	);
+	biwa_cmd(&["--quiet", "run", "--skip-sync", "rm", "-rf", &remote_dir])
+		.stdout_null()
+		.stderr_null()
+		.run()?;
+	biwa_cmd(&[
+		"--quiet",
+		"run",
+		"--skip-sync",
+		"--remote-dir",
+		&remote_dir,
+		"sh",
+		"-c",
+		&setup_script,
+	])
+	.stdout_null()
+	.stderr_capture()
+	.run()?;
+	fs::write(
+		dir.path().join("biwa.toml"),
+		r#"
+[sync.sftp]
+max_files_to_sync = 0
+
+[env.vars]
+PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+"#,
+	)?;
+	fs::create_dir_all(config_dir.path().join("biwa"))?;
+	fs::write(
+		config_dir.path().join("biwa/config.toml"),
+		format!(
+			"[direct.commands]\n{remote_command} = [\"--skip-sync\", \"--remote-dir\", \"{remote_dir}\"]\n"
+		),
+	)?;
+
+	let shim = create_biwa_symlink(shim_dir.path(), remote_command)?;
+	let output = biwa_program_cmd(&shim, &[])
+		.dir(dir.path())
+		.env("HOME", config_dir.path())
+		.env("XDG_CONFIG_HOME", config_dir.path())
+		.env("BIWA_LOG_QUIET", "true")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(
+		output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	pretty_assertions::assert_eq!(
+		String::from_utf8_lossy(&output.stdout),
+		format!("nosync:{remote_dir}\n")
+	);
+	biwa_cmd(&["--quiet", "run", "--skip-sync", "rm", "-rf", &remote_dir])
+		.stdout_null()
+		.stderr_null()
+		.run()?;
+	Ok(())
+}
+
+#[cfg(unix)]
+#[test]
+fn e2e_direct_command_symlink_rejects_non_allowed_command() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let config_dir = tempfile::tempdir()?;
+	let shim_dir = tempfile::tempdir()?;
+	fs::write(
+		dir.path().join("biwa.toml"),
+		"[direct.commands]\nnot-allowed = []\n",
+	)?;
+	fs::create_dir_all(config_dir.path().join("biwa"))?;
+	fs::write(
+		config_dir.path().join("biwa/config.toml"),
+		"[direct.commands]\n1511 = []\n",
+	)?;
+
+	let shim = create_biwa_symlink(shim_dir.path(), "not-allowed")?;
+	let output = biwa_program_cmd(&shim, &[])
+		.dir(dir.path())
+		.env("HOME", config_dir.path())
+		.env("XDG_CONFIG_HOME", config_dir.path())
+		.env("BIWA_LOG_QUIET", "true")
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	assert!(!output.status.success());
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(
+		stderr.contains("not configured in global `direct.commands`"),
+		"stderr was: {stderr}"
 	);
 	Ok(())
 }

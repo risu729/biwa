@@ -9,6 +9,10 @@ expression: content
     "max_age": "30days",
     "quota_thresholds": {}
   },
+  "direct": {
+    "bin_dir": null,
+    "commands": {}
+  },
   "env": {
     "forward_method": "export",
     "vars": []

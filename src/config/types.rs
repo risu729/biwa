@@ -7,7 +7,7 @@ use derive_more::Deref;
 use schemars::JsonSchema;
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::path::PathBuf;
+use std::{env, path::PathBuf};
 
 /// Maximum allowed umask value (0o777 = 511). Three digits (owner/group/other) only.
 const UMASK_MAX: u32 = 0o777;
@@ -152,6 +152,37 @@ mod schema_defaults {
 		.try_into()
 		.expect("valid quota_thresholds subschema")
 	}
+
+	/// JSON Schema for [`DirectConfig::bin_dir`]: null or a non-empty path string.
+	#[must_use]
+	pub fn direct_bin_dir_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+		serde_json::json!({
+			"type": ["string", "null"],
+			"minLength": 1,
+		})
+		.try_into()
+		.expect("valid direct bin_dir subschema")
+	}
+
+	/// JSON Schema for [`DirectConfig::commands`]: safe exact executable names only.
+	#[must_use]
+	pub fn direct_commands_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+		let value_schema = generator.subschema_for::<Vec<String>>();
+		serde_json::json!({
+			"type": "object",
+			"additionalProperties": value_schema.to_value(),
+			"default": {},
+			"propertyNames": {
+				"allOf": [
+					{"pattern": "^[A-Za-z0-9._+][A-Za-z0-9._+-]*$"},
+					{"not": {"enum": [".", "..", "biwa", "biwa.exe"]}},
+					{"not": {"pattern": "^\\.biwa-"}},
+				],
+			},
+		})
+		.try_into()
+		.expect("valid direct commands subschema")
+	}
 }
 
 /// Root configuration struct for biwa.
@@ -182,6 +213,10 @@ pub struct Config {
 	#[config(nested)]
 	#[schemars(default)]
 	pub clean: CleanConfig,
+	/// Direct command shim configuration.
+	#[config(nested)]
+	#[schemars(default)]
+	pub direct: DirectConfig,
 }
 
 /// Password authentication configuration.
@@ -414,6 +449,51 @@ impl Default for CleanConfig {
 	}
 }
 
+/// Direct command shim settings.
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct DirectConfig {
+	/// Directory containing direct command shims. If unset, uses the platform data directory.
+	#[config(env = "BIWA_DIRECT_BIN_DIR")]
+	#[schemars(default, schema_with = "schema_defaults::direct_bin_dir_schema")]
+	pub bin_dir: Option<PathBuf>,
+	/// Exact command names and the `biwa run` options inserted before each command.
+	#[config(default = {})]
+	#[schemars(default, schema_with = "schema_defaults::direct_commands_schema")]
+	pub commands: BTreeMap<String, Vec<String>>,
+}
+
+impl DirectConfig {
+	/// Returns the direct command shim directory.
+	#[must_use]
+	pub fn resolved_bin_dir(&self) -> PathBuf {
+		self.bin_dir.clone().unwrap_or_else(default_direct_bin_dir)
+	}
+}
+
+impl Default for DirectConfig {
+	fn default() -> Self {
+		Config::default().direct
+	}
+}
+
+/// Returns the default direct shim directory from the platform data directory.
+#[must_use]
+pub fn default_direct_bin_dir() -> PathBuf {
+	default_data_dir().join("biwa/bin")
+}
+
+/// Returns the platform data directory, falling back to the conventional XDG path.
+fn default_data_dir() -> PathBuf {
+	dirs::data_dir()
+		.or_else(|| {
+			homedir::my_home()
+				.ok()
+				.flatten()
+				.map(|home| home.join(".local/share"))
+		})
+		.unwrap_or_else(|| env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -448,6 +528,38 @@ mod tests {
 				"SshConfig.required must not contain 'host'; required = {r:?}"
 			);
 		}
+		let direct_required = defs
+			.get("DirectConfig")
+			.and_then(|v| v.get("required"))
+			.and_then(|v| v.as_array());
+		assert!(
+			direct_required.is_none_or(Vec::is_empty),
+			"DirectConfig must not require optional/defaulted keys; got required = {direct_required:?}"
+		);
+	}
+
+	#[test]
+	fn direct_schema_matches_runtime_name_and_path_validation() {
+		let schema = serde_json::to_value(schema_for!(Config)).expect("schema serializes to JSON");
+		assert_eq!(
+			schema.pointer("/$defs/DirectConfig/properties/bin_dir/minLength"),
+			Some(&serde_json::json!(1))
+		);
+		assert_eq!(
+			schema.pointer("/$defs/DirectConfig/properties/commands/propertyNames/allOf/0/pattern"),
+			Some(&serde_json::json!("^[A-Za-z0-9._+][A-Za-z0-9._+-]*$"))
+		);
+		assert_eq!(
+			schema
+				.pointer("/$defs/DirectConfig/properties/commands/propertyNames/allOf/1/not/enum"),
+			Some(&serde_json::json!([".", "..", "biwa", "biwa.exe"]))
+		);
+		assert_eq!(
+			schema.pointer(
+				"/$defs/DirectConfig/properties/commands/propertyNames/allOf/2/not/pattern"
+			),
+			Some(&serde_json::json!("^\\.biwa-"))
+		);
 	}
 
 	#[test]

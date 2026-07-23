@@ -51,3 +51,7 @@ biwa [TAB]
 ```
 
 You should see available subcommands like `run`, `init`, `completion`, etc.
+
+## Direct Command Activation
+
+Shell completion is separate from direct command activation. To run allowed remote commands without typing `biwa run`, see [Direct Commands](/direct-commands).

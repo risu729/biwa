@@ -13,6 +13,14 @@
         "quota_thresholds": {}
       }
     },
+    "direct": {
+      "description": "Direct command shim configuration.",
+      "$ref": "#/$defs/DirectConfig",
+      "default": {
+        "bin_dir": null,
+        "commands": {}
+      }
+    },
     "env": {
       "description": "Environment variables configuration.",
       "$ref": "#/$defs/EnvConfig",
@@ -93,6 +101,54 @@
             "^(100|[0-9]{1,2})$": {
               "$ref": "#/$defs/HumanDuration"
             }
+          }
+        }
+      }
+    },
+    "DirectConfig": {
+      "description": "Direct command shim settings.",
+      "type": "object",
+      "properties": {
+        "bin_dir": {
+          "description": "Directory containing direct command shims. If unset, uses the platform data directory.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "minLength": 1
+        },
+        "commands": {
+          "description": "Exact command names and the `biwa run` options inserted before each command.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "default": {},
+          "propertyNames": {
+            "allOf": [
+              {
+                "pattern": "^[A-Za-z0-9._+][A-Za-z0-9._+-]*$"
+              },
+              {
+                "not": {
+                  "enum": [
+                    ".",
+                    "..",
+                    "biwa",
+                    "biwa.exe"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "pattern": "^\\.biwa-"
+                }
+              }
+            ]
           }
         }
       }

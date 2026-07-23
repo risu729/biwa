@@ -170,4 +170,17 @@ expression: content
     // Default value: {}
     //"quota_thresholds": {},
   },
+
+  // Direct command shim configuration.
+  "direct": {
+    // Directory containing direct command shims. If unset, uses the platform data directory.
+    //
+    // Can also be specified via environment variable `BIWA_DIRECT_BIN_DIR`.
+    //"bin_dir": ,
+
+    // Exact command names and the `biwa run` options inserted before each command.
+    //
+    // Default value: {}
+    //"commands": {},
+  },
 }
