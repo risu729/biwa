@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [0.1.1](https://github.com/risu729/biwa/compare/v0.1.0...v0.1.1)
+## [1.0.0](https://github.com/risu729/biwa/compare/v0.1.0...v1.0.0)
 
 ### ⛰️ Features
 
@@ -151,7 +151,7 @@
 ### 🧹 Chore
 
 
-- *(clippy)* Enable nursery/restiction rules ([#253](https://github.com/risu729/biwa/pull/253)) - ([61545e7](https://github.com/risu729/biwa/commit/61545e77d68cbeb09679380707d5602b730a75a0))
+- *(clippy)* Enable nursery/restriction rules ([#253](https://github.com/risu729/biwa/pull/253)) - ([61545e7](https://github.com/risu729/biwa/commit/61545e77d68cbeb09679380707d5602b730a75a0))
 - *(deps)* Update rust crate ctor to v1.0.10 ([#900](https://github.com/risu729/biwa/pull/900)) - ([91b7a3f](https://github.com/risu729/biwa/commit/91b7a3f40a2d48444be86ae8c5351a2ba056f0a9))
 - *(deps)* Update rust crate ctor to v1.0.9 ([#864](https://github.com/risu729/biwa/pull/864)) - ([f39fd37](https://github.com/risu729/biwa/commit/f39fd372a457c724fabf344350f8380b61654245))
 - *(deps)* Lock file maintenance ([#850](https://github.com/risu729/biwa/pull/850)) - ([9054cc8](https://github.com/risu729/biwa/commit/9054cc8a76ce62ce1b0da4739c3126b6cb79d014))
@@ -191,4 +191,3 @@
 - *(deps)* Update Cargo.lock ([#200](https://github.com/risu729/biwa/pull/200)) - ([f23a0d1](https://github.com/risu729/biwa/commit/f23a0d19402dd2e8834ab3119281628ad639313c))
 - *(hk)* Migrate to shared hk-config v1.0.0 ([#772](https://github.com/risu729/biwa/pull/772)) - ([719d44e](https://github.com/risu729/biwa/commit/719d44e16ad024533b814cb6c06bbb6a17b3b18b))
 - *(mise)* Update tools and lockfile ([#593](https://github.com/risu729/biwa/pull/593)) - ([0c35edf](https://github.com/risu729/biwa/commit/0c35edf3ead30e05f34d357be1a4e4facf19a055))
-
