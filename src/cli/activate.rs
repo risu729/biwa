@@ -7,7 +7,7 @@ use color_eyre::eyre::{WrapErr as _, bail};
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{ErrorKind, Write as _};
+use std::io::{ErrorKind, Read as _, Result as IoResult, Write as _};
 use std::path::{Path, PathBuf};
 
 /// File recording the shim names created by biwa in a configured directory.
@@ -314,28 +314,27 @@ fn validate_shim_name(name: &str) -> Result<()> {
 }
 
 /// Reads the names installed by an earlier reconciliation.
+#[expect(
+	clippy::verbose_file_reads,
+	reason = "the validated no-follow file descriptor must be read without reopening its path"
+)]
 fn read_managed_shims(bin_dir: &Path) -> Result<BTreeSet<String>> {
 	let manifest_path = bin_dir.join(MANAGED_SHIMS_FILE);
-	let metadata = match fs::symlink_metadata(&manifest_path) {
-		Ok(metadata) => metadata,
+	let mut manifest = match open_managed_shims(&manifest_path) {
+		Ok(manifest) => manifest,
 		Err(error) if error.kind() == ErrorKind::NotFound => return Ok(BTreeSet::new()),
 		Err(error) => {
 			return Err(error).wrap_err_with(|| {
 				format!(
-					"Failed to inspect direct shim manifest `{}`",
+					"Failed to open direct shim manifest `{}`",
 					manifest_path.display()
 				)
 			});
 		}
 	};
-	if !metadata.is_file() || metadata.file_type().is_symlink() {
-		bail!(
-			"Direct shim manifest `{}` is not a regular file",
-			manifest_path.display()
-		);
-	}
-
-	let contents = fs::read_to_string(&manifest_path).wrap_err_with(|| {
+	validate_managed_shims_file(&manifest, &manifest_path)?;
+	let mut contents = String::new();
+	manifest.read_to_string(&mut contents).wrap_err_with(|| {
 		format!(
 			"Failed to read direct shim manifest `{}`",
 			manifest_path.display()
@@ -347,6 +346,61 @@ fn read_managed_shims(bin_dir: &Path) -> Result<BTreeSet<String>> {
 		names.insert(name.to_owned());
 	}
 	Ok(names)
+}
+
+/// Opens a managed-shim manifest without following a final symlink.
+fn open_managed_shims(path: &Path) -> IoResult<fs::File> {
+	let mut options = fs::OpenOptions::new();
+	options.read(true);
+	#[cfg(unix)]
+	{
+		use nix::libc::{O_CLOEXEC, O_NOFOLLOW};
+		use std::os::unix::fs::OpenOptionsExt as _;
+
+		options.custom_flags(O_NOFOLLOW | O_CLOEXEC);
+	}
+	options.open(path)
+}
+
+/// Ensures an existing manifest is safe to trust as deletion provenance.
+fn validate_managed_shims_file(file: &fs::File, path: &Path) -> Result<()> {
+	let metadata = file.metadata().wrap_err_with(|| {
+		format!(
+			"Failed to inspect direct shim manifest `{}`",
+			path.display()
+		)
+	})?;
+	if !metadata.is_file() {
+		bail!(
+			"Direct shim manifest `{}` is not a regular file",
+			path.display()
+		);
+	}
+	#[cfg(unix)]
+	{
+		use nix::unistd::Uid;
+		use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+		if metadata.uid() != Uid::effective().as_raw() {
+			bail!(
+				"Direct shim manifest `{}` is not owned by the current user",
+				path.display()
+			);
+		}
+		if metadata.permissions().mode() & 0o022 != 0 {
+			bail!(
+				"Direct shim manifest `{}` is group- or world-writable",
+				path.display()
+			);
+		}
+		if metadata.nlink() != 1 {
+			bail!(
+				"Direct shim manifest `{}` has multiple hard links",
+				path.display()
+			);
+		}
+	}
+	Ok(())
 }
 
 /// Atomically records the names managed by this biwa installation.
@@ -873,6 +927,42 @@ mod tests {
 		let error = install_shims(&config, &biwa, false)
 			.expect_err("group-writable PATH directory should fail");
 		assert!(error.to_string().contains("group- or world-writable"));
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn managed_manifest_rejects_unsafe_permissions_and_hard_links() -> Result<()> {
+		use std::os::unix::fs::{PermissionsExt as _, symlink};
+
+		let dir = tempdir()?;
+		let manifest = dir.path().join(MANAGED_SHIMS_FILE);
+		fs::write(&manifest, "dcc\n")?;
+		fs::set_permissions(&manifest, fs::Permissions::from_mode(0o660))?;
+
+		let error = read_managed_shims(dir.path())
+			.expect_err("a group-writable manifest must not grant deletion authority");
+		assert!(error.to_string().contains("group- or world-writable"));
+
+		fs::set_permissions(&manifest, fs::Permissions::from_mode(0o600))?;
+		let second_link = dir.path().join("manifest-link");
+		fs::hard_link(&manifest, &second_link)?;
+		let error = read_managed_shims(dir.path())
+			.expect_err("a multiply linked manifest must not grant deletion authority");
+		assert!(error.to_string().contains("multiple hard links"));
+
+		fs::remove_file(&second_link)?;
+		assert_eq!(
+			read_managed_shims(dir.path())?,
+			BTreeSet::from(["dcc".to_owned()])
+		);
+
+		fs::remove_file(&manifest)?;
+		fs::write(&second_link, "dcc\n")?;
+		symlink(&second_link, &manifest)?;
+		let error = read_managed_shims(dir.path())
+			.expect_err("a symlinked manifest must not grant deletion authority");
+		assert!(error.to_string().contains("Failed to open"));
 		Ok(())
 	}
 
