@@ -1,16 +1,17 @@
 use crate::Result;
-use crate::cli::run::{RemoteCommand, parse_direct_run_options, run_remote};
+use crate::cli::run::validate_direct_options;
 use crate::config::types::Config;
 use alloc::collections::BTreeSet;
 use clap::{Args, Subcommand, ValueEnum};
 use color_eyre::eyre::{WrapErr as _, bail};
-use regex::Regex;
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
-use std::process;
+
+/// File recording the shim names created by biwa in a configured directory.
+const MANAGED_SHIMS_FILE: &str = ".biwa-managed-shims";
 
 /// Shell activation and direct command shim management.
 #[derive(Args, Debug)]
@@ -27,7 +28,7 @@ pub(super) struct Activate {
 /// Supported activation commands.
 #[derive(Subcommand, Debug)]
 enum ActivateCommand {
-	/// Create or update configured static command shims.
+	/// Reconcile configured direct command shims.
 	Install(Install),
 	/// Print diagnostic information for direct command activation.
 	Doctor,
@@ -36,7 +37,7 @@ enum ActivateCommand {
 /// Direct command shim installation options.
 #[derive(Args, Debug)]
 struct Install {
-	/// Replace existing shim files and ignore local command conflicts.
+	/// Replace existing entries not already managed by biwa.
 	#[arg(long, short)]
 	force: bool,
 }
@@ -52,33 +53,15 @@ enum ActivationShell {
 	Fish,
 }
 
-/// Direct command invocation extracted from argv.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct DirectInvocation {
-	/// Command name from `argv[0]`.
-	command: String,
-	/// User-supplied command arguments.
-	args: Vec<String>,
-}
-
 /// Result from a shim installation run.
 #[derive(Debug, Default, PartialEq, Eq)]
 struct InstallReport {
-	/// Newly installed shim paths.
+	/// Newly installed or updated shim paths.
 	installed: Vec<PathBuf>,
 	/// Existing shim paths that already pointed at the current executable.
 	unchanged: Vec<PathBuf>,
-	/// Commands skipped because an earlier local command exists.
-	skipped_conflicts: Vec<ShimConflict>,
-}
-
-/// A local command conflict detected before shim installation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ShimConflict {
-	/// Command name.
-	command: String,
-	/// Earlier executable found on PATH.
-	path: PathBuf,
+	/// Stale managed shim paths that were removed.
+	removed: Vec<PathBuf>,
 }
 
 /// Result from creating or updating one shim.
@@ -91,17 +74,15 @@ enum ShimInstallStatus {
 }
 
 impl Activate {
-	/// Run the activation command.
+	/// Runs the activation command.
 	pub(super) fn run(self) -> Result<()> {
-		let config = Config::load_optional_ssh()?;
+		let config = Config::load_global_optional_ssh()?;
 		let bin_dir = config.direct.resolved_bin_dir();
 		let mut did_work = false;
 
 		match self.command {
 			Some(ActivateCommand::Install(install)) => {
-				let path = env::var_os("PATH");
-				let report =
-					install_shims(&config, &env::current_exe()?, path.as_ref(), install.force)?;
+				let report = install_shims(&config, &env::current_exe()?, install.force)?;
 				print_install_report(&report);
 				did_work = true;
 			}
@@ -114,208 +95,159 @@ impl Activate {
 
 		if let Some(shell) = self.shell {
 			ensure_secure_shim_dir(&bin_dir)?;
-			println!(
-				"{}",
-				activation_script(shell, &bin_dir, config.direct.prefer_local)
-			);
+			println!("{}", activation_script(shell, &bin_dir)?);
 			did_work = true;
 		}
 
 		if !did_work {
 			bail!("Specify `--shell <bash|zsh|fish>`, `install`, or `doctor`.");
 		}
-
 		Ok(())
 	}
 }
 
-/// Returns a direct invocation when `argv[0]` is not the normal `biwa` binary name.
-pub(super) fn direct_invocation_from_env() -> Result<Option<DirectInvocation>> {
-	direct_invocation_from_args(env::args_os())
-}
-
-/// Runs a remote command through direct shim dispatch.
-pub(super) async fn run_direct_invocation(
-	invocation: DirectInvocation,
-	quiet: bool,
-	silent: bool,
-) -> Result<()> {
-	let (config, required_presence) = Config::load_optional_ssh_with_presence()?;
-
-	if !config.direct.enabled {
-		bail!(
-			"Direct command `{}` is disabled. Set `direct.enabled = true` to use activation shims.",
-			invocation.command
-		);
-	}
-
-	let allow_patterns = compile_direct_allow_patterns(&config)?;
-	if !direct_command_is_allowed(&allow_patterns, &invocation.command) {
-		bail!(
-			"Direct command `{}` is not allowed by `direct.allow`.",
-			invocation.command
-		);
-	}
-
-	let default_args = config
-		.direct
-		.default_args
-		.get(&invocation.command)
-		.map_or(&[][..], Vec::as_slice);
-	let run_options = parse_direct_run_options(&invocation.command, default_args)?;
-	let quoted_command = quote_direct_command(&invocation.command);
-
-	required_presence.ensure_all_present()?;
-	run_remote(
-		&config,
-		run_options.transfer_args(),
-		RemoteCommand {
-			command: &quoted_command,
-			command_args: &invocation.args,
-			cli_env_vars: run_options.env_vars(),
-		},
-		run_options.transfer_mode(config.sync.auto),
-		quiet,
-		silent,
-	)
-	.await
-}
-
-/// Quotes a direct command name as one literal remote shell token.
-fn quote_direct_command(command: &str) -> String {
-	format!("'{}'", command.replace('\'', "'\\''"))
-}
-
-/// Extracts a direct invocation from a supplied argument iterator.
-fn direct_invocation_from_args(
+/// Expands a symlink invocation into the equivalent normal `biwa run` argv.
+pub(super) fn expand_direct_invocation(
 	args: impl IntoIterator<Item = OsString>,
-) -> Result<Option<DirectInvocation>> {
-	let mut args = args.into_iter();
-	let Some(argv0) = args.next() else {
-		return Ok(None);
+) -> Result<Vec<OsString>> {
+	let args = args.into_iter().collect::<Vec<_>>();
+	let Some(argv0) = args.first() else {
+		return Ok(args);
+	};
+	let Some(command) = direct_command_name(argv0) else {
+		return Ok(args);
 	};
 
-	let Some(command) = direct_command_name(&argv0) else {
-		return Ok(None);
-	};
+	let config = Config::load_global_optional_ssh()?;
+	expand_direct_invocation_with_config(args, &command, &config)
+}
 
-	let args = args
-		.map(os_string_to_string)
-		.collect::<Result<Vec<String>>>()?;
+/// Expands a known direct command using its global configuration.
+fn expand_direct_invocation_with_config(
+	args: Vec<OsString>,
+	command: &str,
+	config: &Config,
+) -> Result<Vec<OsString>> {
+	let options = config.direct.commands.get(command).ok_or_else(|| {
+		color_eyre::eyre::eyre!(
+			"Direct command `{command}` is not configured in global `direct.commands`."
+		)
+	})?;
+	validate_direct_command(command, options)?;
 
-	Ok(Some(DirectInvocation { command, args }))
+	let mut expanded = Vec::new();
+	expanded.push(OsString::from("biwa"));
+	expanded.push(OsString::from("run"));
+	expanded.extend(options.iter().map(OsString::from));
+	expanded.push(OsString::from(format!("'{command}'")));
+	expanded.extend(args.into_iter().skip(1));
+	Ok(expanded)
 }
 
 /// Returns the shim command name from `argv[0]`, excluding normal biwa invocations.
 fn direct_command_name(argv0: &OsStr) -> Option<String> {
 	let name = Path::new(argv0).file_name()?.to_str()?;
-	if matches!(name, "biwa" | "biwa.exe") {
+	if is_biwa_binary_name(name) {
 		return None;
 	}
 	Some(name.to_owned())
 }
 
-/// Converts an OS string argument into UTF-8 for remote execution.
-fn os_string_to_string(value: OsString) -> Result<String> {
-	value
-		.into_string()
-		.map_err(|value| color_eyre::eyre::eyre!("Non-UTF-8 direct command argument: {value:?}"))
+/// Returns whether an executable basename is a normal biwa binary name.
+fn is_biwa_binary_name(name: &str) -> bool {
+	matches!(name, "biwa" | "biwa.exe")
 }
 
-/// Compiles configured direct command allow patterns.
-fn compile_direct_allow_patterns(config: &Config) -> Result<Vec<Regex>> {
-	config
-		.direct
-		.allow
-		.iter()
-		.map(|pattern| {
-			Regex::new(pattern).wrap_err_with(|| format!("Invalid direct.allow regex `{pattern}`"))
-		})
-		.collect()
-}
+/// Returns shell code that appends the shim directory to PATH.
+fn activation_script(shell: ActivationShell, bin_dir: &Path) -> Result<String> {
+	let bin_dir = bin_dir.to_str().ok_or_else(|| {
+		color_eyre::eyre::eyre!(
+			"Direct shim directory `{}` is not valid UTF-8 and cannot be added to PATH",
+			bin_dir.display()
+		)
+	})?;
+	let quoted_bin_dir = shell_words::quote(bin_dir);
 
-/// Returns whether a direct command name matches any configured allow pattern.
-fn direct_command_is_allowed(allow_patterns: &[Regex], command: &str) -> bool {
-	allow_patterns
-		.iter()
-		.any(|pattern| pattern.is_match(command))
-}
-
-/// Returns shell code that adds the shim directory to PATH.
-fn activation_script(shell: ActivationShell, bin_dir: &Path, prefer_local: bool) -> String {
-	let bin_dir = bin_dir.to_string_lossy();
-	let quoted_bin_dir = shell_words::quote(&bin_dir);
-
-	match shell {
-		ActivationShell::Bash | ActivationShell::Zsh => {
-			let export = if prefer_local {
-				r#"if [ -n "$PATH" ]; then
-  export PATH="$PATH:$__biwa_direct_bin"
+	Ok(match shell {
+		ActivationShell::Bash | ActivationShell::Zsh => format!(
+			r#"__biwa_direct_bin={quoted_bin_dir}
+__biwa_direct_path=$PATH
+while :; do
+  case "$__biwa_direct_path" in
+    "$__biwa_direct_bin") __biwa_direct_path= ;;
+    "$__biwa_direct_bin":*) __biwa_direct_path=${{__biwa_direct_path#*:}} ;;
+    *:"$__biwa_direct_bin":*) __biwa_direct_path=${{__biwa_direct_path/:"$__biwa_direct_bin":/:}} ;;
+    *:"$__biwa_direct_bin") __biwa_direct_path=${{__biwa_direct_path%:*}} ;;
+    *) break ;;
+  esac
+done
+if [ -n "$__biwa_direct_path" ]; then
+  export PATH="$__biwa_direct_path:$__biwa_direct_bin"
 else
   export PATH="$__biwa_direct_bin"
-fi"#
-			} else {
-				r#"if [ -n "$PATH" ]; then
-  export PATH="$__biwa_direct_bin:$PATH"
-else
-  export PATH="$__biwa_direct_bin"
-fi"#
-			};
-			format!(
-				r#"__biwa_direct_bin={quoted_bin_dir}
-case ":$PATH:" in
-  *:"$__biwa_direct_bin":*) ;;
-  *) {export} ;;
-esac
+fi
+unset __biwa_direct_path
 unset __biwa_direct_bin"#
-			)
-		}
-		ActivationShell::Fish => {
-			let set_path = if prefer_local {
-				"set -gx PATH $PATH $__biwa_direct_bin"
-			} else {
-				"set -gx PATH $__biwa_direct_bin $PATH"
-			};
-			format!(
-				"set -l __biwa_direct_bin {quoted_bin_dir}
-if not contains -- $__biwa_direct_bin $PATH
-  {set_path}
+		),
+		ActivationShell::Fish => format!(
+			"set -l __biwa_direct_bin {quoted_bin_dir}
+set -l __biwa_direct_path
+for __biwa_direct_entry in $PATH
+  if test \"$__biwa_direct_entry\" != \"$__biwa_direct_bin\"
+    set -a __biwa_direct_path \"$__biwa_direct_entry\"
+  end
 end
+set -gx PATH $__biwa_direct_path $__biwa_direct_bin
+set -e __biwa_direct_entry
+set -e __biwa_direct_path
 set -e __biwa_direct_bin"
-			)
-		}
-	}
+		),
+	})
 }
 
-/// Creates or updates shims for statically known allowed command names.
-fn install_shims(
-	config: &Config,
-	biwa_path: &Path,
-	path: Option<&OsString>,
-	force: bool,
-) -> Result<InstallReport> {
+/// Reconciles the configured direct command shims.
+fn install_shims(config: &Config, biwa_path: &Path, force: bool) -> Result<InstallReport> {
 	let mut report = InstallReport::default();
-	let shim_names = static_allowed_shim_names(config)?;
 	let bin_dir = config.direct.resolved_bin_dir();
+	let shim_names = configured_shim_names(config)?;
+	let desired_shims = shim_names.iter().cloned().collect::<BTreeSet<_>>();
 
 	ensure_secure_shim_dir(&bin_dir)?;
+	let managed_shims = read_managed_shims(&bin_dir)?;
+	for name in managed_shims.difference(&desired_shims) {
+		let path = bin_dir.join(name);
+		match fs::symlink_metadata(&path) {
+			Ok(_) if is_managed_symlink(&path)? => {
+				fs::remove_file(&path).wrap_err_with(|| {
+					format!(
+						"Failed to remove stale direct command shim `{}`",
+						path.display()
+					)
+				})?;
+				report.removed.push(path);
+			}
+			Ok(_) => {}
+			Err(error) if error.kind() == ErrorKind::NotFound => {}
+			Err(error) => {
+				return Err(error).wrap_err_with(|| {
+					format!(
+						"Failed to inspect stale direct command shim `{}`",
+						path.display()
+					)
+				});
+			}
+		}
+	}
 
 	for command in shim_names {
-		if !force
-			&& config.direct.prefer_local
-			&& let Some(conflict) = find_local_conflict(&command, &bin_dir, path)
-		{
-			report.skipped_conflicts.push(conflict);
-			continue;
-		}
-
-		let shim_path = bin_dir.join(&command);
-		match create_or_update_symlink(&shim_path, biwa_path, force)? {
+		let was_managed = managed_shims.contains(&command);
+		let shim_path = bin_dir.join(command);
+		match create_or_update_symlink(&shim_path, biwa_path, force, was_managed)? {
 			ShimInstallStatus::Installed => report.installed.push(shim_path),
 			ShimInstallStatus::Unchanged => report.unchanged.push(shim_path),
 		}
 	}
-
+	write_managed_shims(&bin_dir, &desired_shims)?;
 	Ok(report)
 }
 
@@ -327,75 +259,172 @@ fn print_install_report(report: &InstallReport) {
 	for path in &report.unchanged {
 		eprintln!("Direct command shim already current: {}", path.display());
 	}
-	for conflict in &report.skipped_conflicts {
-		eprintln!(
-			"Skipped `{}` because `{}` appears earlier in PATH",
-			conflict.command,
-			conflict.path.display()
-		);
+	for path in &report.removed {
+		eprintln!("Removed stale direct command shim: {}", path.display());
 	}
-	if report.installed.is_empty()
-		&& report.unchanged.is_empty()
-		&& report.skipped_conflicts.is_empty()
-	{
-		eprintln!(
-			"No static direct command shims to install. Add literal `direct.allow` entries or `direct.default_args` keys."
-		);
+	if report.installed.is_empty() && report.unchanged.is_empty() && report.removed.is_empty() {
+		eprintln!("No direct command shims configured in global `direct.commands`.");
 	}
 }
 
 /// Prints direct command diagnostics.
 fn print_doctor(config: &Config) -> Result<()> {
-	let shim_names = static_allowed_shim_names(config)?;
-
-	println!("direct.enabled = {}", config.direct.enabled);
+	configured_shim_names(config)?;
 	println!(
 		"direct.bin_dir = {}",
 		config.direct.resolved_bin_dir().display()
 	);
-	println!("direct.prefer_local = {}", config.direct.prefer_local);
-	println!("static shims = {}", shim_names.len());
-	for command in shim_names {
+	println!("direct.commands = {}", config.direct.commands.len());
+	for command in config.direct.commands.keys() {
 		println!("- {command}");
 	}
-
 	Ok(())
 }
 
-/// Returns static shim names that can be safely materialized.
-fn static_allowed_shim_names(config: &Config) -> Result<Vec<String>> {
-	let mut names = BTreeSet::new();
-	let allow_patterns = compile_direct_allow_patterns(config)?;
-
-	for pattern in &config.direct.allow {
-		names.extend(static_names_from_allow_pattern(pattern));
+/// Returns configured shim names after validating their names and options.
+fn configured_shim_names(config: &Config) -> Result<Vec<String>> {
+	for (name, options) in &config.direct.commands {
+		validate_direct_command(name, options)?;
 	}
+	Ok(config.direct.commands.keys().cloned().collect())
+}
 
-	names.extend(config.direct.default_args.keys().cloned());
-
-	let names = names
-		.into_iter()
-		.filter(|name| direct_command_is_allowed(&allow_patterns, name))
-		.collect::<Vec<_>>();
-
-	for name in &names {
-		validate_shim_name(name)?;
-		if let Some(default_args) = config.direct.default_args.get(name) {
-			parse_direct_run_options(name, default_args)?;
-		}
-	}
-
-	Ok(names)
+/// Validates one exact direct command entry.
+fn validate_direct_command(name: &str, options: &[String]) -> Result<()> {
+	validate_shim_name(name)?;
+	validate_direct_options(name, options)
 }
 
 /// Rejects shim names that could resolve outside the configured shim directory.
 fn validate_shim_name(name: &str) -> Result<()> {
-	if Path::new(name).file_name() != Some(OsStr::new(name)) {
+	if name.is_empty()
+		|| name.starts_with('-')
+		|| name.starts_with(".biwa-")
+		|| is_biwa_binary_name(name)
+		|| Path::new(name).file_name() != Some(OsStr::new(name))
+		|| !name
+			.bytes()
+			.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'+'))
+	{
 		bail!(
-			"Invalid direct command shim name `{name}`: expected one non-empty filename without path separators"
+			"Invalid direct command shim name `{name}`: use only ASCII letters, digits, `-`, `_`, `.`, or `+`; `biwa`, `biwa.exe`, and `.biwa-*` are reserved"
 		);
 	}
 	Ok(())
+}
+
+/// Reads the names installed by an earlier reconciliation.
+fn read_managed_shims(bin_dir: &Path) -> Result<BTreeSet<String>> {
+	let manifest_path = bin_dir.join(MANAGED_SHIMS_FILE);
+	let metadata = match fs::symlink_metadata(&manifest_path) {
+		Ok(metadata) => metadata,
+		Err(error) if error.kind() == ErrorKind::NotFound => return Ok(BTreeSet::new()),
+		Err(error) => {
+			return Err(error).wrap_err_with(|| {
+				format!(
+					"Failed to inspect direct shim manifest `{}`",
+					manifest_path.display()
+				)
+			});
+		}
+	};
+	if !metadata.is_file() || metadata.file_type().is_symlink() {
+		bail!(
+			"Direct shim manifest `{}` is not a regular file",
+			manifest_path.display()
+		);
+	}
+
+	let contents = fs::read_to_string(&manifest_path).wrap_err_with(|| {
+		format!(
+			"Failed to read direct shim manifest `{}`",
+			manifest_path.display()
+		)
+	})?;
+	let mut names = BTreeSet::new();
+	for name in contents.lines() {
+		validate_shim_name(name).wrap_err("Invalid direct shim manifest")?;
+		names.insert(name.to_owned());
+	}
+	Ok(names)
+}
+
+/// Atomically records the names managed by this biwa installation.
+fn write_managed_shims(bin_dir: &Path, names: &BTreeSet<String>) -> Result<()> {
+	let manifest_path = bin_dir.join(MANAGED_SHIMS_FILE);
+	let temporary_path = random_internal_path(bin_dir, "manifest-tmp")?;
+	let mut contents = names.iter().cloned().collect::<Vec<_>>().join("\n");
+	if !contents.is_empty() {
+		contents.push('\n');
+	}
+	let mut options = fs::OpenOptions::new();
+	options.write(true).create_new(true);
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::OpenOptionsExt as _;
+		options.mode(0o600);
+	}
+	let mut temporary_file = options.open(&temporary_path).wrap_err_with(|| {
+		format!(
+			"Failed to create temporary direct shim manifest `{}`",
+			temporary_path.display()
+		)
+	})?;
+	temporary_file
+		.write_all(contents.as_bytes())
+		.wrap_err_with(|| {
+			format!(
+				"Failed to write temporary direct shim manifest `{}`",
+				temporary_path.display()
+			)
+		})?;
+	temporary_file.sync_all().wrap_err_with(|| {
+		format!(
+			"Failed to sync temporary direct shim manifest `{}`",
+			temporary_path.display()
+		)
+	})?;
+	drop(temporary_file);
+	if let Err(rename_error) = fs::rename(&temporary_path, &manifest_path) {
+		if let Err(cleanup_error) = fs::remove_file(&temporary_path) {
+			return Err(rename_error).wrap_err_with(|| {
+				format!(
+					"Failed to update direct shim manifest `{}` and remove temporary manifest `{}`: {cleanup_error}",
+					manifest_path.display(),
+					temporary_path.display(),
+				)
+			});
+		}
+		return Err(rename_error).wrap_err_with(|| {
+			format!(
+				"Failed to update direct shim manifest `{}`",
+				manifest_path.display()
+			)
+		});
+	}
+	Ok(())
+}
+
+/// Returns an unpredictable path in the reserved internal filename namespace.
+fn random_internal_path(bin_dir: &Path, kind: &str) -> Result<PathBuf> {
+	let mut random = [0_u8; 8];
+	getrandom::fill(&mut random).wrap_err("Failed to generate a direct shim temporary name")?;
+	Ok(bin_dir.join(format!(".biwa-{kind}-{}", hex::encode(random))))
+}
+
+/// Returns whether a symlink points at a biwa executable.
+fn is_managed_symlink(path: &Path) -> Result<bool> {
+	let metadata = fs::symlink_metadata(path)
+		.wrap_err_with(|| format!("Failed to inspect direct command shim `{}`", path.display()))?;
+	if !metadata.file_type().is_symlink() {
+		return Ok(false);
+	}
+	let target = fs::read_link(path)
+		.wrap_err_with(|| format!("Failed to read direct command shim `{}`", path.display()))?;
+	Ok(target
+		.file_name()
+		.and_then(OsStr::to_str)
+		.is_some_and(is_biwa_binary_name))
 }
 
 /// Creates the shim directory privately and rejects unsafe existing permissions.
@@ -411,7 +440,6 @@ fn ensure_secure_shim_dir(bin_dir: &Path) -> Result<()> {
 	if bin_dir.as_os_str().as_bytes().contains(&b':') {
 		bail!("Refusing to use direct shim directory containing `:`");
 	}
-
 	if !bin_dir.try_exists().wrap_err_with(|| {
 		format!(
 			"Failed to inspect direct shim directory `{}`",
@@ -489,7 +517,6 @@ fn ensure_secure_shim_dir(bin_dir: &Path) -> Result<()> {
 			);
 		}
 	}
-
 	Ok(())
 }
 
@@ -504,139 +531,13 @@ fn ensure_secure_shim_dir(bin_dir: &Path) -> Result<()> {
 	})
 }
 
-/// Extracts literal command names from a restricted subset of anchored regexes.
-fn static_names_from_allow_pattern(pattern: &str) -> Vec<String> {
-	let Some(inner) = pattern.strip_prefix('^').and_then(|s| s.strip_suffix('$')) else {
-		return Vec::new();
-	};
-
-	let alternatives = inner
-		.strip_prefix('(')
-		.and_then(|s| s.strip_suffix(')'))
-		.map_or_else(|| vec![inner.to_owned()], split_regex_group_alternatives);
-
-	alternatives
-		.iter()
-		.filter_map(|alternative| static_name_from_regex_literal(alternative))
-		.collect()
-}
-
-/// Splits a simple regex group on unescaped alternation separators.
-fn split_regex_group_alternatives(group: &str) -> Vec<String> {
-	let mut alternatives = Vec::new();
-	let mut current = String::new();
-	let mut escaped = false;
-
-	for ch in group.chars() {
-		if escaped {
-			current.push('\\');
-			current.push(ch);
-			escaped = false;
-		} else if ch == '\\' {
-			escaped = true;
-		} else if ch == '|' {
-			alternatives.push(current);
-			current = String::new();
-		} else {
-			current.push(ch);
-		}
-	}
-
-	if escaped {
-		current.push('\\');
-	}
-	alternatives.push(current);
-	alternatives
-}
-
-/// Converts one simple regex literal into a command name.
-fn static_name_from_regex_literal(literal: &str) -> Option<String> {
-	let mut out = String::new();
-	let mut chars = literal.chars();
-
-	while let Some(ch) = chars.next() {
-		if ch == '\\' {
-			let escaped = chars.next()?;
-			if regex_metachar(escaped) {
-				out.push(escaped);
-			} else {
-				return None;
-			}
-		} else if regex_metachar(ch) {
-			return None;
-		} else {
-			out.push(ch);
-		}
-	}
-
-	(!out.is_empty()).then_some(out)
-}
-
-/// Returns whether a character has special meaning in regex syntax.
-const fn regex_metachar(ch: char) -> bool {
-	matches!(
-		ch,
-		'.' | '[' | ']' | '{' | '}' | '(' | ')' | '*' | '+' | '?' | '^' | '$' | '|' | '\\'
-	)
-}
-
-/// Finds an earlier PATH command that should be preferred over a biwa shim.
-fn find_local_conflict(
-	command: &str,
-	bin_dir: &Path,
-	path: Option<&OsString>,
-) -> Option<ShimConflict> {
-	let path = path?;
-	for entry in env::split_paths(path) {
-		if same_path(&entry, bin_dir) {
-			return None;
-		}
-
-		let candidate = entry.join(command);
-		if is_executable_file(&candidate) {
-			return Some(ShimConflict {
-				command: command.to_owned(),
-				path: candidate,
-			});
-		}
-	}
-
-	None
-}
-
-/// Returns whether two paths identify the same directory.
-fn same_path(left: &Path, right: &Path) -> bool {
-	if left == right {
-		return true;
-	}
-
-	match (left.canonicalize(), right.canonicalize()) {
-		(Ok(left), Ok(right)) => left == right,
-		_ => false,
-	}
-}
-
-/// Returns whether a path is an executable file.
-#[cfg(unix)]
-fn is_executable_file(path: &Path) -> bool {
-	use std::os::unix::fs::PermissionsExt as _;
-
-	path.metadata()
-		.is_ok_and(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
-}
-
-/// Returns whether a path is an executable file.
-#[cfg(not(unix))]
-fn is_executable_file(path: &Path) -> bool {
-	path.metadata().is_ok_and(|metadata| metadata.is_file())
-}
-
 /// Creates or updates one symlink shim.
 #[cfg(unix)]
 fn create_or_update_symlink(
 	shim_path: &Path,
 	biwa_path: &Path,
 	force: bool,
+	was_managed: bool,
 ) -> Result<ShimInstallStatus> {
 	use std::os::unix::fs::symlink;
 
@@ -645,29 +546,28 @@ fn create_or_update_symlink(
 			if fs::read_link(shim_path).is_ok_and(|target| target == biwa_path) {
 				return Ok(ShimInstallStatus::Unchanged);
 			}
-			if !force {
+			if !was_managed && !force {
 				bail!(
-					"Refusing to replace existing symlink `{}`. Use `--force` to replace it.",
+					"Refusing to replace existing untracked symlink `{}`. Use `--force` to replace it.",
 					shim_path.display()
 				);
 			}
 			true
 		}
 		Ok(_) => {
-			if force {
-				if shim_path.is_dir() {
-					bail!(
-						"Refusing to replace existing directory `{}`",
-						shim_path.display()
-					);
-				}
-				true
-			} else {
+			if !force {
 				bail!(
 					"Refusing to replace existing non-symlink `{}`. Use `--force` to replace it.",
 					shim_path.display()
 				);
 			}
+			if shim_path.is_dir() {
+				bail!(
+					"Refusing to replace existing directory `{}`",
+					shim_path.display()
+				);
+			}
+			true
 		}
 		Err(error) if error.kind() == ErrorKind::NotFound => false,
 		Err(error) => {
@@ -681,21 +581,19 @@ fn create_or_update_symlink(
 	};
 
 	if replace {
-		let file_name = shim_path
-			.file_name()
-			.ok_or_else(|| color_eyre::eyre::eyre!("Shim path has no file name"))?
-			.to_string_lossy();
-		let temporary_path =
-			shim_path.with_file_name(format!(".{file_name}.biwa-tmp-{}", process::id()));
+		let parent = shim_path
+			.parent()
+			.ok_or_else(|| color_eyre::eyre::eyre!("Shim path has no parent directory"))?;
+		let temporary_path = random_internal_path(parent, "shim-tmp")?;
 		symlink(biwa_path, &temporary_path).wrap_err_with(|| {
 			format!(
 				"Failed to create temporary direct command shim `{}`",
 				temporary_path.display()
 			)
 		})?;
-		if let Err(error) = fs::rename(&temporary_path, shim_path) {
+		if let Err(rename_error) = fs::rename(&temporary_path, shim_path) {
 			if let Err(cleanup_error) = fs::remove_file(&temporary_path) {
-				return Err(error).wrap_err_with(|| {
+				return Err(rename_error).wrap_err_with(|| {
 					format!(
 						"Failed to replace direct command shim `{}` and remove temporary shim `{}`: {cleanup_error}",
 						shim_path.display(),
@@ -703,7 +601,7 @@ fn create_or_update_symlink(
 					)
 				});
 			}
-			return Err(error).wrap_err_with(|| {
+			return Err(rename_error).wrap_err_with(|| {
 				format!(
 					"Failed to replace direct command shim `{}`",
 					shim_path.display()
@@ -719,7 +617,6 @@ fn create_or_update_symlink(
 			)
 		})?;
 	}
-
 	Ok(ShimInstallStatus::Installed)
 }
 
@@ -729,6 +626,7 @@ fn create_or_update_symlink(
 	_shim_path: &Path,
 	_biwa_path: &Path,
 	_force: bool,
+	_was_managed: bool,
 ) -> Result<ShimInstallStatus> {
 	bail!("Direct command shim installation is only supported on Unix-like systems");
 }
@@ -736,423 +634,256 @@ fn create_or_update_symlink(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::cli::run::RunTransferMode;
-	use crate::config::types::Config;
 	use alloc::collections::BTreeMap;
 	use pretty_assertions::assert_eq;
-	use std::ffi::OsString;
-	use std::fs;
 	use tempfile::tempdir;
 
-	fn direct_config(
-		allow: Vec<String>,
-		default_args: BTreeMap<String, Vec<String>>,
-		prefer_local: bool,
-	) -> Config {
+	fn direct_config(commands: BTreeMap<String, Vec<String>>, bin_dir: PathBuf) -> Config {
 		let mut config = Config::default();
-		config.direct.enabled = true;
-		config.direct.allow = allow;
-		config.direct.default_args = default_args;
-		config.direct.prefer_local = prefer_local;
+		config.direct.commands = commands;
+		config.direct.bin_dir = Some(bin_dir);
 		config
 	}
 
 	#[test]
-	fn direct_invocation_detects_non_biwa_argv0() -> Result<()> {
-		let invocation = direct_invocation_from_args([
-			OsString::from("/tmp/1511"),
-			OsString::from("autotest"),
-			OsString::from("lab01"),
-		])?
-		.expect("direct invocation should be detected");
-
-		assert_eq!(
-			invocation,
-			DirectInvocation {
-				command: "1511".to_owned(),
-				args: vec!["autotest".to_owned(), "lab01".to_owned()],
-			}
-		);
-		Ok(())
-	}
-
-	#[test]
-	fn direct_invocation_ignores_normal_biwa_argv0() -> Result<()> {
-		let invocation = direct_invocation_from_args([
+	fn normal_biwa_invocation_is_unchanged() {
+		let args = [
 			OsString::from("/usr/bin/biwa"),
 			OsString::from("run"),
-			OsString::from("biwa-remote-nosync"),
-		])?;
-
-		assert_eq!(invocation, None);
-		Ok(())
+			OsString::from("dcc"),
+		];
+		assert_eq!(
+			direct_command_name(args.first().expect("argv contains executable")),
+			None
+		);
 	}
 
 	#[test]
-	fn allow_patterns_match_command_names() -> Result<()> {
-		let config = direct_config(
+	fn direct_invocation_expands_to_normal_run_arguments() -> Result<()> {
+		let dir = tempdir()?;
+		let commands = BTreeMap::from([(
+			"dcc".to_owned(),
+			vec!["--skip-sync".to_owned(), "--remote-dir=~/dcc".to_owned()],
+		)]);
+		let config = direct_config(commands, dir.path().join("bin"));
+		let expanded = expand_direct_invocation_with_config(
 			vec![
-				"^\\d{4}$".to_owned(),
-				"^(give|autotest|dcc|1521)$".to_owned(),
+				OsString::from("/tmp/dcc"),
+				OsString::from("-Wall"),
+				OsString::from("main.c"),
 			],
-			BTreeMap::new(),
-			true,
+			"dcc",
+			&config,
+		)?;
+
+		assert_eq!(
+			expanded,
+			[
+				"biwa",
+				"run",
+				"--skip-sync",
+				"--remote-dir=~/dcc",
+				"'dcc'",
+				"-Wall",
+				"main.c",
+			]
+			.map(OsString::from)
 		);
-
-		let allow_patterns = compile_direct_allow_patterns(&config)?;
-
-		assert!(direct_command_is_allowed(&allow_patterns, "1511"));
-		assert!(direct_command_is_allowed(&allow_patterns, "dcc"));
-		assert!(!direct_command_is_allowed(&allow_patterns, "1511x"));
-		assert!(!direct_command_is_allowed(&allow_patterns, "sh"));
 		Ok(())
 	}
 
 	#[test]
-	fn static_shim_names_come_from_literals_and_default_args() -> Result<()> {
-		let mut default_args = BTreeMap::new();
-		default_args.insert("1511".to_owned(), Vec::new());
-		default_args.insert("9999".to_owned(), Vec::new());
+	fn unknown_direct_invocation_is_rejected() {
+		let error = expand_direct_invocation_with_config(
+			vec![OsString::from("/tmp/sh")],
+			"sh",
+			&Config::default(),
+		)
+		.expect_err("unknown direct command should fail");
+		assert!(error.to_string().contains("global `direct.commands`"));
+	}
+
+	#[test]
+	fn configured_commands_are_exact_and_sorted() -> Result<()> {
+		let dir = tempdir()?;
+		let commands = BTreeMap::from([
+			("dcc".to_owned(), Vec::new()),
+			("1511".to_owned(), vec!["--skip-sync".to_owned()]),
+		]);
+		let config = direct_config(commands, dir.path().join("bin"));
+		assert_eq!(configured_shim_names(&config)?, vec!["1511", "dcc"]);
+		Ok(())
+	}
+
+	#[test]
+	fn invalid_names_and_non_option_arguments_are_rejected() {
+		assert!(validate_shim_name("../dcc").is_err());
+		assert!(validate_shim_name(".").is_err());
+		assert!(validate_shim_name("..").is_err());
+		assert!(validate_shim_name("safe;id").is_err());
+		assert!(validate_shim_name("-dcc").is_err());
+		assert!(validate_shim_name("biwa").is_err());
+		assert!(validate_shim_name("biwa.exe").is_err());
+		assert!(validate_shim_name(MANAGED_SHIMS_FILE).is_err());
+		let error = validate_direct_options("dcc", &["other-command".to_owned()])
+			.expect_err("positional options should be rejected");
+		assert!(error.to_string().contains("must not include"));
+	}
+
+	#[test]
+	fn activation_output_moves_shim_dir_to_path_end() -> Result<()> {
+		let bash = activation_script(ActivationShell::Bash, Path::new("/tmp/biwa/bin"))?;
+		assert!(bash.contains(r#"PATH="$__biwa_direct_path:$__biwa_direct_bin""#));
+		assert!(!bash.contains(r#"PATH="$__biwa_direct_bin:$PATH""#));
+		assert!(bash.contains(r#"*:"$__biwa_direct_bin":*)"#));
+
+		let fish = activation_script(ActivationShell::Fish, Path::new("/tmp/biwa/bin"))?;
+		assert!(fish.contains("set -gx PATH $__biwa_direct_path $__biwa_direct_bin"));
+		Ok(())
+	}
+
+	#[test]
+	fn reserved_shell_word_is_quoted_for_remote_execution() -> Result<()> {
+		let dir = tempdir()?;
 		let config = direct_config(
-			vec![
-				"^\\d{4}$".to_owned(),
-				"^(give|autotest|dcc|1521)$".to_owned(),
-			],
-			default_args,
-			true,
+			BTreeMap::from([("if".to_owned(), Vec::new())]),
+			dir.path().join("bin"),
 		);
-
+		let expanded =
+			expand_direct_invocation_with_config(vec![OsString::from("/tmp/if")], "if", &config)?;
 		assert_eq!(
-			static_allowed_shim_names(&config)?,
-			vec!["1511", "1521", "9999", "autotest", "dcc", "give"]
+			expanded,
+			["biwa", "run", "'if'"].map(OsString::from).to_vec()
 		);
-		Ok(())
-	}
-
-	#[test]
-	fn direct_command_name_is_quoted_as_one_remote_shell_token() {
-		assert_eq!(quote_direct_command("safe; id"), "'safe; id'");
-		assert_eq!(quote_direct_command("!"), "'!'");
-		assert_eq!(quote_direct_command("it's"), "'it'\\''s'");
-	}
-
-	#[test]
-	fn static_shim_names_preserve_escaped_pipe_in_alternatives() -> Result<()> {
-		let config = direct_config(
-			vec!["^(cmd1|cmd\\|2|dcc)$".to_owned()],
-			BTreeMap::new(),
-			true,
-		);
-
-		assert_eq!(
-			static_allowed_shim_names(&config)?,
-			vec!["cmd1", "cmd|2", "dcc"]
-		);
-		Ok(())
-	}
-
-	#[test]
-	fn activation_output_appends_path_when_preferring_local() {
-		let script = activation_script(ActivationShell::Bash, Path::new("/tmp/biwa/bin"), true);
-
-		assert!(script.contains(r#"export PATH="$PATH:$__biwa_direct_bin""#));
-		assert!(script.contains(r#"export PATH="$__biwa_direct_bin""#));
-		assert!(script.contains("/tmp/biwa/bin"));
-	}
-
-	#[test]
-	fn activation_output_prepends_path_when_not_preferring_local() {
-		let script = activation_script(ActivationShell::Fish, Path::new("/tmp/biwa/bin"), false);
-
-		assert!(script.contains("set -gx PATH $__biwa_direct_bin $PATH"));
-		assert!(script.contains("/tmp/biwa/bin"));
-	}
-
-	#[test]
-	fn direct_default_args_are_biwa_run_options() -> Result<()> {
-		let options = parse_direct_run_options("biwa-remote-nosync", &["--skip-sync".to_owned()])?;
-
-		assert_eq!(options.transfer_mode(true), RunTransferMode::Skip);
-		assert!(options.env_vars().is_empty());
-		Ok(())
-	}
-
-	#[test]
-	fn direct_default_args_reject_remote_command_args() {
-		let err = parse_direct_run_options("biwa-remote-nosync", &["remote-arg".to_owned()])
-			.expect_err("remote command args should be rejected");
-
-		assert!(
-			err.to_string()
-				.contains("must not include the remote command or remote command arguments"),
-			"error was: {err:?}"
-		);
-	}
-
-	#[test]
-	fn static_shim_names_reject_invalid_default_args() {
-		let mut default_args = BTreeMap::new();
-		default_args.insert("dcc".to_owned(), vec!["--skp-sync".to_owned()]);
-		let config = direct_config(vec!["^dcc$".to_owned()], default_args, true);
-
-		let error = static_allowed_shim_names(&config)
-			.expect_err("invalid direct command defaults should fail diagnostics");
-
-		assert!(
-			error.to_string().contains("Invalid direct.default_args"),
-			"error was: {error:?}"
-		);
-	}
-
-	#[test]
-	fn install_rejects_shim_names_outside_bin_dir() -> Result<()> {
-		let dir = tempdir()?;
-		let shim_bin = dir.path().join("shim");
-		let outside = dir.path().join("outside");
-		let biwa = dir.path().join("biwa");
-		fs::write(&biwa, "")?;
-		fs::write(&outside, "keep")?;
-
-		for unsafe_name in [
-			"../outside".to_owned(),
-			outside.to_string_lossy().into_owned(),
-		] {
-			let mut default_args = BTreeMap::new();
-			default_args.insert(unsafe_name, Vec::new());
-			let mut config = direct_config(vec![".*".to_owned()], default_args, true);
-			config.direct.bin_dir = Some(shim_bin.clone());
-
-			let error = install_shims(&config, &biwa, None, true)
-				.expect_err("path-like shim names should be rejected");
-
-			assert!(
-				error.to_string().contains("shim name"),
-				"error was: {error:?}"
-			);
-			assert_eq!(fs::read_to_string(&outside)?, "keep");
-		}
-		Ok(())
-	}
-
-	#[test]
-	fn local_conflict_detects_command_before_shim_dir() -> Result<()> {
-		let dir = tempdir()?;
-		let local_bin = dir.path().join("local");
-		let shim_bin = dir.path().join("shim");
-		fs::create_dir_all(&local_bin)?;
-		fs::create_dir_all(&shim_bin)?;
-		let command = local_bin.join("dcc");
-		fs::write(&command, "#!/bin/sh\n")?;
-
-		#[cfg(unix)]
-		{
-			use std::os::unix::fs::PermissionsExt as _;
-			fs::set_permissions(&command, fs::Permissions::from_mode(0o755))?;
-		}
-
-		let path = env::join_paths([local_bin.as_path(), shim_bin.as_path()])?;
-
-		assert_eq!(
-			find_local_conflict("dcc", &shim_bin, Some(&path)),
-			Some(ShimConflict {
-				command: "dcc".to_owned(),
-				path: command,
-			})
-		);
-		Ok(())
-	}
-
-	#[test]
-	fn install_skips_conflicts_when_prefer_local_is_enabled() -> Result<()> {
-		let dir = tempdir()?;
-		let local_bin = dir.path().join("local");
-		let shim_bin = dir.path().join("shim");
-		let biwa = dir.path().join("biwa");
-		fs::create_dir_all(&local_bin)?;
-		fs::write(&biwa, "")?;
-		let command = local_bin.join("dcc");
-		fs::write(&command, "#!/bin/sh\n")?;
-
-		#[cfg(unix)]
-		{
-			use std::os::unix::fs::PermissionsExt as _;
-			fs::set_permissions(&command, fs::Permissions::from_mode(0o755))?;
-		}
-
-		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = Some(shim_bin.clone());
-		let path = env::join_paths([local_bin.as_path()])?;
-
-		let report = install_shims(&config, &biwa, Some(&path), false)?;
-
-		assert!(report.installed.is_empty());
-		assert_eq!(
-			report.skipped_conflicts,
-			vec![ShimConflict {
-				command: "dcc".to_owned(),
-				path: command,
-			}]
-		);
-		assert!(!shim_bin.join("dcc").exists());
 		Ok(())
 	}
 
 	#[cfg(unix)]
 	#[test]
-	fn install_force_ignores_conflicts_when_prefer_local_is_enabled() -> Result<()> {
-		use std::os::unix::fs::PermissionsExt as _;
-
-		let dir = tempdir()?;
-		let local_bin = dir.path().join("local");
-		let shim_bin = dir.path().join("shim");
-		let biwa = dir.path().join("biwa");
-		fs::create_dir_all(&local_bin)?;
-		fs::write(&biwa, "")?;
-		let command = local_bin.join("dcc");
-		fs::write(&command, "#!/bin/sh\n")?;
-
-		fs::set_permissions(&command, fs::Permissions::from_mode(0o755))?;
-
-		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = Some(shim_bin.clone());
-		let path = env::join_paths([local_bin.as_path()])?;
-
-		let report = install_shims(&config, &biwa, Some(&path), true)?;
-
-		assert_eq!(report.installed, vec![shim_bin.join("dcc")]);
-		assert!(report.skipped_conflicts.is_empty());
-		assert_eq!(fs::read_link(shim_bin.join("dcc"))?, biwa);
-		Ok(())
-	}
-
-	#[cfg(unix)]
-	#[test]
-	fn install_creates_symlink_for_static_allowed_command() -> Result<()> {
-		let dir = tempdir()?;
-		let shim_bin = dir.path().join("shim");
-		let biwa = dir.path().join("biwa");
-		fs::write(&biwa, "")?;
-
-		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = Some(shim_bin.clone());
-
-		let report = install_shims(&config, &biwa, None, false)?;
-
-		assert_eq!(report.installed, vec![shim_bin.join("dcc")]);
-		assert_eq!(fs::read_link(shim_bin.join("dcc"))?, biwa);
-		Ok(())
-	}
-
-	#[cfg(unix)]
-	#[test]
-	fn install_force_replaces_existing_file() -> Result<()> {
-		let dir = tempdir()?;
-		let shim_bin = dir.path().join("shim");
-		let biwa = dir.path().join("biwa");
-		fs::create_dir_all(&shim_bin)?;
-		fs::write(&biwa, "")?;
-		fs::write(shim_bin.join("dcc"), "#!/bin/sh\n")?;
-
-		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = Some(shim_bin.clone());
-
-		let report = install_shims(&config, &biwa, None, true)?;
-
-		assert_eq!(report.installed, vec![shim_bin.join("dcc")]);
-		assert_eq!(fs::read_link(shim_bin.join("dcc"))?, biwa);
-		Ok(())
-	}
-
-	#[cfg(unix)]
-	#[test]
-	fn install_requires_force_to_replace_unknown_symlink() -> Result<()> {
+	fn install_creates_updates_and_removes_managed_symlinks() -> Result<()> {
 		use std::os::unix::fs::symlink;
 
 		let dir = tempdir()?;
-		let shim_bin = dir.path().join("shim");
-		let biwa = dir.path().join("biwa");
-		let other = dir.path().join("other");
-		fs::create_dir_all(&shim_bin)?;
-		fs::write(&biwa, "")?;
-		fs::write(&other, "")?;
-		symlink(&other, shim_bin.join("dcc"))?;
+		let bin_dir = dir.path().join("bin");
+		let current_biwa = dir.path().join("current/biwa");
+		let old_biwa = dir.path().join("old/biwa");
+		fs::create_dir_all(&bin_dir)?;
+		fs::create_dir_all(current_biwa.parent().expect("parent"))?;
+		fs::create_dir_all(old_biwa.parent().expect("parent"))?;
+		fs::write(&current_biwa, "")?;
+		fs::write(&old_biwa, "")?;
+		symlink(&old_biwa, bin_dir.join("dcc"))?;
+		symlink(&old_biwa, bin_dir.join("stale"))?;
+		symlink("/usr/bin/true", bin_dir.join("unmanaged"))?;
+		symlink(&old_biwa, bin_dir.join("unrelated-biwa"))?;
+		fs::write(bin_dir.join(MANAGED_SHIMS_FILE), "dcc\nstale\n")?;
 
-		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = Some(shim_bin.clone());
+		let commands = BTreeMap::from([
+			("1511".to_owned(), Vec::new()),
+			("dcc".to_owned(), vec!["--skip-sync".to_owned()]),
+		]);
+		let config = direct_config(commands, bin_dir.clone());
+		let report = install_shims(&config, &current_biwa, false)?;
 
-		let error = install_shims(&config, &biwa, None, false)
-			.expect_err("an unmanaged symlink should require force");
-
-		assert!(error.to_string().contains("Use `--force`"));
-		assert_eq!(fs::read_link(shim_bin.join("dcc"))?, other);
+		assert_eq!(
+			report.installed,
+			vec![bin_dir.join("1511"), bin_dir.join("dcc")]
+		);
+		assert_eq!(report.removed, vec![bin_dir.join("stale")]);
+		assert_eq!(fs::read_link(bin_dir.join("dcc"))?, current_biwa);
+		assert!(bin_dir.join("unmanaged").exists());
+		assert!(bin_dir.join("unrelated-biwa").exists());
+		assert_eq!(
+			fs::read_to_string(bin_dir.join(MANAGED_SHIMS_FILE))?,
+			"1511\ndcc\n"
+		);
 		Ok(())
 	}
 
 	#[cfg(unix)]
 	#[test]
-	fn install_rejects_group_writable_shim_directory() -> Result<()> {
+	fn install_preserves_current_shim_and_requires_force_for_file() -> Result<()> {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir()?;
+		let bin_dir = dir.path().join("bin");
+		let biwa = dir.path().join("biwa");
+		fs::create_dir_all(&bin_dir)?;
+		fs::write(&biwa, "")?;
+		symlink(&biwa, bin_dir.join("dcc"))?;
+		let config = direct_config(
+			BTreeMap::from([("dcc".to_owned(), Vec::new())]),
+			bin_dir.clone(),
+		);
+
+		let report = install_shims(&config, &biwa, false)?;
+		assert_eq!(report.unchanged, vec![bin_dir.join("dcc")]);
+
+		fs::remove_file(bin_dir.join("dcc"))?;
+		fs::write(bin_dir.join("dcc"), "keep")?;
+		let error =
+			install_shims(&config, &biwa, false).expect_err("regular files should require --force");
+		assert!(error.to_string().contains("Use `--force`"));
+		install_shims(&config, &biwa, true)?;
+		assert_eq!(fs::read_link(bin_dir.join("dcc"))?, biwa);
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn install_requires_force_to_replace_untracked_symlink() -> Result<()> {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir()?;
+		let bin_dir = dir.path().join("bin");
+		let biwa = dir.path().join("biwa");
+		let unrelated = dir.path().join("unrelated");
+		fs::create_dir_all(&bin_dir)?;
+		fs::write(&biwa, "")?;
+		fs::write(&unrelated, "")?;
+		symlink(&unrelated, bin_dir.join("dcc"))?;
+		let config = direct_config(
+			BTreeMap::from([("dcc".to_owned(), Vec::new())]),
+			bin_dir.clone(),
+		);
+
+		let error = install_shims(&config, &biwa, false)
+			.expect_err("untracked symlinks should require --force");
+		assert!(error.to_string().contains("untracked symlink"));
+		assert_eq!(fs::read_link(bin_dir.join("dcc"))?, unrelated);
+
+		install_shims(&config, &biwa, true)?;
+		assert_eq!(fs::read_link(bin_dir.join("dcc"))?, biwa);
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn install_rejects_unsafe_shim_directory() -> Result<()> {
 		use std::os::unix::fs::PermissionsExt as _;
 
 		let dir = tempdir()?;
-		let shim_bin = dir.path().join("shim");
+		let bin_dir = dir.path().join("bin");
 		let biwa = dir.path().join("biwa");
-		fs::create_dir_all(&shim_bin)?;
-		fs::set_permissions(&shim_bin, fs::Permissions::from_mode(0o770))?;
+		fs::create_dir_all(&bin_dir)?;
+		fs::set_permissions(&bin_dir, fs::Permissions::from_mode(0o770))?;
 		fs::write(&biwa, "")?;
+		let config = direct_config(BTreeMap::from([("dcc".to_owned(), Vec::new())]), bin_dir);
 
-		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = Some(shim_bin);
-
-		let error = install_shims(&config, &biwa, None, false)
-			.expect_err("a group-writable PATH directory should be rejected");
-
+		let error = install_shims(&config, &biwa, false)
+			.expect_err("group-writable PATH directory should fail");
 		assert!(error.to_string().contains("group- or world-writable"));
 		Ok(())
 	}
 
 	#[cfg(unix)]
 	#[test]
-	fn install_rejects_symlinked_shim_directory() -> Result<()> {
-		use std::os::unix::fs::symlink;
+	fn activation_rejects_non_utf8_shim_directory() {
+		use std::os::unix::ffi::OsStringExt as _;
 
-		let dir = tempdir()?;
-		let actual_bin = dir.path().join("actual");
-		let shim_bin = dir.path().join("shim");
-		let biwa = dir.path().join("biwa");
-		fs::create_dir_all(&actual_bin)?;
-		symlink(&actual_bin, &shim_bin)?;
-		fs::write(&biwa, "")?;
-
-		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = Some(shim_bin);
-
-		let error = install_shims(&config, &biwa, None, false)
-			.expect_err("a symlinked PATH directory should be rejected");
-
-		assert!(error.to_string().contains("symlinked"));
-		Ok(())
-	}
-
-	#[cfg(unix)]
-	#[test]
-	fn install_rejects_replaceable_parent_directory() -> Result<()> {
-		use std::os::unix::fs::PermissionsExt as _;
-
-		let dir = tempdir()?;
-		let replaceable_parent = dir.path().join("replaceable");
-		let shim_bin = replaceable_parent.join("shim");
-		let biwa = dir.path().join("biwa");
-		fs::create_dir_all(&shim_bin)?;
-		fs::set_permissions(&replaceable_parent, fs::Permissions::from_mode(0o777))?;
-		fs::write(&biwa, "")?;
-
-		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
-		config.direct.bin_dir = Some(shim_bin);
-
-		let error = install_shims(&config, &biwa, None, false)
-			.expect_err("a replaceable PATH parent should be rejected");
-
-		assert!(error.to_string().contains("replaceable parent"));
-		Ok(())
+		let path = PathBuf::from(OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xff]));
+		let error = activation_script(ActivationShell::Bash, &path)
+			.expect_err("non-UTF-8 shell paths should fail explicitly");
+		assert!(error.to_string().contains("not valid UTF-8"));
 	}
 }

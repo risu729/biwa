@@ -23,8 +23,8 @@ cmd activate help="Print shell activation code and manage direct command shims" 
             choices bash zsh fish
         }
     }
-    cmd install help="Create or update configured static command shims" {
-        flag "-f --force" help="Replace existing shim files and ignore local command conflicts"
+    cmd install help="Reconcile configured direct command shims" {
+        flag "-f --force" help="Replace existing entries not already managed by biwa"
     }
     cmd doctor help="Print diagnostic information for direct command activation"
 }

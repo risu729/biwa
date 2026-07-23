@@ -10,11 +10,8 @@ expression: content
     "quota_thresholds": {}
   },
   "direct": {
-    "allow": [],
     "bin_dir": null,
-    "default_args": {},
-    "enabled": false,
-    "prefer_local": true
+    "commands": {}
   },
   "env": {
     "forward_method": "export",

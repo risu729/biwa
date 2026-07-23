@@ -1220,18 +1220,20 @@ fn e2e_direct_command_symlink_runs_allowed_remote_command() -> Result<()> {
 	use std::os::unix::fs::PermissionsExt as _;
 
 	let dir = tempfile::tempdir()?;
+	let config_dir = tempfile::tempdir()?;
 	let shim_dir = tempfile::tempdir()?;
 	let remote_command = dir.path().join("1511");
 	fs::write(
 		dir.path().join("biwa.toml"),
 		r#"
-[direct]
-enabled = true
-allow = ["^1511$"]
-
 [env.vars]
 PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 "#,
+	)?;
+	fs::create_dir_all(config_dir.path().join("biwa"))?;
+	fs::write(
+		config_dir.path().join("biwa/config.toml"),
+		"[direct.commands]\n1511 = []\n",
 	)?;
 	fs::write(
 		&remote_command,
@@ -1242,6 +1244,8 @@ PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	let shim = create_biwa_symlink(shim_dir.path(), "1511")?;
 	let output = biwa_program_cmd(&shim, &["autotest", "lab01"])
 		.dir(dir.path())
+		.env("HOME", config_dir.path())
+		.env("XDG_CONFIG_HOME", config_dir.path())
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
 		.stderr_capture()
@@ -1262,93 +1266,9 @@ PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 #[cfg(unix)]
 #[test]
-fn e2e_direct_command_quotes_shell_metacharacters_in_name() -> Result<()> {
-	use std::os::unix::fs::PermissionsExt as _;
-
+fn e2e_direct_command_options_are_biwa_run_options() -> Result<()> {
 	let dir = tempfile::tempdir()?;
-	let shim_dir = tempfile::tempdir()?;
-	let command_name = "safe;printf PWNED";
-	let remote_command = dir.path().join(command_name);
-	fs::write(
-		dir.path().join("biwa.toml"),
-		r#"
-[direct]
-enabled = true
-allow = ["^safe;printf PWNED$"]
-
-[env.vars]
-PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-"#,
-	)?;
-	fs::write(&remote_command, "#!/bin/sh\nprintf 'literal-command\\n'\n")?;
-	fs::set_permissions(&remote_command, fs::Permissions::from_mode(0o755))?;
-
-	let shim = create_biwa_symlink(shim_dir.path(), command_name)?;
-	let output = biwa_program_cmd(&shim, &[])
-		.dir(dir.path())
-		.env("BIWA_LOG_QUIET", "true")
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
-
-	assert!(
-		output.status.success(),
-		"stderr: {}",
-		String::from_utf8_lossy(&output.stderr)
-	);
-	pretty_assertions::assert_eq!(String::from_utf8_lossy(&output.stdout), "literal-command\n");
-	Ok(())
-}
-
-#[cfg(unix)]
-#[test]
-fn e2e_direct_command_quotes_shell_reserved_word_name() -> Result<()> {
-	use std::os::unix::fs::PermissionsExt as _;
-
-	let dir = tempfile::tempdir()?;
-	let shim_dir = tempfile::tempdir()?;
-	let command_name = "!";
-	let remote_command = dir.path().join(command_name);
-	fs::write(
-		dir.path().join("biwa.toml"),
-		r#"
-[direct]
-enabled = true
-allow = ["^!$"]
-
-[env.vars]
-PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-"#,
-	)?;
-	fs::write(&remote_command, "#!/bin/sh\nprintf 'literal-reserved\\n'\n")?;
-	fs::set_permissions(&remote_command, fs::Permissions::from_mode(0o755))?;
-
-	let shim = create_biwa_symlink(shim_dir.path(), command_name)?;
-	let output = biwa_program_cmd(&shim, &[])
-		.dir(dir.path())
-		.env("BIWA_LOG_QUIET", "true")
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
-
-	assert!(
-		output.status.success(),
-		"stderr: {}",
-		String::from_utf8_lossy(&output.stderr)
-	);
-	pretty_assertions::assert_eq!(
-		String::from_utf8_lossy(&output.stdout),
-		"literal-reserved\n"
-	);
-	Ok(())
-}
-
-#[cfg(unix)]
-#[test]
-fn e2e_direct_command_default_args_are_biwa_run_options() -> Result<()> {
-	let dir = tempfile::tempdir()?;
+	let config_dir = tempfile::tempdir()?;
 	let shim_dir = tempfile::tempdir()?;
 	let remote_command = "biwa-remote-nosync";
 	let remote_dir = format!(
@@ -1385,25 +1305,27 @@ chmod +x {remote_command}
 	.run()?;
 	fs::write(
 		dir.path().join("biwa.toml"),
-		format!(
-			r#"
+		r#"
 [sync.sftp]
 max_files_to_sync = 0
-
-[direct]
-enabled = true
-allow = ["^{remote_command}$"]
-default_args = {{ "{remote_command}" = ["--skip-sync", "--remote-dir", "{remote_dir}"] }}
 
 [env.vars]
 PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 "#,
+	)?;
+	fs::create_dir_all(config_dir.path().join("biwa"))?;
+	fs::write(
+		config_dir.path().join("biwa/config.toml"),
+		format!(
+			"[direct.commands]\n{remote_command} = [\"--skip-sync\", \"--remote-dir\", \"{remote_dir}\"]\n"
 		),
 	)?;
 
 	let shim = create_biwa_symlink(shim_dir.path(), remote_command)?;
 	let output = biwa_program_cmd(&shim, &[])
 		.dir(dir.path())
+		.env("HOME", config_dir.path())
+		.env("XDG_CONFIG_HOME", config_dir.path())
 		.env("BIWA_LOG_QUIET", "true")
 		.stdout_capture()
 		.stderr_capture()
@@ -1430,19 +1352,23 @@ PATH = ".:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 #[test]
 fn e2e_direct_command_symlink_rejects_non_allowed_command() -> Result<()> {
 	let dir = tempfile::tempdir()?;
+	let config_dir = tempfile::tempdir()?;
 	let shim_dir = tempfile::tempdir()?;
 	fs::write(
 		dir.path().join("biwa.toml"),
-		r#"
-[direct]
-enabled = true
-allow = ["^1511$"]
-"#,
+		"[direct.commands]\nnot-allowed = []\n",
+	)?;
+	fs::create_dir_all(config_dir.path().join("biwa"))?;
+	fs::write(
+		config_dir.path().join("biwa/config.toml"),
+		"[direct.commands]\n1511 = []\n",
 	)?;
 
 	let shim = create_biwa_symlink(shim_dir.path(), "not-allowed")?;
 	let output = biwa_program_cmd(&shim, &[])
 		.dir(dir.path())
+		.env("HOME", config_dir.path())
+		.env("XDG_CONFIG_HOME", config_dir.path())
 		.env("BIWA_LOG_QUIET", "true")
 		.stderr_capture()
 		.unchecked()
@@ -1451,7 +1377,7 @@ allow = ["^1511$"]
 	assert!(!output.status.success());
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	assert!(
-		stderr.contains("not allowed by `direct.allow`"),
+		stderr.contains("not configured in global `direct.commands`"),
 		"stderr was: {stderr}"
 	);
 	Ok(())

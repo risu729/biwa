@@ -4,6 +4,7 @@ use crate::config::types::Config;
 use crate::env_flag;
 use clap::{ArgAction, Parser, Subcommand};
 use color_eyre::eyre::eyre;
+use std::env;
 use tracing::Level;
 use tracing_subscriber::{
 	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
@@ -94,14 +95,7 @@ enum Commands {
 
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
 pub async fn run() -> Result<()> {
-	if let Some(invocation) = activate::direct_invocation_from_env()? {
-		let output_mode = OutputMode::from_env();
-		init_logging(0, output_mode);
-		return activate::run_direct_invocation(invocation, output_mode.quiet, output_mode.silent)
-			.await;
-	}
-
-	let cli = Cli::parse();
+	let cli = Cli::parse_from(activate::expand_direct_invocation(env::args_os())?);
 	let output_mode = OutputMode::resolve(&cli);
 	init_logging(cli.verbose, output_mode);
 

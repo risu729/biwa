@@ -12,7 +12,7 @@ use tracing::{debug, info, warn};
 
 /// Tracks whether required SSH settings were supplied explicitly rather than inherited from defaults.
 #[derive(Debug, Default)]
-pub struct RequiredConfigPresence {
+struct RequiredConfigPresence {
 	/// Whether `ssh.host` was provided by any config layer or environment variable.
 	ssh_host: bool,
 	/// Whether `ssh.user` was provided by any config layer or environment variable.
@@ -27,13 +27,16 @@ impl Config {
 		Ok(config)
 	}
 
-	/// Loads configuration for local-only commands that do not require SSH settings.
-	pub fn load_optional_ssh() -> Result<Self> {
-		Ok(Self::load_optional_ssh_with_presence()?.0)
+	/// Loads only global configuration for commands that do not require SSH settings.
+	pub fn load_global_optional_ssh() -> Result<Self> {
+		let home = homedir::my_home().ok().flatten();
+		let config_dir = dirs::config_dir();
+		debug!(home = ?home, config_dir = ?config_dir, "Loading global configuration");
+		Ok(Self::load_internal_with_presence(home.as_ref(), config_dir.as_ref(), None)?.0)
 	}
 
 	/// Loads configuration and reports whether required SSH settings were provided.
-	pub(crate) fn load_optional_ssh_with_presence() -> Result<(Self, RequiredConfigPresence)> {
+	fn load_optional_ssh_with_presence() -> Result<(Self, RequiredConfigPresence)> {
 		let home = homedir::my_home().ok().flatten();
 		let config_dir = dirs::config_dir();
 		let cwd = env::current_dir().ok();
@@ -251,10 +254,6 @@ impl Config {
 				}
 			}
 		}
-		for pattern in &self.direct.allow {
-			regex::Regex::new(pattern)
-				.wrap_err_with(|| format!("Invalid direct.allow regex `{pattern}`"))?;
-		}
 		for key in self.clean.quota_thresholds.keys() {
 			if *key > 100 {
 				bail!("Invalid clean.quota_thresholds key {key}: must be between 0 and 100");
@@ -372,6 +371,7 @@ mod tests {
 	use super::*;
 	use crate::env_vars::{EnvForwardMethod, EnvVarRule, EnvVarSelector, EnvVarSpec};
 	use crate::testing::EnvCleanup;
+	use alloc::collections::BTreeMap;
 	use pretty_assertions::{assert_eq, assert_matches, assert_ne};
 	use rstest::rstest;
 	use serial_test::serial;
@@ -483,11 +483,8 @@ mod tests {
 		    "quota_thresholds": {}
 		  },
 		  "direct": {
-		    "enabled": false,
 		    "bin_dir": null,
-		    "allow": [],
-		    "default_args": {},
-		    "prefer_local": true
+		    "commands": {}
 		  }
 		}
 		"#);
@@ -775,7 +772,7 @@ ssh.user = "u"
 
 	#[serial]
 	#[test]
-	fn direct_allow_overrides_lower_priority_layers() -> Result<()> {
+	fn direct_commands_override_lower_priority_layers() -> Result<()> {
 		let dir = tempdir()?;
 		let root = dir.path();
 		let subdir = root.join("subdir");
@@ -784,22 +781,27 @@ ssh.user = "u"
 
 		fs::write(
 			root.join("biwa.toml"),
-			r#"
+			"
 [direct]
-allow = ["^parent-only$"]
-"#,
+[direct.commands]
+parent = []
+",
 		)?;
 		fs::write(
 			subdir.join("biwa.toml"),
 			r#"
 [direct]
-allow = ["^child-only$"]
+[direct.commands]
+child = ["--skip-sync"]
 "#,
 		)?;
 
 		let config = load_internal(None, None, Some(&subdir))?;
 
-		assert_eq!(config.direct.allow, vec!["^child-only$"]);
+		assert_eq!(
+			config.direct.commands,
+			BTreeMap::from([("child".to_owned(), vec!["--skip-sync".to_owned()])])
+		);
 		Ok(())
 	}
 

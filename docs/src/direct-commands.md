@@ -1,47 +1,62 @@
 # Direct Commands
 
 Direct commands let selected command names dispatch through `biwa` without typing `biwa run`.
-
-For example, after activation, a command like this:
+For example:
 
 ```bash
 1511 autotest lab01
 ```
 
-runs the allowed remote command `1511 autotest lab01` using the same synchronization and remote execution path as `biwa run`.
+is handled as `biwa run 1511 autotest lab01`, using the same configuration,
+synchronization, and remote execution path.
 
 ## Configuration
 
-Direct commands are disabled by default. Enable them and allow only the command names you want to run remotely:
+Define each command in your **global** biwa configuration:
 
 ```toml
 [direct]
-enabled = true
-# This replaces the default or lower-priority allow list; it is not additive.
-allow = ["^\\d{4}$", "^(give|autotest|dcc)$"]
-default_args = { "1511" = [] }
-prefer_local = true
+# Optional; defaults to the platform data directory.
+bin_dir = "~/.local/share/biwa/bin"
+
+[direct.commands]
+"1511" = []
+dcc = ["--skip-sync", "--remote-dir", "~/dcc"]
 ```
 
-- `enabled` must be `true` before shim invocations dispatch remotely.
-- `bin_dir` is the directory added to your shell `PATH`. If unset, it uses the platform data directory, such as `$XDG_DATA_HOME/biwa/bin` on Linux.
-- `allow` contains regular expressions matched against the shim command name. A higher-priority config layer replaces this list instead of appending to it.
-- `default_args` adds `biwa run` options for an exact shim command name. Use options like `--skip-sync` only for remote-only commands that do not depend on synchronized project files.
-- `prefer_local` keeps existing local commands earlier in `PATH` ahead of biwa shims.
+The table key is the exact command name. Its value is a list of `biwa run` options
+inserted before that command. An empty list uses the normal run defaults.
+
+Direct command settings are intentionally global-only. Project-local
+`direct.commands` entries are ignored when selecting a shim, but the resulting
+`biwa run` still loads the normal project and global configuration for SSH,
+synchronization, environment variables, and hooks.
+
+Command names may contain ASCII letters, digits, `-`, `_`, `.`, and `+`, and may
+not begin with `-`. The names `.`, `..`, `biwa`, `biwa.exe`, and the internal
+`.biwa-*` namespace are reserved.
 
 ## Install Shims
 
-Create or update static command shims:
+Reconcile the configured shims:
 
 ```bash
 biwa activate install
 ```
 
-`biwa` can create shims for literal allow entries such as `^dcc$`, simple alternatives such as `^(give|autotest)$`, and keys present in `direct.default_args`. Regex families such as `^\\d{4}$` are matched at runtime, but `activate install` cannot enumerate every possible name from them; add the specific command as a `default_args` key when you want a static shim for it.
+This creates one symlink per `direct.commands` entry, updates symlinks whose biwa
+target changed, and uses a manifest in the shim directory to remove only stale
+symlinks previously created by biwa. Existing non-symlink files and untracked
+symlinks are preserved; use `--force` to replace an existing untracked entry
+whose name is explicitly configured.
+
+The links point directly to the `biwa` executable. When invoked through a link,
+biwa reads its executable name and expands the invocation into the equivalent
+`biwa run` arguments.
 
 ## Activate Your Shell
 
-Add one of these to your shell configuration:
+Add the appropriate command to your shell configuration:
 
 ### Bash
 
@@ -61,16 +76,6 @@ eval "$(biwa activate --shell zsh)"
 biwa activate --shell fish | source
 ```
 
-Run diagnostics with:
-
-```bash
-biwa activate doctor
-```
-
-## Conflict Behavior
-
-When `direct.prefer_local = true`, `biwa activate install` skips a shim if an executable with the same name appears earlier in `PATH`. The message identifies the local command that would take precedence. Use `biwa activate install --force` to create configured shims anyway and replace existing files in the shim directory.
-
-To replace a shim after its target changes, rerun `biwa activate install --force`. To remove direct command support, remove the activation line from your shell config and delete the shim directory shown by `biwa activate doctor`.
-
-Only command names matched by `direct.allow` dispatch remotely. Unknown shim names fail instead of turning arbitrary local commands into remote commands.
+Activation removes earlier occurrences of the shim directory and appends it once
+to `PATH`, so an existing local executable wins when it appears earlier. Run
+`biwa activate doctor` to show the global shim directory and configured commands.

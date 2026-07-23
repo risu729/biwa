@@ -17,11 +17,8 @@
       "description": "Direct command shim configuration.",
       "$ref": "#/$defs/DirectConfig",
       "default": {
-        "allow": [],
         "bin_dir": null,
-        "default_args": {},
-        "enabled": false,
-        "prefer_local": true
+        "commands": {}
       }
     },
     "env": {
@@ -112,23 +109,17 @@
       "description": "Direct command shim settings.",
       "type": "object",
       "properties": {
-        "allow": {
-          "description": "Regular expressions matching command names that may dispatch remotely.\n\nHigher-priority config layers replace this list instead of appending to it.",
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
         "bin_dir": {
           "description": "Directory containing direct command shims. If unset, uses the platform data directory.",
           "type": [
             "string",
             "null"
-          ]
+          ],
+          "default": null,
+          "minLength": 1
         },
-        "default_args": {
-          "description": "`biwa run` options inserted before the direct command name.",
+        "commands": {
+          "description": "Exact command names and the `biwa run` options inserted before each command.",
           "type": "object",
           "additionalProperties": {
             "type": "array",
@@ -136,17 +127,29 @@
               "type": "string"
             }
           },
-          "default": {}
-        },
-        "enabled": {
-          "description": "Enable direct command dispatch when biwa is invoked through an allowed shim name.",
-          "type": "boolean",
-          "default": false
-        },
-        "prefer_local": {
-          "description": "Keep local commands earlier in PATH ahead of biwa shims.",
-          "type": "boolean",
-          "default": true
+          "default": {},
+          "propertyNames": {
+            "allOf": [
+              {
+                "pattern": "^[A-Za-z0-9._+][A-Za-z0-9._+-]*$"
+              },
+              {
+                "not": {
+                  "enum": [
+                    ".",
+                    "..",
+                    "biwa",
+                    "biwa.exe"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "pattern": "^\\.biwa-"
+                }
+              }
+            ]
+          }
         }
       }
     },

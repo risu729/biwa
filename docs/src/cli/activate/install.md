@@ -3,10 +3,10 @@
 
 - **Usage**: `biwa activate install [-f --force]`
 
-Create or update configured static command shims
+Reconcile configured direct command shims
 
 ## Flags
 
 ### `-f --force`
 
-Replace existing shim files and ignore local command conflicts
+Replace existing entries not already managed by biwa
