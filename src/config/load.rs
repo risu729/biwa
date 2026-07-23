@@ -215,6 +215,12 @@ impl Config {
 	fn resolve_loaded_paths(config: &mut Self) {
 		if let Some(bin_dir) = &mut config.direct.bin_dir {
 			*bin_dir = expand_tilde(bin_dir);
+			if !bin_dir.as_os_str().is_empty()
+				&& bin_dir.is_relative()
+				&& let Ok(cwd) = env::current_dir()
+			{
+				*bin_dir = cwd.join(&*bin_dir);
+			}
 		}
 	}
 
@@ -228,6 +234,22 @@ impl Config {
 				"Absolute remote_root path detected: {}. It is recommended to use a relative path starting with '~'.",
 				self.sync.remote_root.display()
 			);
+		}
+		if let Some(bin_dir) = &self.direct.bin_dir {
+			if bin_dir.as_os_str().is_empty() {
+				bail!("Invalid direct.bin_dir: path must not be empty");
+			}
+			if !bin_dir.is_absolute() {
+				bail!("Invalid direct.bin_dir: resolved path must be absolute");
+			}
+			#[cfg(unix)]
+			{
+				use std::os::unix::ffi::OsStrExt as _;
+
+				if bin_dir.as_os_str().as_bytes().contains(&b':') {
+					bail!("Invalid direct.bin_dir: path must not contain `:`");
+				}
+			}
 		}
 		for pattern in &self.direct.allow {
 			regex::Regex::new(pattern)
@@ -1293,6 +1315,50 @@ user = "user"
 			xdg_data_home.path().join("biwa/bin")
 		);
 		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn direct_bin_dir_rejects_empty_environment_value() {
+		let _cleanup = EnvCleanup::set("BIWA_DIRECT_BIN_DIR", "");
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+
+		let error = load_internal(None, None, None)
+			.expect_err("an empty direct shim directory should be rejected");
+
+		assert!(
+			error.to_string().contains("direct.bin_dir"),
+			"error was: {error:?}"
+		);
+	}
+
+	#[serial]
+	#[test]
+	fn direct_bin_dir_resolves_relative_environment_value() -> Result<()> {
+		let cwd = env::current_dir()?;
+		let _cleanup = EnvCleanup::set("BIWA_DIRECT_BIN_DIR", "relative-bin");
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+
+		let config = load_internal(None, None, None)?;
+
+		assert_eq!(config.direct.resolved_bin_dir(), cwd.join("relative-bin"));
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[serial]
+	#[test]
+	fn direct_bin_dir_rejects_path_separator() {
+		let _cleanup = EnvCleanup::set("BIWA_DIRECT_BIN_DIR", "/tmp/first:/tmp/second");
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+
+		let error = load_internal(None, None, None)
+			.expect_err("multiple PATH entries should not be accepted as one shim directory");
+
+		assert!(
+			error.to_string().contains("must not contain `:`"),
+			"error was: {error:?}"
+		);
 	}
 
 	#[serial]

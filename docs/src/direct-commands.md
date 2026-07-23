@@ -19,7 +19,7 @@ Direct commands are disabled by default. Enable them and allow only the command 
 enabled = true
 # This replaces the default or lower-priority allow list; it is not additive.
 allow = ["^\\d{4}$", "^(give|autotest|dcc)$"]
-default_args = {}
+default_args = { "1511" = [] }
 prefer_local = true
 ```
 
@@ -71,6 +71,6 @@ biwa activate doctor
 
 When `direct.prefer_local = true`, `biwa activate install` skips a shim if an executable with the same name appears earlier in `PATH`. The message identifies the local command that would take precedence. Use `biwa activate install --force` to create configured shims anyway and replace existing files in the shim directory.
 
-To replace a shim, rerun `biwa activate install`. To remove direct command support, remove the activation line from your shell config and delete the shim directory shown by `biwa activate doctor`.
+To replace a shim after its target changes, rerun `biwa activate install --force`. To remove direct command support, remove the activation line from your shell config and delete the shim directory shown by `biwa activate doctor`.
 
 Only command names matched by `direct.allow` dispatch remotely. Unknown shim names fail instead of turning arbitrary local commands into remote commands.

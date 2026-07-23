@@ -10,6 +10,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::process;
 
 /// Shell activation and direct command shim management.
 #[derive(Args, Debug)]
@@ -112,6 +113,7 @@ impl Activate {
 		}
 
 		if let Some(shell) = self.shell {
+			ensure_secure_shim_dir(&bin_dir)?;
 			println!(
 				"{}",
 				activation_script(shell, &bin_dir, config.direct.prefer_local)
@@ -161,13 +163,14 @@ pub(super) async fn run_direct_invocation(
 		.get(&invocation.command)
 		.map_or(&[][..], Vec::as_slice);
 	let run_options = parse_direct_run_options(&invocation.command, default_args)?;
+	let quoted_command = quote_direct_command(&invocation.command);
 
 	required_presence.ensure_all_present()?;
 	run_remote(
 		&config,
 		run_options.transfer_args(),
 		RemoteCommand {
-			command: &invocation.command,
+			command: &quoted_command,
 			command_args: &invocation.args,
 			cli_env_vars: run_options.env_vars(),
 		},
@@ -176,6 +179,11 @@ pub(super) async fn run_direct_invocation(
 		silent,
 	)
 	.await
+}
+
+/// Quotes a direct command name as one literal remote shell token.
+fn quote_direct_command(command: &str) -> String {
+	format!("'{}'", command.replace('\'', "'\\''"))
 }
 
 /// Extracts a direct invocation from a supplied argument iterator.
@@ -290,12 +298,7 @@ fn install_shims(
 	let shim_names = static_allowed_shim_names(config)?;
 	let bin_dir = config.direct.resolved_bin_dir();
 
-	fs::create_dir_all(&bin_dir).wrap_err_with(|| {
-		format!(
-			"Failed to create direct shim directory `{}`",
-			bin_dir.display()
-		)
-	})?;
+	ensure_secure_shim_dir(&bin_dir)?;
 
 	for command in shim_names {
 		if !force
@@ -370,10 +373,135 @@ fn static_allowed_shim_names(config: &Config) -> Result<Vec<String>> {
 
 	names.extend(config.direct.default_args.keys().cloned());
 
-	Ok(names
+	let names = names
 		.into_iter()
 		.filter(|name| direct_command_is_allowed(&allow_patterns, name))
-		.collect())
+		.collect::<Vec<_>>();
+
+	for name in &names {
+		validate_shim_name(name)?;
+		if let Some(default_args) = config.direct.default_args.get(name) {
+			parse_direct_run_options(name, default_args)?;
+		}
+	}
+
+	Ok(names)
+}
+
+/// Rejects shim names that could resolve outside the configured shim directory.
+fn validate_shim_name(name: &str) -> Result<()> {
+	if Path::new(name).file_name() != Some(OsStr::new(name)) {
+		bail!(
+			"Invalid direct command shim name `{name}`: expected one non-empty filename without path separators"
+		);
+	}
+	Ok(())
+}
+
+/// Creates the shim directory privately and rejects unsafe existing permissions.
+#[cfg(unix)]
+fn ensure_secure_shim_dir(bin_dir: &Path) -> Result<()> {
+	use nix::unistd::Uid;
+	use std::os::unix::ffi::OsStrExt as _;
+	use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _, PermissionsExt as _};
+
+	if !bin_dir.is_absolute() {
+		bail!("Refusing to use non-absolute direct shim directory");
+	}
+	if bin_dir.as_os_str().as_bytes().contains(&b':') {
+		bail!("Refusing to use direct shim directory containing `:`");
+	}
+
+	if !bin_dir.try_exists().wrap_err_with(|| {
+		format!(
+			"Failed to inspect direct shim directory `{}`",
+			bin_dir.display()
+		)
+	})? {
+		let mut builder = fs::DirBuilder::new();
+		builder.recursive(true).mode(0o700);
+		builder.create(bin_dir).wrap_err_with(|| {
+			format!(
+				"Failed to create direct shim directory `{}`",
+				bin_dir.display()
+			)
+		})?;
+	}
+
+	let metadata = fs::symlink_metadata(bin_dir).wrap_err_with(|| {
+		format!(
+			"Failed to inspect direct shim directory `{}`",
+			bin_dir.display()
+		)
+	})?;
+	if metadata.file_type().is_symlink() {
+		bail!(
+			"Refusing to use symlinked direct shim directory `{}`",
+			bin_dir.display()
+		);
+	}
+	if !metadata.is_dir() {
+		bail!(
+			"Direct shim path `{}` is not a directory",
+			bin_dir.display()
+		);
+	}
+	let effective_uid = Uid::effective().as_raw();
+	if metadata.uid() != effective_uid {
+		bail!(
+			"Refusing to use direct shim directory `{}` because it is not owned by the current user",
+			bin_dir.display()
+		);
+	}
+	if metadata.permissions().mode() & 0o022 != 0 {
+		bail!(
+			"Refusing to use group- or world-writable direct shim directory `{}`",
+			bin_dir.display()
+		);
+	}
+
+	let canonical_bin_dir = bin_dir.canonicalize().wrap_err_with(|| {
+		format!(
+			"Failed to resolve direct shim directory `{}`",
+			bin_dir.display()
+		)
+	})?;
+	for parent in canonical_bin_dir.ancestors().skip(1) {
+		let parent_metadata = parent.metadata().wrap_err_with(|| {
+			format!(
+				"Failed to inspect parent of direct shim directory `{}`",
+				parent.display()
+			)
+		})?;
+		let mode = parent_metadata.permissions().mode();
+		if parent_metadata.uid() != effective_uid && parent_metadata.uid() != 0 {
+			bail!(
+				"Refusing to use direct shim directory `{}` under parent `{}` owned by another user",
+				bin_dir.display(),
+				parent.display(),
+			);
+		}
+		if mode & 0o022 != 0 && mode & 0o1000 == 0 {
+			bail!(
+				"Refusing to use direct shim directory `{}` under replaceable parent `{}`",
+				bin_dir.display(),
+				parent.display(),
+			);
+		}
+	}
+
+	Ok(())
+}
+
+/// Creates the shim directory on platforms without Unix permission bits.
+#[cfg(not(unix))]
+fn ensure_secure_shim_dir(bin_dir: &Path) -> Result<()> {
+	fs::create_dir_all(bin_dir).wrap_err_with(|| {
+		format!(
+			"Failed to create direct shim directory `{}`",
+			bin_dir.display()
+		)
+	})
 }
 
 /// Extracts literal command names from a restricted subset of anchored regexes.
@@ -512,17 +640,18 @@ fn create_or_update_symlink(
 ) -> Result<ShimInstallStatus> {
 	use std::os::unix::fs::symlink;
 
-	match fs::symlink_metadata(shim_path) {
+	let replace = match fs::symlink_metadata(shim_path) {
 		Ok(metadata) if metadata.file_type().is_symlink() => {
 			if fs::read_link(shim_path).is_ok_and(|target| target == biwa_path) {
 				return Ok(ShimInstallStatus::Unchanged);
 			}
-			fs::remove_file(shim_path).wrap_err_with(|| {
-				format!(
-					"Failed to replace direct command shim `{}`",
+			if !force {
+				bail!(
+					"Refusing to replace existing symlink `{}`. Use `--force` to replace it.",
 					shim_path.display()
-				)
-			})?;
+				);
+			}
+			true
 		}
 		Ok(_) => {
 			if force {
@@ -532,12 +661,7 @@ fn create_or_update_symlink(
 						shim_path.display()
 					);
 				}
-				fs::remove_file(shim_path).wrap_err_with(|| {
-					format!(
-						"Failed to replace direct command shim `{}`",
-						shim_path.display()
-					)
-				})?;
+				true
 			} else {
 				bail!(
 					"Refusing to replace existing non-symlink `{}`. Use `--force` to replace it.",
@@ -545,7 +669,7 @@ fn create_or_update_symlink(
 				);
 			}
 		}
-		Err(error) if error.kind() == ErrorKind::NotFound => {}
+		Err(error) if error.kind() == ErrorKind::NotFound => false,
 		Err(error) => {
 			return Err(error).wrap_err_with(|| {
 				format!(
@@ -554,15 +678,47 @@ fn create_or_update_symlink(
 				)
 			});
 		}
-	}
+	};
 
-	symlink(biwa_path, shim_path).wrap_err_with(|| {
-		format!(
-			"Failed to create direct command shim `{}` -> `{}`",
-			shim_path.display(),
-			biwa_path.display()
-		)
-	})?;
+	if replace {
+		let file_name = shim_path
+			.file_name()
+			.ok_or_else(|| color_eyre::eyre::eyre!("Shim path has no file name"))?
+			.to_string_lossy();
+		let temporary_path =
+			shim_path.with_file_name(format!(".{file_name}.biwa-tmp-{}", process::id()));
+		symlink(biwa_path, &temporary_path).wrap_err_with(|| {
+			format!(
+				"Failed to create temporary direct command shim `{}`",
+				temporary_path.display()
+			)
+		})?;
+		if let Err(error) = fs::rename(&temporary_path, shim_path) {
+			if let Err(cleanup_error) = fs::remove_file(&temporary_path) {
+				return Err(error).wrap_err_with(|| {
+					format!(
+						"Failed to replace direct command shim `{}` and remove temporary shim `{}`: {cleanup_error}",
+						shim_path.display(),
+						temporary_path.display(),
+					)
+				});
+			}
+			return Err(error).wrap_err_with(|| {
+				format!(
+					"Failed to replace direct command shim `{}`",
+					shim_path.display()
+				)
+			});
+		}
+	} else {
+		symlink(biwa_path, shim_path).wrap_err_with(|| {
+			format!(
+				"Failed to create direct command shim `{}` -> `{}`",
+				shim_path.display(),
+				biwa_path.display()
+			)
+		})?;
+	}
 
 	Ok(ShimInstallStatus::Installed)
 }
@@ -655,11 +811,8 @@ mod tests {
 	#[test]
 	fn static_shim_names_come_from_literals_and_default_args() -> Result<()> {
 		let mut default_args = BTreeMap::new();
-		default_args.insert(
-			"1511".to_owned(),
-			vec!["--course".to_owned(), "comp1511".to_owned()],
-		);
-		default_args.insert("9999".to_owned(), vec!["ignored".to_owned()]);
+		default_args.insert("1511".to_owned(), Vec::new());
+		default_args.insert("9999".to_owned(), Vec::new());
 		let config = direct_config(
 			vec![
 				"^\\d{4}$".to_owned(),
@@ -674,6 +827,13 @@ mod tests {
 			vec!["1511", "1521", "9999", "autotest", "dcc", "give"]
 		);
 		Ok(())
+	}
+
+	#[test]
+	fn direct_command_name_is_quoted_as_one_remote_shell_token() {
+		assert_eq!(quote_direct_command("safe; id"), "'safe; id'");
+		assert_eq!(quote_direct_command("!"), "'!'");
+		assert_eq!(quote_direct_command("it's"), "'it'\\''s'");
 	}
 
 	#[test]
@@ -727,6 +887,51 @@ mod tests {
 				.contains("must not include the remote command or remote command arguments"),
 			"error was: {err:?}"
 		);
+	}
+
+	#[test]
+	fn static_shim_names_reject_invalid_default_args() {
+		let mut default_args = BTreeMap::new();
+		default_args.insert("dcc".to_owned(), vec!["--skp-sync".to_owned()]);
+		let config = direct_config(vec!["^dcc$".to_owned()], default_args, true);
+
+		let error = static_allowed_shim_names(&config)
+			.expect_err("invalid direct command defaults should fail diagnostics");
+
+		assert!(
+			error.to_string().contains("Invalid direct.default_args"),
+			"error was: {error:?}"
+		);
+	}
+
+	#[test]
+	fn install_rejects_shim_names_outside_bin_dir() -> Result<()> {
+		let dir = tempdir()?;
+		let shim_bin = dir.path().join("shim");
+		let outside = dir.path().join("outside");
+		let biwa = dir.path().join("biwa");
+		fs::write(&biwa, "")?;
+		fs::write(&outside, "keep")?;
+
+		for unsafe_name in [
+			"../outside".to_owned(),
+			outside.to_string_lossy().into_owned(),
+		] {
+			let mut default_args = BTreeMap::new();
+			default_args.insert(unsafe_name, Vec::new());
+			let mut config = direct_config(vec![".*".to_owned()], default_args, true);
+			config.direct.bin_dir = Some(shim_bin.clone());
+
+			let error = install_shims(&config, &biwa, None, true)
+				.expect_err("path-like shim names should be rejected");
+
+			assert!(
+				error.to_string().contains("shim name"),
+				"error was: {error:?}"
+			);
+			assert_eq!(fs::read_to_string(&outside)?, "keep");
+		}
+		Ok(())
 	}
 
 	#[test]
@@ -855,6 +1060,99 @@ mod tests {
 
 		assert_eq!(report.installed, vec![shim_bin.join("dcc")]);
 		assert_eq!(fs::read_link(shim_bin.join("dcc"))?, biwa);
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn install_requires_force_to_replace_unknown_symlink() -> Result<()> {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir()?;
+		let shim_bin = dir.path().join("shim");
+		let biwa = dir.path().join("biwa");
+		let other = dir.path().join("other");
+		fs::create_dir_all(&shim_bin)?;
+		fs::write(&biwa, "")?;
+		fs::write(&other, "")?;
+		symlink(&other, shim_bin.join("dcc"))?;
+
+		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
+		config.direct.bin_dir = Some(shim_bin.clone());
+
+		let error = install_shims(&config, &biwa, None, false)
+			.expect_err("an unmanaged symlink should require force");
+
+		assert!(error.to_string().contains("Use `--force`"));
+		assert_eq!(fs::read_link(shim_bin.join("dcc"))?, other);
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn install_rejects_group_writable_shim_directory() -> Result<()> {
+		use std::os::unix::fs::PermissionsExt as _;
+
+		let dir = tempdir()?;
+		let shim_bin = dir.path().join("shim");
+		let biwa = dir.path().join("biwa");
+		fs::create_dir_all(&shim_bin)?;
+		fs::set_permissions(&shim_bin, fs::Permissions::from_mode(0o770))?;
+		fs::write(&biwa, "")?;
+
+		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
+		config.direct.bin_dir = Some(shim_bin);
+
+		let error = install_shims(&config, &biwa, None, false)
+			.expect_err("a group-writable PATH directory should be rejected");
+
+		assert!(error.to_string().contains("group- or world-writable"));
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn install_rejects_symlinked_shim_directory() -> Result<()> {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempdir()?;
+		let actual_bin = dir.path().join("actual");
+		let shim_bin = dir.path().join("shim");
+		let biwa = dir.path().join("biwa");
+		fs::create_dir_all(&actual_bin)?;
+		symlink(&actual_bin, &shim_bin)?;
+		fs::write(&biwa, "")?;
+
+		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
+		config.direct.bin_dir = Some(shim_bin);
+
+		let error = install_shims(&config, &biwa, None, false)
+			.expect_err("a symlinked PATH directory should be rejected");
+
+		assert!(error.to_string().contains("symlinked"));
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn install_rejects_replaceable_parent_directory() -> Result<()> {
+		use std::os::unix::fs::PermissionsExt as _;
+
+		let dir = tempdir()?;
+		let replaceable_parent = dir.path().join("replaceable");
+		let shim_bin = replaceable_parent.join("shim");
+		let biwa = dir.path().join("biwa");
+		fs::create_dir_all(&shim_bin)?;
+		fs::set_permissions(&replaceable_parent, fs::Permissions::from_mode(0o777))?;
+		fs::write(&biwa, "")?;
+
+		let mut config = direct_config(vec!["^dcc$".to_owned()], BTreeMap::new(), true);
+		config.direct.bin_dir = Some(shim_bin);
+
+		let error = install_shims(&config, &biwa, None, false)
+			.expect_err("a replaceable PATH parent should be rejected");
+
+		assert!(error.to_string().contains("replaceable parent"));
 		Ok(())
 	}
 }

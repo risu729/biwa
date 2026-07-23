@@ -57,6 +57,7 @@ run = [
 	"cargo run --quiet -- usage > biwa.usage.kdl",
 	"rm -rf docs/src/cli && mkdir -p docs/src/cli",
 	"usage generate markdown -m --out-dir docs/src/cli --url-prefix /cli --html-encode --file biwa.usage.kdl",
+	"bun run docs/scripts/fix-usage-docs.ts",
 ]
 description = "Generate usage spec and CLI reference docs."
 
