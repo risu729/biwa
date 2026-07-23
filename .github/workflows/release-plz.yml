@@ -77,9 +77,6 @@ jobs:
         run: release-plz release
         env:
           GIT_TOKEN: ${{ steps.github-app.outputs.token }}
-          # TODO: use trusted publishing after first release
-          # ref: https://crates.io/docs/trusted-publishing
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
   actions-timeline:
     name: Generate Actions Timeline
     needs:
