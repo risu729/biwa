@@ -464,10 +464,6 @@ async fn run_command(
 		);
 	}
 
-	if exit_status != 0 {
-		bail!("Remote command exited with code {exit_status}");
-	}
-
 	Ok(exit_status)
 }
 
@@ -487,11 +483,9 @@ pub struct ExecuteCommandOptions<'a> {
 	pub silent: bool,
 }
 
-/// Execute a command on the remote host via SSH.
-///
-/// If `working_dir` is set, the command executes inside that remote directory.
-/// Returns the exit code of the remote command.
-pub async fn execute_command(
+/// Execute a command and return any confirmed remote exit status without
+/// converting a non-zero status into a transport error.
+pub async fn execute_command_status(
 	client: &Client,
 	config: &Config,
 	options: ExecuteCommandOptions<'_>,

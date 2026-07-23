@@ -114,7 +114,7 @@ It is strongly recommended to use a relative path starting with `~` for your `re
 | Key                | Type    | Default | Description                                                                |
 | ------------------ | ------- | ------- | -------------------------------------------------------------------------- |
 | `max_age`          | string  | `"30d"` | Remove default-layout remote project directories older than this age       |
-| `auto`             | boolean | `true`  | Start background cleanup after successful `biwa sync` and `biwa run` calls |
+| `auto`             | boolean | `true`  | Start background cleanup after successful `biwa sync`, `biwa pull`, and `biwa run` calls |
 | `quota_thresholds` | table   | `{}`    | Map quota usage percentages (`0`–`100`) to stricter maximum directory ages |
 
 Duration values are strings such as `"30d"`, `"12h"`, `"45m"`, `"60s"`, or `"30"` for 30 minutes. `quota_thresholds` is merged with `max_age` as the baseline `0%` threshold; if quota data is unavailable, only `max_age` applies.

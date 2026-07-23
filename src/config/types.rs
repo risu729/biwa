@@ -379,7 +379,7 @@ pub struct CleanConfig {
 	#[schemars(default)]
 	pub max_age: HumanDuration,
 
-	/// Enable automatic background cleanup after `run`/`sync`.
+	/// Enable automatic background cleanup after `run`/`sync`/`pull`.
 	#[config(default = true, env = "BIWA_CLEAN_AUTO")]
 	#[schemars(default = "crate::config::types::schema_defaults::clean_auto")]
 	pub auto: bool,

@@ -203,6 +203,7 @@ dependencies = [
  "dirs",
  "duct",
  "gethostname",
+ "getrandom 0.4.3",
  "globset",
  "hex",
  "homedir",

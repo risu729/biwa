@@ -31,6 +31,7 @@ Suppress all output, including remote command stdout/stderr
 
 - [`biwa run [FLAGS] <COMMAND> [COMMAND_ARGS]…`](/cli/run.md)
 - [`biwa sync [FLAGS]`](/cli/sync.md)
+- [`biwa pull [FLAGS]`](/cli/pull.md)
 - [`biwa clean [FLAGS] [ACTION]`](/cli/clean.md)
 - [`biwa init [-f --force] [--format <FORMAT>]`](/cli/init.md)
 - [`biwa completion <SHELL>`](/cli/completion.md)

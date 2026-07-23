@@ -3,36 +3,36 @@ use crate::cli::clean::spawn_background_cleanup;
 use crate::cli::transfer::{TransferArgs, record_connection_use};
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
-use crate::ssh::sync::push_project;
+use crate::ssh::sync::pull_project;
 use clap::Args;
 use tracing::warn;
 
-/// Push local project files to the remote server.
+/// Mirror remote project files into the local root.
 #[derive(Args, Debug)]
-#[clap(visible_alias = "s", visible_alias = "push")]
-pub(super) struct Sync {
+pub(super) struct Pull {
 	/// Project transfer options.
 	#[clap(flatten)]
 	args: TransferArgs,
 }
 
-impl Sync {
-	/// Run the push logic.
+impl Pull {
+	/// Run the destructive pull logic.
 	pub async fn run(self, quiet: bool) -> Result<()> {
 		let config = Config::load()?;
-		let transfer = self.args.resolve(&config)?;
+		let transfer = self.args.resolve_pull(&config)?;
 		let client = connect(&config, quiet).await?;
 
 		// Mark the directory as in use before remote work starts so background cleanup
 		// does not treat an active old project as stale.
 		record_connection_use(&config, &transfer.remote_dir);
 
-		push_project(
+		pull_project(
 			&client,
 			&config,
 			&transfer.local_root,
 			&transfer.remote_dir,
 			&transfer.options,
+			None,
 			quiet,
 		)
 		.await?;

@@ -152,7 +152,7 @@ expression: content
     // Default value: "30d"
     //max_age: "30d",
 
-    // Enable automatic background cleanup after `run`/`sync`.
+    // Enable automatic background cleanup after `run`/`sync`/`pull`.
     //
     // Can also be specified via environment variable `BIWA_CLEAN_AUTO`.
     //
