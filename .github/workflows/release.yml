@@ -54,7 +54,7 @@ jobs:
         id: install-mise
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2026.7.11
+          version: 2026.7.12
           cache: ${{ steps.mode.outputs.publishing == 'false' }}
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
@@ -97,7 +97,7 @@ jobs:
         id: install-mise
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2026.7.11
+          version: 2026.7.12
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
@@ -178,7 +178,7 @@ jobs:
         id: install-mise
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2026.7.11
+          version: 2026.7.12
           cache: ${{ needs.plan.outputs.publishing == 'false' }}
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
@@ -238,7 +238,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
         with:
-          version: 2026.7.11
+          version: 2026.7.12
           cache: false
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
