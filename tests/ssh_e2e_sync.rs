@@ -223,6 +223,153 @@ fn e2e_pull_overwrites_changed_file() -> Result<()> {
 }
 
 #[test]
+fn e2e_pull_replaces_local_file_with_remote_directory() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("node"), "local file")?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1/node\" && printf remote > \"$1/node/child.txt\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert_eq!(
+		fs::read_to_string(dir.path().join("node/child.txt"))?,
+		"remote"
+	);
+
+	Ok(())
+}
+
+#[test]
+fn e2e_pull_replaces_local_directory_with_remote_file() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::create_dir_all(dir.path().join("node"))?;
+	fs::write(dir.path().join("node/child.txt"), "local child")?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1\" && printf remote > \"$1/node\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["pull"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert_eq!(fs::read_to_string(dir.path().join("node"))?, "remote");
+
+	Ok(())
+}
+
+#[test]
+fn e2e_pull_refuses_remote_file_over_non_empty_selected_directory() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::create_dir_all(dir.path().join("node"))?;
+	fs::write(dir.path().join("node/kept.txt"), "keep")?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1\" && printf remote > \"$1/node\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["pull", "--include", "node"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("Refusing to overwrite non-empty local directory with remote file"),
+		"stderr: {stderr}"
+	);
+	assert_eq!(
+		fs::read_to_string(dir.path().join("node/kept.txt"))?,
+		"keep"
+	);
+	assert!(dir.path().join("node").is_dir());
+	assert!(
+		fs::read_dir(dir.path())?.all(|entry| {
+			entry.is_ok_and(|entry| {
+				!entry
+					.file_name()
+					.to_string_lossy()
+					.starts_with(".biwa-pull-")
+			})
+		}),
+		"pull staging data was not removed"
+	);
+
+	Ok(())
+}
+
+#[test]
 fn e2e_pull_deletes_local_file_missing_remotely() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("stale.txt"), "stale")?;
