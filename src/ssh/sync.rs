@@ -3641,6 +3641,61 @@ mod tests {
 	}
 
 	#[test]
+	fn calculate_pull_actions_replaces_local_file_with_remote_directory() {
+		let actions = calculate_pull_actions(
+			&LocalState {
+				files: vec![LocalFile {
+					path: PathBuf::from("node"),
+					hash: "local".to_owned(),
+				}],
+				directories: HashSet::new(),
+				symlinks: HashSet::new(),
+			},
+			&RemoteState {
+				file_hashes: HashMap::from([("node/child.txt".to_owned(), "remote".to_owned())]),
+				directories: HashSet::from(["node".to_owned()]),
+				symlinks: HashSet::new(),
+			},
+			&Options::default(),
+			false,
+		);
+
+		assert_eq!(
+			actions.downloads,
+			vec![download("node/child.txt", "remote")]
+		);
+		assert_eq!(actions.file_deletions, vec!["node".to_owned()]);
+		assert_eq!(actions.directory_creations, vec!["node".to_owned()]);
+		assert!(actions.directory_deletions.is_empty());
+	}
+
+	#[test]
+	fn calculate_pull_actions_replaces_local_directory_with_remote_file() {
+		let actions = calculate_pull_actions(
+			&LocalState {
+				files: vec![LocalFile {
+					path: PathBuf::from("node/child.txt"),
+					hash: "local".to_owned(),
+				}],
+				directories: HashSet::from(["node".to_owned()]),
+				symlinks: HashSet::new(),
+			},
+			&RemoteState {
+				file_hashes: HashMap::from([("node".to_owned(), "remote".to_owned())]),
+				directories: HashSet::new(),
+				symlinks: HashSet::new(),
+			},
+			&Options::default(),
+			false,
+		);
+
+		assert_eq!(actions.downloads, vec![download("node", "remote")]);
+		assert_eq!(actions.file_deletions, vec!["node/child.txt".to_owned()]);
+		assert!(actions.directory_creations.is_empty());
+		assert_eq!(actions.directory_deletions, vec!["node".to_owned()]);
+	}
+
+	#[test]
 	fn calculate_pull_actions_removes_local_symlinks() {
 		let actions = calculate_pull_actions(
 			&LocalState {
