@@ -354,23 +354,23 @@ url_api = "https://api.github.com/repos/suzuki-shunsuke/pinact/releases/assets/4
 provenance = "github-attestations"
 
 [[tools.pitchfork]]
-version = "2.17.0"
+version = "2.18.0"
 backend = "aqua:jdx/pitchfork"
 
 [tools.pitchfork."platforms.linux-arm64"]
-checksum = "sha256:267602712322e918610899da58ce1add60603fb5b37abbf526f5a0a569617752"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.17.0/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/480283061"
+checksum = "sha256:574c8ea156085c1bbe3c2177354769ff6fca9b2fa26959824743aa044b7b6f54"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.18.0/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/489375896"
 
 [tools.pitchfork."platforms.linux-x64"]
-checksum = "sha256:d6fc52d0de4d8f619a1354b7a22a9193c119e3242f5ff9fdfe82187937aa8517"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.17.0/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/480282789"
+checksum = "sha256:519f32ee9ff76866e48832cf27fc14864094cba03454bf4a75edd017e6f68a58"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.18.0/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/489375165"
 
 [tools.pitchfork."platforms.macos-arm64"]
-checksum = "sha256:5fccff5918391d9106dc52cac3b8fa6ab1feafd7812b185ac78a55cd2788b3b9"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.17.0/pitchfork-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/480289056"
+checksum = "sha256:3396f41af9b5d166e750949c2bbe20b8cf6b7e539fc11c74c2b6fc66bd24f410"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.18.0/pitchfork-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jdx/pitchfork/releases/assets/489375447"
 
 [[tools.release-plz]]
 version = "0.3.159"
