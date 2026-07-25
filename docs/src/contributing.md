@@ -41,6 +41,43 @@ normally starts them automatically; if they are not running, use:
 pitchfork start --all
 ```
 
+## Testing
+
+Start with the smallest test that covers the behavior you changed, then run the
+full suite before opening a pull request:
+
+```bash
+# A unit test or module
+cargo test cli_run_subcommand
+
+# One SSH integration test
+cargo test --test ssh_e2e_sync e2e_sync_empty_dir_created
+
+# Keep test output while investigating a failure
+cargo test e2e_sync_empty_dir_created -- --nocapture
+
+# Full Rust suite and CI-like lint checks
+mise run test
+mise run check --lint
+```
+
+Run SSH end-to-end tests for behavior that depends on the server, SFTP, or remote
+shell execution. For parser, configuration, and sync-planning changes, prefer a
+focused unit test first. When adding coverage for a risk-prone path, generate a
+local coverage report with `mise run test:coverage`; the HTML report is written to
+`tarpaulin-report.html`.
+
+Regenerate checked-in artifacts whenever their inputs change:
+
+```bash
+# CLI usage reference and configuration schema
+mise run render:usage
+mise run render:schema
+
+# Intentional snapshot changes
+mise run test:update-snapshot
+```
+
 ## Documentation
 
 To work on documentation:
