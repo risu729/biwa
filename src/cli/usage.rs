@@ -28,6 +28,7 @@ impl Usage {
 mod tests {
 	use crate::cli::Cli;
 	use clap::CommandFactory as _;
+	use pretty_assertions::assert_eq;
 
 	#[test]
 	fn usage_spec_generation() {
@@ -37,5 +38,16 @@ mod tests {
 		assert!(!output.is_empty());
 		// Should contain the biwa command
 		assert!(output.contains("biwa"));
+	}
+
+	#[test]
+	fn usage_spec_matches_committed_artifact() {
+		let cli = Cli::command();
+		let spec: usage::Spec = cli.into();
+
+		assert_eq!(
+			spec.to_string().trim(),
+			include_str!("../../biwa.usage.kdl").trim()
+		);
 	}
 }
