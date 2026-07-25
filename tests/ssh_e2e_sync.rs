@@ -81,6 +81,125 @@ fn e2e_sync_basic() -> Result<()> {
 }
 
 #[test]
+fn e2e_sync_replaces_remote_file_with_local_directory() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::create_dir_all(dir.path().join("node"))?;
+	fs::write(dir.path().join("node/child.txt"), "local")?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1\" && printf remote > \"$1/node\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert_eq!(
+		String::from_utf8_lossy(
+			&biwa_cmd_tilde(
+				&[
+					"run",
+					"--skip-sync",
+					"cat",
+					&format!("{remote_proj_dir}/node/child.txt"),
+				],
+				dir.path(),
+			)
+			.stdout_capture()
+			.stderr_capture()
+			.run()?
+			.stdout,
+		)
+		.trim(),
+		"local"
+	);
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_replaces_remote_directory_with_local_file() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("node"), "local")?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let setup_output = biwa_cmd_tilde(
+		&[
+			"run",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"mkdir -p \"$1/node\" && printf remote > \"$1/node/child.txt\"",
+			"--",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		setup_output.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&setup_output.stderr)
+	);
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert_eq!(
+		String::from_utf8_lossy(
+			&biwa_cmd_tilde(
+				&[
+					"run",
+					"--skip-sync",
+					"cat",
+					&format!("{remote_proj_dir}/node"),
+				],
+				dir.path(),
+			)
+			.stdout_capture()
+			.stderr_capture()
+			.run()?
+			.stdout,
+		)
+		.trim(),
+		"local"
+	);
+
+	Ok(())
+}
+
+#[test]
 fn e2e_pull_downloads_remote_file() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
