@@ -65,10 +65,10 @@ biwa tries authentication methods in this order. **Explicit configuration is alw
 1. **Configured key file** — If `ssh.key_path` is set, biwa uses it (errors if not found)
 2. **Configured password** — If `ssh.password` is a string, biwa uses it; if `true`, biwa prompts interactively
 3. **Default key files** — biwa checks `~/.ssh/id_ed25519`, then `~/.ssh/id_rsa`
-4. **SSH Agent** — If nothing else is configured and no keys found, biwa falls back to the SSH agent
+4. **SSH Agent** — If no default key exists, or the discovered default key is rejected, biwa falls back to the SSH agent
 
 ::: tip Zero-Config Users
-If you want to delegate authentication to your SSH agent, **don't configure any auth settings**. biwa will automatically use the agent as a fallback.
+If you want to delegate authentication to your SSH agent, **don't configure any auth settings**. biwa will automatically use the agent, including as a fallback when a default key file does not authenticate.
 :::
 
 ## Configuration

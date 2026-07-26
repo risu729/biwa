@@ -78,7 +78,10 @@ struct RunCommandOptions<'a> {
 /// Connect to the SSH server using the resolved authentication method.
 #[expect(clippy::redundant_pub_crate, reason = "Preferred by reviewer")]
 pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
-	let auth_method = resolve_auth(config)?;
+	let mut auth_methods = resolve_auth(config)?.into_iter();
+	let mut auth_method = auth_methods
+		.next()
+		.expect("authentication resolution must return at least one method");
 	let ssh = &config.ssh;
 
 	let spinner = if quiet {
@@ -104,12 +107,17 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 		.await
 		{
 			Ok(c) => break c,
-			Err(e) if retries > 0 => {
-				if report_is_authentication_failure(&e) {
-					return Err(e).wrap_err_with(|| {
-						format!("Failed to authenticate as {}@{}", ssh.user, ssh.host)
-					});
+			Err(e) if report_is_authentication_failure(&e) => {
+				if let Some(fallback) = auth_methods.next() {
+					info!("Authentication failed; trying SSH agent");
+					auth_method = fallback;
+					continue;
 				}
+				return Err(e).wrap_err_with(|| {
+					format!("Failed to authenticate as {}@{}", ssh.user, ssh.host)
+				});
+			}
+			Err(e) if retries > 0 => {
 				debug!(
 					error = %e,
 					retry_delay_ms = delay.as_millis(),
