@@ -1,6 +1,7 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
 use crate::cli::transfer::{TransferArgs, record_connection_use};
+use crate::cli::usage::CommandEffects;
 use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
 use crate::{
@@ -55,6 +56,10 @@ pub(super) struct Run {
 	/// The arguments for the command.
 	#[arg(allow_hyphen_values = true, trailing_var_arg = true)]
 	command_args: Vec<String>,
+}
+
+impl CommandEffects for Run {
+	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Destructive;
 }
 
 /// File-transfer workflow surrounding a remote command.

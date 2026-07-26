@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::cli::run::validate_direct_options;
+use crate::cli::usage::{CommandEffects, apply_subcommand_effects, set_flag_effect};
 use crate::config::types::Config;
 use alloc::collections::BTreeSet;
 use clap::{Args, Subcommand, ValueEnum};
@@ -103,6 +104,30 @@ impl Activate {
 			bail!("Specify `--shell <bash|zsh|fish>`, `install`, or `doctor`.");
 		}
 		Ok(())
+	}
+}
+
+impl CommandEffects for Activate {
+	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Read;
+
+	fn apply_effects(command: &mut ::usage::SpecCommand) {
+		command.effect = Some(Self::EFFECT);
+		set_flag_effect(command, "shell", ::usage::SpecCommandEffect::Write);
+		apply_subcommand_effects::<Install>(command, "install");
+		command
+			.subcommands
+			.get_mut("doctor")
+			.expect("Clap-generated usage spec must contain activate doctor")
+			.effect = Some(::usage::SpecCommandEffect::Read);
+	}
+}
+
+impl CommandEffects for Install {
+	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Write;
+
+	fn apply_effects(command: &mut ::usage::SpecCommand) {
+		command.effect = Some(Self::EFFECT);
+		set_flag_effect(command, "force", ::usage::SpecCommandEffect::Destructive);
 	}
 }
 

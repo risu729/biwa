@@ -1,5 +1,5 @@
 use crate::Result;
-use crate::cli::Cli;
+use crate::cli::{Cli, apply_command_effects};
 use clap::{Args, CommandFactory as _};
 use usage::{Spec, SpecCommand, SpecCommandEffect};
 
@@ -9,6 +9,10 @@ use usage::{Spec, SpecCommand, SpecCommandEffect};
 #[derive(Args, Debug)]
 #[command(hide = true)]
 pub(super) struct Usage;
+
+impl CommandEffects for Usage {
+	const EFFECT: SpecCommandEffect = SpecCommandEffect::Read;
+}
 
 impl Usage {
 	/// Run the usage spec generation logic.
@@ -34,53 +38,36 @@ fn usage_spec() -> Spec {
 
 /// Adds conservative effects to commands, flags, and arguments.
 fn apply_effects(spec: &mut Spec) {
-	use SpecCommandEffect::{Destructive, Read, Write};
-
-	set_arg_effect(&mut spec.cmd, &[], "RUN_COMMAND_ARGS", Destructive);
-
-	set_command_effect(&mut spec.cmd, &["activate"], Read);
-	set_flag_effect(&mut spec.cmd, &["activate"], "shell", Write);
-	set_command_effect(&mut spec.cmd, &["activate", "install"], Write);
-	set_flag_effect(
+	set_arg_effect(
 		&mut spec.cmd,
-		&["activate", "install"],
-		"force",
-		Destructive,
+		"RUN_COMMAND_ARGS",
+		SpecCommandEffect::Destructive,
 	);
-	set_command_effect(&mut spec.cmd, &["activate", "doctor"], Read);
+	apply_command_effects(&mut spec.cmd);
+}
 
-	for command in ["run", "sync", "pull", "clean"] {
-		set_command_effect(&mut spec.cmd, &[command], Destructive);
-	}
+/// Lets a CLI command declare its own usage effects.
+pub(super) trait CommandEffects {
+	/// The effect of invoking the command without effect-raising options.
+	const EFFECT: SpecCommandEffect;
 
-	set_command_effect(&mut spec.cmd, &["init"], Write);
-	set_flag_effect(&mut spec.cmd, &["init"], "force", Destructive);
-
-	for command in ["schema", "completion", "usage"] {
-		set_command_effect(&mut spec.cmd, &[command], Read);
+	/// Adds this command's effects to its Clap-generated usage command.
+	fn apply_effects(command: &mut SpecCommand) {
+		command.effect = Some(Self::EFFECT);
 	}
 }
 
-/// Returns a mutable command at the provided path.
-fn command_mut<'a>(root: &'a mut SpecCommand, path: &[&str]) -> &'a mut SpecCommand {
-	let mut command = root;
-	for name in path {
-		command = command
-			.subcommands
-			.get_mut(*name)
-			.expect("Clap-generated usage spec must contain annotated command");
-	}
-	command
-}
-
-/// Sets the effect for a command at the provided path.
-fn set_command_effect(root: &mut SpecCommand, path: &[&str], effect: SpecCommandEffect) {
-	command_mut(root, path).effect = Some(effect);
+/// Applies a command type's declared effects to a named subcommand.
+pub(super) fn apply_subcommand_effects<T: CommandEffects>(parent: &mut SpecCommand, name: &str) {
+	let command = parent
+		.subcommands
+		.get_mut(name)
+		.expect("Clap-generated usage spec must contain annotated command");
+	T::apply_effects(command);
 }
 
 /// Sets the effect for a long flag on a command.
-fn set_flag_effect(root: &mut SpecCommand, path: &[&str], long: &str, effect: SpecCommandEffect) {
-	let command = command_mut(root, path);
+pub(super) fn set_flag_effect(command: &mut SpecCommand, long: &str, effect: SpecCommandEffect) {
 	let flag = command
 		.flags
 		.iter_mut()
@@ -90,8 +77,7 @@ fn set_flag_effect(root: &mut SpecCommand, path: &[&str], long: &str, effect: Sp
 }
 
 /// Sets the effect for a positional argument on a command.
-fn set_arg_effect(root: &mut SpecCommand, path: &[&str], name: &str, effect: SpecCommandEffect) {
-	let command = command_mut(root, path);
+fn set_arg_effect(command: &mut SpecCommand, name: &str, effect: SpecCommandEffect) {
 	let arg = command
 		.args
 		.iter_mut()

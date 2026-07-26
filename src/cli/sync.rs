@@ -1,6 +1,7 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
 use crate::cli::transfer::{TransferArgs, record_connection_use};
+use crate::cli::usage::CommandEffects;
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::push_project;
@@ -14,6 +15,10 @@ pub(super) struct Sync {
 	/// Project transfer options.
 	#[clap(flatten)]
 	args: TransferArgs,
+}
+
+impl CommandEffects for Sync {
+	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Destructive;
 }
 
 impl Sync {

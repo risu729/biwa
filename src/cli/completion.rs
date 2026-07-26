@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::cli::usage::CommandEffects;
 use clap::Args;
 use clap::builder::PossibleValue;
 use color_eyre::eyre::bail;
@@ -12,6 +13,10 @@ use strum::EnumString;
 pub(super) struct Completion {
 	/// Shell type to generate completions for.
 	shell: Shell,
+}
+
+impl CommandEffects for Completion {
+	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Read;
 }
 
 impl Completion {

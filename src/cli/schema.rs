@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::cli::usage::CommandEffects;
 use crate::config::types::Config;
 use clap::Args;
 use schemars::{generate::SchemaSettings, transform::RestrictFormats};
@@ -7,6 +8,10 @@ use schemars::{generate::SchemaSettings, transform::RestrictFormats};
 #[derive(Args, Debug)]
 #[command(hide = true)]
 pub(super) struct Schema;
+
+impl CommandEffects for Schema {
+	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Read;
+}
 
 impl Schema {
 	/// Run the schema generation logic.
