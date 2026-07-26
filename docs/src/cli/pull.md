@@ -2,6 +2,7 @@
 # `biwa pull`
 
 - **Usage**: `biwa pull [FLAGS]`
+- **Effect**: destructive — may delete or irreversibly overwrite
 
 Mirror remote project files into the local root.
 

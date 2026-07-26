@@ -2,6 +2,7 @@
 # `biwa completion`
 
 - **Usage**: `biwa completion <SHELL>`
+- **Effect**: read-only
 
 Generate shell completion scripts
 

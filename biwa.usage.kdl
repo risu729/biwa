@@ -16,19 +16,19 @@ By default, only warnings and errors are shown.
 }
 flag "-q --quiet" help="Suppress biwa internal logs, only showing remote command output" global=#true
 flag "-s --silent" help="Suppress all output, including remote command stdout/stderr" global=#true
-arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true
-cmd activate help="Print shell activation code and manage direct command shims" {
-    flag --shell help="Print activation code for this shell" {
+arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true effect=destructive
+cmd activate help="Print shell activation code and manage direct command shims" effect=read {
+    flag --shell help="Print activation code for this shell" effect=write {
         arg <SHELL> {
             choices bash zsh fish
         }
     }
-    cmd install help="Reconcile configured direct command shims" {
-        flag "-f --force" help="Replace existing entries not already managed by biwa"
+    cmd install help="Reconcile configured direct command shims" effect=write {
+        flag "-f --force" help="Replace existing entries not already managed by biwa" effect=destructive
     }
-    cmd doctor help="Print diagnostic information for direct command activation"
+    cmd doctor help="Print diagnostic information for direct command activation" effect=read
 }
-cmd run help="Run commands on remote host" {
+cmd run help="Run commands on remote host" effect=destructive {
     alias r
     flag --skip-sync help="Skip automatic synchronization before running the command (automatically selected if --remote-dir is used)"
     flag --sync help="Push project files before running, even when sync.auto is disabled or --remote-dir is set"
@@ -54,7 +54,7 @@ cmd run help="Run commands on remote host" {
     arg <COMMAND> help="The command to run"
     arg "[COMMAND_ARGS]…" help="The arguments for the command" required=#false double_dash=automatic var=#true
 }
-cmd sync help="Push local project files to the remote host" {
+cmd sync help="Push local project files to the remote host" effect=destructive {
     alias s push
     flag --sync-root help="Local project root used for synchronization" {
         arg <SYNC_ROOT>
@@ -71,7 +71,7 @@ cmd sync help="Push local project files to the remote host" {
         arg <INCLUDE>
     }
 }
-cmd pull help="Mirror remote project files into the local root" {
+cmd pull help="Mirror remote project files into the local root" effect=destructive {
     long_help #"""
 Mirror remote project files into the local root.
 
@@ -92,7 +92,7 @@ The remote project is the source of truth. Selected local files and directories 
         arg <INCLUDE>
     }
 }
-cmd clean help="Clean stale remote project directories" {
+cmd clean help="Clean stale remote project directories" effect=destructive {
     alias c
     flag --all help="Remove all this client's tracked remote directories"
     flag --purge help="Remove ALL biwa directories under `remote_root` (including other clients)"
@@ -102,16 +102,16 @@ cmd clean help="Clean stale remote project directories" {
         choices stop
     }
 }
-cmd init help="Initialize a biwa configuration file" {
-    flag "-f --force" help="Force overwrite if file exists"
+cmd init help="Initialize a biwa configuration file" effect=write {
+    flag "-f --force" help="Force overwrite if file exists" effect=destructive
     flag --format help="Format to generate (toml, json, jsonc, json5, yaml, yml)" default=toml {
         arg <FORMAT>
     }
 }
-cmd schema hide=#true help="Generate the JSON schema for the configuration"
-cmd completion help="Generate shell completion scripts" {
+cmd schema hide=#true help="Generate the JSON schema for the configuration" effect=read
+cmd completion help="Generate shell completion scripts" effect=read {
     arg <SHELL> help="Shell type to generate completions for" {
         choices bash fish zsh
     }
 }
-cmd usage hide=#true help="Generate usage command specifications"
+cmd usage hide=#true help="Generate usage command specifications" effect=read

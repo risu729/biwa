@@ -3,6 +3,7 @@
 
 - **Usage**: `biwa clean [FLAGS] [ACTION]`
 - **Aliases**: `c`
+- **Effect**: destructive — may delete or irreversibly overwrite
 
 Clean stale remote project directories
 

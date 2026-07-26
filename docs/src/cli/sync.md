@@ -3,6 +3,7 @@
 
 - **Usage**: `biwa sync [FLAGS]`
 - **Aliases**: `s`, `push`
+- **Effect**: destructive — may delete or irreversibly overwrite
 
 Push local project files to the remote host
 

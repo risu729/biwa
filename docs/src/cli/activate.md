@@ -2,12 +2,15 @@
 # `biwa activate`
 
 - **Usage**: `biwa activate [--shell <SHELL>] <SUBCOMMAND>`
+- **Effect**: read-only
 
 Print shell activation code and manage direct command shims
 
 ## Flags
 
 ### `--shell <SHELL>`
+
+**Effect**: modifies state
 
 Print activation code for this shell
 

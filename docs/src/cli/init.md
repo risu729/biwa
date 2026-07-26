@@ -2,12 +2,15 @@
 # `biwa init`
 
 - **Usage**: `biwa init [-f --force] [--format <FORMAT>]`
+- **Effect**: modifies state
 
 Initialize a biwa configuration file
 
 ## Flags
 
 ### `-f --force`
+
+**Effect**: destructive — may delete or irreversibly overwrite
 
 Force overwrite if file exists
 

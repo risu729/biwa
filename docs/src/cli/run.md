@@ -3,6 +3,7 @@
 
 - **Usage**: `biwa run [FLAGS] <COMMAND> [COMMAND_ARGS]…`
 - **Aliases**: `r`
+- **Effect**: destructive — may delete or irreversibly overwrite
 
 Run commands on remote host
 

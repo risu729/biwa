@@ -2,11 +2,14 @@
 # `biwa activate install`
 
 - **Usage**: `biwa activate install [-f --force]`
+- **Effect**: modifies state
 
 Reconcile configured direct command shims
 
 ## Flags
 
 ### `-f --force`
+
+**Effect**: destructive — may delete or irreversibly overwrite
 
 Replace existing entries not already managed by biwa
