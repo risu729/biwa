@@ -1,4 +1,5 @@
 use crate::Result;
+use crate::cli::usage::{CommandEffects, set_flag_effect};
 use crate::{config::format::ConfigFormat, config::types::Config};
 use clap::Args;
 use color_eyre::eyre::{bail, eyre};
@@ -74,6 +75,15 @@ impl Init {
 		};
 
 		Ok((filename, content))
+	}
+}
+
+impl CommandEffects for Init {
+	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Write;
+
+	fn apply_effects(command: &mut ::usage::SpecCommand) {
+		command.effect = Some(Self::EFFECT);
+		set_flag_effect(command, "force", ::usage::SpecCommandEffect::Destructive);
 	}
 }
 

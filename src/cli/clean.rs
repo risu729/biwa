@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::cli::transfer::TransferArgs;
+use crate::cli::usage::CommandEffects;
 use crate::config::types::{Config, PasswordConfig};
 use crate::duration::HumanDuration;
 use crate::ssh::clean::{
@@ -59,6 +60,10 @@ pub(super) struct Clean {
 	/// Background auto-cleanup mode (used internally by the daemon).
 	#[arg(long, hide = true)]
 	auto: bool,
+}
+
+impl CommandEffects for Clean {
+	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Destructive;
 }
 
 /// Optional action for `biwa clean`.

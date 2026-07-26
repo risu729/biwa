@@ -2,6 +2,7 @@ use crate::Result;
 use crate::cli::transfer::TransferArgs;
 use crate::config::types::Config;
 use crate::env_flag;
+use ::usage::SpecCommand;
 use clap::{ArgAction, Parser, Subcommand};
 use color_eyre::eyre::eyre;
 use std::env;
@@ -91,6 +92,21 @@ enum Commands {
 	Completion(completion::Completion),
 	/// Generate usage command specifications.
 	Usage(usage::Usage),
+}
+
+/// Applies effects declared by each subcommand to the generated usage tree.
+fn apply_command_effects(root: &mut SpecCommand) {
+	use usage::apply_subcommand_effects;
+
+	apply_subcommand_effects::<activate::Activate>(root, "activate");
+	apply_subcommand_effects::<run::Run>(root, "run");
+	apply_subcommand_effects::<sync::Sync>(root, "sync");
+	apply_subcommand_effects::<pull::Pull>(root, "pull");
+	apply_subcommand_effects::<clean::Clean>(root, "clean");
+	apply_subcommand_effects::<init::Init>(root, "init");
+	apply_subcommand_effects::<schema::Schema>(root, "schema");
+	apply_subcommand_effects::<completion::Completion>(root, "completion");
+	apply_subcommand_effects::<usage::Usage>(root, "usage");
 }
 
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
