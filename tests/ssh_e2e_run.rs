@@ -8,7 +8,7 @@ use std::io::{BufRead as _, BufReader, Read as _};
 use core::time::Duration;
 mod common;
 use color_eyre::eyre::{WrapErr as _, eyre};
-use common::{Result, biwa_cmd, biwa_cmd_capable, biwa_program_cmd};
+use common::{Result, biwa_cmd, biwa_cmd_capable, biwa_program_cmd, ssh_port};
 use rstest::rstest;
 use std::{
 	env,
@@ -34,7 +34,7 @@ fn biwa_process(args: &[&str]) -> Command {
 	command
 		.args(args)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
-		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123");
 	command
@@ -122,7 +122,7 @@ sys.exit(0)
 		.arg("-c")
 		.arg(&python)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
-		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.output()?;
@@ -694,7 +694,7 @@ sys.exit(proc.returncode)
 		.arg("-c")
 		.arg(&python)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
-		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.output()?;
@@ -759,7 +759,7 @@ sys.exit(0)
 		.arg("-c")
 		.arg(&python)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
-		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.output()?;

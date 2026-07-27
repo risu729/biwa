@@ -1,9 +1,8 @@
 services:
   ssh-server:
     image: lscr.io/linuxserver/openssh-server@sha256:9c5e178975fcc3917853f5e37cbf135ad7deb11de504ab0f460cc81a2e1eb539
-    container_name: ssh_test_server
     ports:
-      - "2222:2222"
+      - "${BIWA_TEST_SSH_PORT:-2222}:2222"
     environment:
       - USER_NAME=testuser
       - USER_PASSWORD=password123
@@ -17,9 +16,8 @@ services:
     build:
       context: .
       dockerfile: tests/fixtures/ssh-capable/Dockerfile
-    container_name: ssh_test_server_capable
     ports:
-      - "2223:2222"
+      - "${BIWA_TEST_SSH_CAPABLE_PORT:-2223}:2222"
     environment:
       - USER_NAME=testuser
       - USER_PASSWORD=password123

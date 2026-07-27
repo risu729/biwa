@@ -2,20 +2,31 @@
 
 set -euo pipefail
 
-# Use configured container names because stale containers can belong to an older
-# Compose project and therefore not appear in `docker compose ps`.
-container_names=$(
-	docker compose config --format json \
-		| yq --input-format json --output-format tsv '.services[].container_name | select(. != null)'
-)
+export BIWA_TEST_SSH_PORT="${PORT0:-2222}"
+export BIWA_TEST_SSH_CAPABLE_PORT="${PORT1:-2223}"
 
-while IFS= read -r container; do
-	[[ -n "${container}" ]] || continue
-	status=$(docker inspect --format '{{.State.Status}}' "${container}" 2>/dev/null || true)
-	if [[ -n "${status}" && "${status}" != "running" ]]; then
-		echo "Removing stale SSH test container ${container} (${status})." >&2
-		docker rm --force "${container}" >/dev/null
+compose_pid=
+
+cleanup() {
+	trap - EXIT INT TERM
+	if [[ -n "${compose_pid}" ]]; then
+		kill "${compose_pid}" 2>/dev/null || true
+		wait "${compose_pid}" 2>/dev/null || true
 	fi
-done <<<"${container_names}"
+	docker compose down --remove-orphans
+}
+trap cleanup EXIT INT TERM
 
-exec docker compose up --build
+docker compose up --build &
+compose_pid=$!
+
+until nc -z localhost "${BIWA_TEST_SSH_PORT}" \
+	&& nc -z localhost "${BIWA_TEST_SSH_CAPABLE_PORT}"; do
+	if ! kill -0 "${compose_pid}" 2>/dev/null; then
+		wait "${compose_pid}"
+	fi
+	sleep 0.2
+done
+
+echo "SSH test servers are ready"
+wait "${compose_pid}"

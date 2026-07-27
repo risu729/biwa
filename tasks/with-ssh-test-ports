@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ -z "${CI:-}" ]] \
+	&& { [[ -z "${BIWA_TEST_SSH_PORT:-}" ]] \
+		|| [[ -z "${BIWA_TEST_SSH_CAPABLE_PORT:-}" ]]; }; then
+	status=$(pitchfork status ssh-server --json)
+	if [[ "$(yq --input-format json '.status' <<<"${status}")" != "running" ]]; then
+		pitchfork start ssh-server >/dev/null
+		status=$(pitchfork status ssh-server --json)
+	fi
+	resolved_ssh_port=$(
+		yq --input-format json --output-format tsv '.port[0]' <<<"${status}"
+	)
+	resolved_ssh_capable_port=$(
+		yq --input-format json --output-format tsv '.port[1]' <<<"${status}"
+	)
+	export BIWA_TEST_SSH_PORT="${BIWA_TEST_SSH_PORT:-${resolved_ssh_port}}"
+	export BIWA_TEST_SSH_CAPABLE_PORT="${BIWA_TEST_SSH_CAPABLE_PORT:-${resolved_ssh_capable_port}}"
+fi
+
+export BIWA_TEST_SSH_PORT="${BIWA_TEST_SSH_PORT:-2222}"
+export BIWA_TEST_SSH_CAPABLE_PORT="${BIWA_TEST_SSH_CAPABLE_PORT:-2223}"
+
+exec "$@"

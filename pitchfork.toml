@@ -5,13 +5,14 @@ general.mise = true
 
 [daemons.ssh-server]
 run = "./tasks/start-ssh-server"
+port = { expect = [2222, 2223], bump = true }
 watch = [
 	"docker-compose.yml",
 	"tasks/start-ssh-server",
 	"tests/fixtures/ssh-capable/Dockerfile"
 ]
 auto = ["start", "stop"]
-ready_cmd = "nc -z 127.0.0.1 2222 && nc -z 127.0.0.1 2223"
+ready_output = "SSH test servers are ready"
 
 [daemons.docs]
 run = "mise run docs:dev -- --port $PORT --strictPort"

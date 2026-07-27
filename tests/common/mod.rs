@@ -11,8 +11,8 @@ pub type Result<T> = color_eyre::Result<T>;
 
 use gethostname::gethostname;
 use sha2::Digest as _;
-use std::path::Path;
 use std::sync::LazyLock;
+use std::{env, path::Path};
 
 /// Shared state directory for one test binary.
 static TEST_STATE_DIR: LazyLock<tempfile::TempDir> =
@@ -40,7 +40,7 @@ fn init_test_env() {
 /// cleanup so `biwa clean --auto` does not remove other tests' remote project directories.
 /// The state directory is isolated from the developer's real XDG state.
 pub fn biwa_cmd(args: &[&str]) -> duct::Expression {
-	biwa_cmd_with_port(args, "2222")
+	biwa_cmd_with_port(args, ssh_port())
 }
 
 fn biwa_cmd_with_port(args: &[&str], port: &str) -> duct::Expression {
@@ -56,7 +56,7 @@ pub fn biwa_program_cmd<T>(program: T, args: &[&str]) -> duct::Expression
 where
 	T: duct::IntoExecutablePath,
 {
-	biwa_program_cmd_with_port(program, args, "2222")
+	biwa_program_cmd_with_port(program, args, ssh_port())
 }
 
 fn biwa_program_cmd_with_port<T>(program: T, args: &[&str], port: &str) -> duct::Expression
@@ -82,7 +82,26 @@ where
 	reason = "Only some integration test binaries use the capable server."
 )]
 pub fn biwa_cmd_capable(args: &[&str]) -> duct::Expression {
-	biwa_cmd_with_port(args, "2223")
+	biwa_cmd_with_port(args, ssh_capable_port())
+}
+
+/// Returns the host port for the default SSH test server.
+#[allow(
+	dead_code,
+	reason = "Only tests that construct commands directly need the port."
+)]
+pub fn ssh_port() -> &'static str {
+	static PORT: LazyLock<String> =
+		LazyLock::new(|| env::var("BIWA_TEST_SSH_PORT").unwrap_or_else(|_| "2222".to_owned()));
+	PORT.as_str()
+}
+
+/// Returns the host port for the capable SSH test server.
+fn ssh_capable_port() -> &'static str {
+	static PORT: LazyLock<String> = LazyLock::new(|| {
+		env::var("BIWA_TEST_SSH_CAPABLE_PORT").unwrap_or_else(|_| "2223".to_owned())
+	});
+	PORT.as_str()
 }
 
 /// Computes the absolute path to the remote project directory.
