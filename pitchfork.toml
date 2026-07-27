@@ -12,7 +12,7 @@ watch = [
 	"tests/fixtures/ssh-capable/Dockerfile"
 ]
 auto = ["start", "stop"]
-ready_output = "SSH test servers are ready"
+ready_output = { pattern = "SSH test servers are ready", timeout = "2m" }
 
 [daemons.docs]
 run = "mise run docs:dev -- --port $PORT --strictPort"

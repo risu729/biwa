@@ -87,7 +87,7 @@ It captures the commands, conventions, and guardrails that are actually used her
 - E2E tests use the local SSH containers described in `docker-compose.yml`.
 - The default/restrictive SSH server normally listens on port `2222`; the capable SSH server for `setenv` and SFTP permission-update tests normally listens on port `2223`.
 - In a worktree, `pitchfork` bumps both ports together and the mise test tasks pass the resolved ports to the integration tests automatically.
-- CI starts the same SSH test services through `docker compose up --build --detach --wait`.
+- CI starts the same SSH test services through the mise test task's Pitchfork dependency.
 - Shared integration helpers are in `tests/common/mod.rs`.
 - Tests install `color_eyre` globally at startup for improved diagnostics.
 - Tests that mutate environment variables use `#[serial]` and cleanup guards; preserve that pattern.
