@@ -9,7 +9,7 @@
 )]
 
 use color_eyre::eyre::eyre;
-use common::Result;
+use common::{Result, ssh_port};
 #[cfg(unix)]
 use nix::sys::signal::Signal;
 use pretty_assertions::assert_eq;
@@ -1116,7 +1116,7 @@ fn run_pull_signal_during_commit(signal: Signal) -> Result<()> {
 		.args(["pull", "--remote-dir", &remote_dir])
 		.current_dir(dir.path())
 		.env("BIWA_SSH_HOST", "127.0.0.1")
-		.env("BIWA_SSH_PORT", "2222")
+		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_SYNC_REMOTE_ROOT", "~/.cache/biwa/projects")

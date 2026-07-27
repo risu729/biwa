@@ -6,12 +6,18 @@ run = "cargo build"
 description = "Build the project."
 
 [test]
+extends = "ssh-tests"
 run = "cargo test"
 description = "Run the tests."
 
 ["test:coverage"]
+extends = "ssh-tests"
 run = "cargo tarpaulin"
 description = "Run the tests with coverage."
+
+["test:ssh-server"]
+run = "pitchfork start ssh-server --quiet"
+description = "Start the SSH test servers."
 
 ["test:update-snapshot"]
 run = "cargo insta test --accept --unreferenced=auto"

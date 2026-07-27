@@ -41,6 +41,10 @@ normally starts them automatically; if they are not running, use:
 pitchfork start --all
 ```
 
+`pitchfork` assigns worktree-specific SSH ports when the defaults are already in use.
+Run tests through `mise run test` so the resolved ports are passed to the end-to-end
+test helpers.
+
 ## Testing
 
 Start with the smallest test that covers the behavior you changed, then run the
