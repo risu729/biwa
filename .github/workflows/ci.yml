@@ -66,7 +66,6 @@ jobs:
               - 'docker-compose.yml'
               - 'pitchfork.toml'
               - 'tasks/start-ssh-server'
-              - 'tasks/with-ssh-test-ports'
               - 'tests/**'
               - 'tarpaulin.toml'
               - 'tasks.toml'

@@ -44,6 +44,14 @@ lockfile_platforms = [
 [task_config]
 includes = ["tasks.toml", "tasks/"]
 
+[task_templates."ssh-tests"]
+depends = ["test:ssh-server"]
+tools = { jq = "1.8.2" }
+
+[task_templates."ssh-tests".env]
+BIWA_TEST_SSH_PORT = { default = "{{ exec(command='pitchfork status ssh-server --json | jq --exit-status --raw-output \".port[0]\"') }}" }
+BIWA_TEST_SSH_CAPABLE_PORT = { default = "{{ exec(command='pitchfork status ssh-server --json | jq --exit-status --raw-output \".port[1]\"') }}" }
+
 [deps.bun_docs]
 auto = true
 sources = ["docs/bun.lock", "docs/package.json"]

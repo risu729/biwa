@@ -6,14 +6,14 @@ run = "cargo build"
 description = "Build the project."
 
 [test]
-run = "./tasks/with-ssh-test-ports cargo test"
+extends = "ssh-tests"
+run = "cargo test"
 description = "Run the tests."
-depends = ["test:ssh-server"]
 
 ["test:coverage"]
-run = "./tasks/with-ssh-test-ports cargo tarpaulin"
+extends = "ssh-tests"
+run = "cargo tarpaulin"
 description = "Run the tests with coverage."
-depends = ["test:ssh-server"]
 
 ["test:ssh-server"]
 run = "pitchfork start ssh-server --quiet"
