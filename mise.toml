@@ -25,6 +25,7 @@ pitchfork = "2.19.0"
 tombi = "1.2.4"
 "npm:ajv-cli" = "5.0.0"
 wrangler = "4.114.0"
+jq = "1.8.2"
 yq = "4.53.3"
 
 [settings]
@@ -46,7 +47,6 @@ includes = ["tasks.toml", "tasks/"]
 
 [task_templates."ssh-tests"]
 depends = ["test:ssh-server"]
-tools = { jq = "1.8.2" }
 
 [task_templates."ssh-tests".env]
 BIWA_TEST_SSH_PORT = { default = "{{ exec(command='pitchfork status ssh-server --json | jq --exit-status --raw-output \".port[0]\"') }}" }
