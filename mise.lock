@@ -347,7 +347,7 @@ version = "4.92.0"
 backend = "npm:wrangler"
 
 [[tools.oxfmt]]
-version = "0.61.0"
+version = "0.62.0"
 backend = "npm:oxfmt"
 
 [[tools.oxlint]]
