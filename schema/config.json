@@ -44,9 +44,10 @@
         "host": "cse.unsw.edu.au",
         "key_path": null,
         "password": false,
-        "port": 22,
+        "port": null,
         "umask": "077",
-        "user": "z1234567"
+        "use_ssh_config": true,
+        "user": null
       }
     },
     "state_dir": {
@@ -305,9 +306,11 @@
           "default": false
         },
         "port": {
-          "description": "Port to connect to on the remote host.",
-          "type": "integer",
-          "default": 22,
+          "description": "Optional port override. If unset, uses OpenSSH config and then port 22.",
+          "type": [
+            "integer",
+            "null"
+          ],
           "maximum": 65535,
           "minimum": 0
         },
@@ -316,10 +319,17 @@
           "$ref": "#/$defs/Umask",
           "default": "077"
         },
+        "use_ssh_config": {
+          "description": "Whether to read `~/.ssh/config` when resolving the target.",
+          "type": "boolean",
+          "default": true
+        },
         "user": {
-          "description": "Username for the SSH connection.",
-          "type": "string",
-          "default": "z1234567"
+          "description": "Optional username. If unset, uses the matching OpenSSH `User` value.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },

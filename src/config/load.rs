@@ -15,8 +15,6 @@ use tracing::{debug, info, warn};
 struct RequiredConfigPresence {
 	/// Whether `ssh.host` was provided by any config layer or environment variable.
 	ssh_host: bool,
-	/// Whether `ssh.user` was provided by any config layer or environment variable.
-	ssh_user: bool,
 }
 
 impl Config {
@@ -284,14 +282,12 @@ impl RequiredConfigPresence {
 	fn from_env() -> Self {
 		Self {
 			ssh_host: env::var_os("BIWA_SSH_HOST").is_some(),
-			ssh_user: env::var_os("BIWA_SSH_USER").is_some(),
 		}
 	}
 
 	/// Marks required SSH fields that were present in a preloaded config layer.
 	const fn observe_layer(&mut self, partial: &<Config as confique::Config>::Layer) {
 		self.ssh_host |= partial.ssh.host.is_some();
-		self.ssh_user |= partial.ssh.user.is_some();
 	}
 
 	/// Fails when any required SSH setting was not supplied by configuration input.
@@ -300,10 +296,6 @@ impl RequiredConfigPresence {
 
 		if !self.ssh_host {
 			missing.push("ssh.host (or BIWA_SSH_HOST)");
-		}
-
-		if !self.ssh_user {
-			missing.push("ssh.user (or BIWA_SSH_USER)");
 		}
 
 		if !missing.is_empty() {
@@ -412,8 +404,9 @@ mod tests {
 	fn default() {
 		let config = Config::default();
 		assert_eq!(config.ssh.host, "cse.unsw.edu.au");
-		assert_eq!(config.ssh.port, 22);
-		assert_eq!(config.ssh.user, "z1234567");
+		assert_eq!(config.ssh.port, None);
+		assert_eq!(config.ssh.user, None);
+		assert!(config.ssh.use_ssh_config);
 		assert_eq!(
 			config.sync.remote_root,
 			PathBuf::from("~/.cache/biwa/projects")
@@ -434,7 +427,7 @@ mod tests {
 		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 
 		assert_eq!(config.ssh.host, "env");
-		assert_eq!(config.ssh.port, 8080);
+		assert_eq!(config.ssh.port, Some(8080));
 		Ok(())
 	}
 
@@ -446,8 +439,9 @@ mod tests {
 		{
 		  "ssh": {
 		    "host": "cse.unsw.edu.au",
-		    "port": 22,
-		    "user": "z1234567",
+		    "port": null,
+		    "user": null,
+		    "use_ssh_config": true,
 		    "key_path": null,
 		    "password": false,
 		    "umask": "077"
@@ -947,25 +941,20 @@ child = ["--skip-sync"]
 		};
 
 		assert!(err.contains("ssh.host (or BIWA_SSH_HOST)"));
-		assert!(err.contains("ssh.user (or BIWA_SSH_USER)"));
+		assert!(!err.contains("ssh.user (or BIWA_SSH_USER)"));
 		Ok(())
 	}
 
 	#[serial]
 	#[test]
-	fn missing_required_config_values_error_when_partial_file_exists() -> Result<()> {
+	fn user_may_be_supplied_by_openssh_config() -> Result<()> {
 		let dir = tempdir()?;
 		let (_cleanup_host, _cleanup_user) = clear_required_ssh_env();
 		fs::write(dir.path().join("biwa.toml"), r#"ssh.host = "configured""#)?;
 
-		let result = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
-		let err = match result {
-			Err(err) => err.to_string(),
-			Ok(_) => bail!("Expected missing required config values to fail"),
-		};
-
-		assert!(!err.contains("ssh.host (or BIWA_SSH_HOST)"));
-		assert!(err.contains("ssh.user (or BIWA_SSH_USER)"));
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		assert_eq!(config.ssh.host, "configured");
+		assert_eq!(config.ssh.user, None);
 		Ok(())
 	}
 
@@ -981,7 +970,7 @@ child = ["--skip-sync"]
 		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 
 		assert_eq!(config.ssh.host, "env-host");
-		assert_eq!(config.ssh.user, "env-user");
+		assert_eq!(config.ssh.user.as_deref(), Some("env-user"));
 		Ok(())
 	}
 
