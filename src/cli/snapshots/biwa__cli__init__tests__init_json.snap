@@ -23,7 +23,9 @@ expression: content
   },
   "ssh": {
     "host": "cse.unsw.edu.au",
+    "host_key_checking": "strict",
     "key_path": null,
+    "known_hosts": null,
     "password": false,
     "port": null,
     "umask": "077",

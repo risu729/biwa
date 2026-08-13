@@ -241,6 +241,19 @@ impl Default for Config {
 	}
 }
 
+/// Policy for verifying an SSH server's host key.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum HostKeyChecking {
+	/// Require an existing matching entry in the known-hosts file.
+	#[default]
+	Strict,
+	/// Record an unknown host key, but reject changed keys.
+	AcceptNew,
+	/// Accept every host key. Intended only for isolated tests and debugging.
+	Insecure,
+}
+
 /// SSH connection settings.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SshConfig {
@@ -265,6 +278,13 @@ pub struct SshConfig {
 	/// Optional path to the SSH private key.
 	#[config(env = "BIWA_SSH_KEY_PATH")]
 	pub key_path: Option<PathBuf>,
+	/// Policy for verifying the SSH server's host key.
+	#[config(default = "strict", env = "BIWA_SSH_HOST_KEY_CHECKING")]
+	#[schemars(default)]
+	pub host_key_checking: HostKeyChecking,
+	/// Optional known-hosts file override.
+	#[config(env = "BIWA_SSH_KNOWN_HOSTS")]
+	pub known_hosts: Option<PathBuf>,
 	/// Password authentication: `false` (default), `true` (prompt), or a string value.
 	#[config(default = false, env = "BIWA_SSH_PASSWORD")]
 	#[schemars(default)]

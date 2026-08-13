@@ -194,6 +194,7 @@ impl Config {
 		};
 
 		resolve(&mut partial.ssh.key_path);
+		resolve(&mut partial.ssh.known_hosts);
 		resolve(&mut partial.state_dir);
 		resolve(&mut partial.direct.bin_dir);
 
@@ -443,6 +444,8 @@ mod tests {
 		    "user": null,
 		    "use_ssh_config": true,
 		    "key_path": null,
+		    "host_key_checking": "strict",
+		    "known_hosts": null,
 		    "password": false,
 		    "umask": "077"
 		  },

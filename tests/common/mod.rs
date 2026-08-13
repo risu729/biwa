@@ -12,7 +12,10 @@ pub type Result<T> = color_eyre::Result<T>;
 use gethostname::gethostname;
 use sha2::Digest as _;
 use std::sync::LazyLock;
-use std::{env, path::Path};
+use std::{
+	env,
+	path::{Path, PathBuf},
+};
 
 /// Shared state directory for one test binary.
 static TEST_STATE_DIR: LazyLock<tempfile::TempDir> =
@@ -68,6 +71,8 @@ where
 		.env("BIWA_SSH_PORT", port)
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
+		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
+		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())
 		.env("BIWA_CLEAN_AUTO", "false")
 		.env("BIWA_STATE_DIR", TEST_STATE_DIR.path())
 		.env("XDG_DATA_HOME", TEST_STATE_DIR.path())
@@ -94,6 +99,16 @@ pub fn ssh_port() -> &'static str {
 	static PORT: LazyLock<String> =
 		LazyLock::new(|| env::var("BIWA_TEST_SSH_PORT").unwrap_or_else(|_| "2222".to_owned()));
 	PORT.as_str()
+}
+
+/// Returns the isolated known-hosts path shared by this test binary.
+#[allow(
+	dead_code,
+	reason = "Only tests that construct commands directly need the path."
+)]
+pub fn test_known_hosts_path() -> &'static Path {
+	static PATH: LazyLock<PathBuf> = LazyLock::new(|| TEST_STATE_DIR.path().join("known_hosts"));
+	PATH.as_path()
 }
 
 /// Returns the host port for the capable SSH test server.
