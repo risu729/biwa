@@ -6,9 +6,9 @@ use crate::env_vars::{
 	EnvForwardMethod, EnvVarRule, EnvVarSource, is_environment_dependent_env_var,
 	local_env_var_names, resolve_env_var_rules,
 };
-use crate::ssh::client::Client;
 use crate::ssh::client::auth::AuthenticationFailed;
 use crate::ssh::client::execute::{await_channel_confirmation, exit_status_from_signal};
+use crate::ssh::client::{Client, HostKeyVerification, HostKeyVerificationFailed};
 use crate::ssh::target::ResolvedSshTarget;
 use crate::ui::create_spinner;
 use bytes::Bytes;
@@ -47,6 +47,11 @@ impl Drop for SpinnerGuard {
 /// context added via `wrap_err`).
 fn report_is_authentication_failure(report: &Report) -> bool {
 	report.downcast_ref::<AuthenticationFailed>().is_some()
+}
+
+/// Returns true when host-key verification failed and retrying is unsafe.
+fn report_is_host_key_verification_failure(report: &Report) -> bool {
+	report.downcast_ref::<HostKeyVerificationFailed>().is_some()
 }
 
 /// Resolved environment variable to send remotely.
@@ -99,10 +104,17 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 	let mut delay = Duration::from_millis(500);
 
 	let client = loop {
+		let verification = HostKeyVerification::new(
+			target.hostname.clone(),
+			target.port,
+			config.ssh.host_key_checking,
+			config.ssh.known_hosts.clone(),
+		);
 		match Client::connect(
 			(target.hostname.as_str(), target.port),
 			target.user.as_str(),
 			auth_method.clone(),
+			verification,
 		)
 		.await
 		{
@@ -120,6 +132,7 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 					)
 				});
 			}
+			Err(e) if report_is_host_key_verification_failure(&e) => return Err(e),
 			Err(e) if retries > 0 => {
 				debug!(
 					error = %e,
