@@ -132,7 +132,7 @@ Biwa stores active transfer targets before remote work begins so automatic clean
 
 ### Automatic cleanup after sync, pull, and run
 
-When **`clean.auto`** is `true` (the default), biwa may start a **background** `biwa clean --auto` process after a successful `biwa sync`, `biwa pull`, or `biwa run`, as long as password authentication is not interactive-only (non-interactive auth such as env password, key, or agent is required). You can turn this off globally with **`BIWA_CLEAN_AUTO=false`** or in config:
+When **`clean.auto`** is `true` (the default), biwa may start a **background** `biwa clean --auto` process after a successful `biwa sync`, `biwa pull`, or `biwa run`. Public keys and agents work without special cleanup settings. Password mode requires `BIWA_SSH_PASSWORD` because a detached process cannot prompt. You can turn cleanup off globally with **`BIWA_CLEAN_AUTO=false`** or in config:
 
 ```toml
 [clean]
