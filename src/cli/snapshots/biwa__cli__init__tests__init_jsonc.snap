@@ -53,12 +53,12 @@ expression: content
     // Can also be specified via environment variable `BIWA_SSH_KNOWN_HOSTS`.
     //"known_hosts": ,
 
-    // Password authentication: `false` (default), `true` (prompt), or a string value.
+    // Authentication mode. Password authentication must be selected explicitly.
     //
-    // Can also be specified via environment variable `BIWA_SSH_PASSWORD`.
+    // Can also be specified via environment variable `BIWA_SSH_AUTH`.
     //
-    // Default value: false
-    //"password": false,
+    // Default value: "public-key"
+    //"auth": "public-key",
 
     // Umask to apply before executing commands and creating directories (3-digit octal: owner/group/other).
     // To set the first digit (setuid/setgid/sticky), run `umask` manually on the remote server.

@@ -213,31 +213,33 @@ pub struct Config {
 	pub direct: DirectConfig,
 }
 
-/// Password authentication configuration.
-///
-/// - `false` (default): No password authentication.
-/// - `true`: Interactively prompt for a password.
-/// - `"string"`: Use the provided password value.
-#[derive(Debug, Deserialize, Serialize, JsonSchema, Clone)]
-#[serde(untagged)]
-pub enum PasswordConfig {
-	/// Interactive prompt (`true`) or disabled (`false`).
-	Interactive(bool),
-	/// A literal password value.
-	Value(String),
-}
-
-impl Default for PasswordConfig {
-	fn default() -> Self {
-		Self::Interactive(false)
-	}
-}
-
 impl Default for Config {
 	fn default() -> Self {
 		confique::Config::builder()
 			.load()
 			.expect("Failed to build default config")
+	}
+}
+
+/// Authentication mode requested for the SSH connection.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum AuthMode {
+	/// Discover and use public keys without falling back to passwords.
+	#[default]
+	PublicKey,
+	/// Use password authentication only.
+	Password,
+}
+
+impl AuthMode {
+	/// Returns the configuration spelling used by environment propagation.
+	#[must_use]
+	pub const fn as_str(self) -> &'static str {
+		match self {
+			Self::PublicKey => "public-key",
+			Self::Password => "password",
+		}
 	}
 }
 
@@ -252,6 +254,18 @@ pub enum HostKeyChecking {
 	AcceptNew,
 	/// Accept every host key. Intended only for isolated tests and debugging.
 	Insecure,
+}
+
+impl HostKeyChecking {
+	/// Returns the configuration spelling used by environment propagation.
+	#[must_use]
+	pub const fn as_str(self) -> &'static str {
+		match self {
+			Self::Strict => "strict",
+			Self::AcceptNew => "accept-new",
+			Self::Insecure => "insecure",
+		}
+	}
 }
 
 /// SSH connection settings.
@@ -285,10 +299,10 @@ pub struct SshConfig {
 	/// Optional known-hosts file override.
 	#[config(env = "BIWA_SSH_KNOWN_HOSTS")]
 	pub known_hosts: Option<PathBuf>,
-	/// Password authentication: `false` (default), `true` (prompt), or a string value.
-	#[config(default = false, env = "BIWA_SSH_PASSWORD")]
+	/// Authentication mode. Password authentication must be selected explicitly.
+	#[config(default = "public-key", env = "BIWA_SSH_AUTH")]
 	#[schemars(default)]
-	pub password: PasswordConfig,
+	pub auth: AuthMode,
 	/// Umask to apply before executing commands and creating directories (3-digit octal: owner/group/other).
 	/// To set the first digit (setuid/setgid/sticky), run `umask` manually on the remote server.
 	/// Note that you cannot loosen the default umask set by the server (e.g., 027 in UNSW CSE).

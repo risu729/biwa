@@ -85,10 +85,13 @@ struct RunCommandOptions<'a> {
 #[expect(clippy::redundant_pub_crate, reason = "Preferred by reviewer")]
 pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 	let target = ResolvedSshTarget::resolve(&config.ssh)?;
-	let mut auth_methods = resolve_auth(config, &target)?.into_iter();
+	let auth_plan = resolve_auth(config, &target).await?;
+	let skipped_agent_identities = auth_plan.skipped_agent_identities;
+	let mut auth_methods = auth_plan.methods.into_iter();
 	let mut auth_method = auth_methods
 		.next()
 		.expect("authentication resolution must return at least one method");
+	let mut rejected_credentials = Vec::new();
 	let spinner = if quiet {
 		None
 	} else {
@@ -120,14 +123,23 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 		{
 			Ok(c) => break c,
 			Err(e) if report_is_authentication_failure(&e) => {
+				rejected_credentials.push(auth_method.description());
 				if let Some(fallback) = auth_methods.next() {
-					info!("Authentication failed; trying SSH agent");
+					info!("Authentication failed; trying the next public-key candidate");
 					auth_method = fallback;
 					continue;
 				}
+				let attempted = rejected_credentials.join(", ");
+				let skipped = if skipped_agent_identities == 0 {
+					String::new()
+				} else {
+					format!(
+						"; skipped {skipped_agent_identities} additional agent identities—add an IdentityFile public-key hint to select one"
+					)
+				};
 				return Err(e).wrap_err_with(|| {
 					format!(
-						"Failed to authenticate as {}@{}",
+						"Failed to authenticate as {}@{} (attempted: {attempted}{skipped}). Password was not attempted unless ssh.auth = \"password\" was selected",
 						target.user, target.hostname
 					)
 				});

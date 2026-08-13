@@ -4,6 +4,7 @@
 )]
 #![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
 use std::io::{BufRead as _, BufReader, Read as _};
+use std::os::unix::fs::PermissionsExt as _;
 
 use core::time::Duration;
 mod common;
@@ -17,8 +18,7 @@ use std::{
 	ffi::OsStr,
 	fs,
 	path::{Path, PathBuf},
-	process::Command,
-	process::Stdio,
+	process::{Child, Command, Stdio},
 	thread,
 	time::Instant,
 };
@@ -38,6 +38,7 @@ fn biwa_process(args: &[&str]) -> Command {
 		.env("BIWA_SSH_HOST", "127.0.0.1")
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_AUTH", "password")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
 		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path());
@@ -49,10 +50,48 @@ fn biwa_host_key_cmd(args: &[&str], checking: &str, known_hosts: &Path) -> duct:
 		.env("BIWA_SSH_HOST", "127.0.0.1")
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_AUTH", "password")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_SSH_HOST_KEY_CHECKING", checking)
 		.env("BIWA_SSH_KNOWN_HOSTS", known_hosts)
 		.env("BIWA_CLEAN_AUTO", "false")
+}
+
+fn biwa_public_key_cmd(args: &[&str], key_path: &Path) -> duct::Expression {
+	duct::cmd(env!("CARGO_BIN_EXE_biwa"), args)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", ssh_port())
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_AUTH", "public-key")
+		.env("BIWA_SSH_KEY_PATH", key_path)
+		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
+		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())
+		.env("BIWA_CLEAN_AUTO", "false")
+}
+
+fn biwa_agent_cmd(args: &[&str], auth_sock: &Path) -> duct::Expression {
+	duct::cmd(env!("CARGO_BIN_EXE_biwa"), args)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", ssh_port())
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_AUTH", "public-key")
+		.env("SSH_AUTH_SOCK", auth_sock)
+		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
+		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())
+		.env("BIWA_CLEAN_AUTO", "false")
+}
+
+struct ChildGuard(Child);
+
+impl Drop for ChildGuard {
+	fn drop(&mut self) {
+		match self.0.kill() {
+			Ok(()) | Err(_) => {}
+		}
+		match self.0.wait() {
+			Ok(_) | Err(_) => {}
+		}
+	}
 }
 
 const SIGINT_REMOTE_SCRIPT: &str =
@@ -139,6 +178,7 @@ sys.exit(0)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_AUTH", "password")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
 		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())
@@ -171,6 +211,69 @@ fn e2e_run_command() -> Result<()> {
 
 	assert!(output.status.success());
 	assert!(stdout.contains("hello e2e from biwa"));
+	Ok(())
+}
+
+#[test]
+fn e2e_explicit_public_key_authentication() -> Result<()> {
+	let key_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ssh/id_ed25519");
+	let output = biwa_public_key_cmd(
+		&["run", "--skip-sync", "echo", "public-key-success"],
+		&key_path,
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(String::from_utf8_lossy(&output.stdout).contains("public-key-success"));
+	Ok(())
+}
+
+#[test]
+fn e2e_agent_public_key_authentication() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let auth_sock = dir.path().join("agent.sock");
+	let key_path = dir.path().join("id_ed25519");
+	fs::copy(
+		Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ssh/id_ed25519"),
+		&key_path,
+	)?;
+	fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600))?;
+
+	let child = Command::new("ssh-agent")
+		.args([OsStr::new("-D"), OsStr::new("-a"), auth_sock.as_os_str()])
+		.stdout(Stdio::null())
+		.stderr(Stdio::null())
+		.spawn()?;
+	let _guard = ChildGuard(child);
+	let deadline = Instant::now() + Duration::from_secs(5);
+	while !auth_sock.exists() {
+		if Instant::now() >= deadline {
+			return Err(eyre!("timed out waiting for test SSH agent"));
+		}
+		thread::sleep(Duration::from_millis(10));
+	}
+
+	let add = Command::new("ssh-add")
+		.arg(&key_path)
+		.env("SSH_AUTH_SOCK", &auth_sock)
+		.output()?;
+	assert!(
+		add.status.success(),
+		"ssh-add stderr: {}",
+		String::from_utf8_lossy(&add.stderr)
+	);
+
+	let output = biwa_agent_cmd(&["run", "--skip-sync", "echo", "agent-success"], &auth_sock)
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(String::from_utf8_lossy(&output.stdout).contains("agent-success"));
 	Ok(())
 }
 
@@ -782,6 +885,7 @@ sys.exit(proc.returncode)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_AUTH", "password")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
 		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())
@@ -849,6 +953,7 @@ sys.exit(0)
 		.env("BIWA_SSH_HOST", "127.0.0.1")
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_AUTH", "password")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
 		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())

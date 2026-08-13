@@ -1,156 +1,277 @@
 use crate::Result;
-use crate::config::types::Config;
-use crate::config::types::PasswordConfig;
+use crate::config::types::{AuthMode, Config};
 use crate::ssh::client::auth::Method;
 use crate::ssh::target::ResolvedSshTarget;
 use color_eyre::eyre::bail;
-use dialoguer::Password;
-use russh::keys::{Error as RusshKeysError, load_secret_key};
+use russh::keys::agent::client::AgentClient;
+use russh::keys::{PublicKey, load_public_key, load_secret_key};
 use std::env;
+use std::io::{IsTerminal as _, stdin};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
-/// Default SSH key paths to try when no explicit `key_path` is configured.
-const DEFAULT_KEY_PATHS: &[&str] = &["~/.ssh/id_ed25519", "~/.ssh/id_rsa"];
+/// Standard private-key paths considered after configured and agent identities.
+const DEFAULT_KEY_PATHS: &[&str] = &[".ssh/id_ed25519", ".ssh/id_rsa"];
+/// Maximum number of unrelated agent identities offered automatically.
+const UNRELATED_AGENT_LIMIT: usize = 10;
 
-/// Resolve the authentication methods to try based on configuration.
-///
-/// Auth cascade (explicit configuration is always respected first):
-/// 1. Explicit key file (`ssh.key_path`) — errors if file not found
-/// 2. Explicit password (`ssh.password = "..."` or `ssh.password = true` for prompt)
-/// 3. Default key file discovery (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`)
-/// 4. SSH agent (fallback if the discovered default key is rejected)
-pub(super) fn resolve_auth(config: &Config, target: &ResolvedSshTarget) -> Result<Vec<Method>> {
+/// A deterministic list of concrete credentials to try.
+#[derive(Debug)]
+pub(super) struct AuthPlan {
+	/// Credentials in attempt order. Each receives a fresh SSH transport.
+	pub methods: Vec<Method>,
+	/// Agent identities omitted by the unrelated-identity bound.
+	pub skipped_agent_identities: usize,
+}
+
+/// Resolves credentials without opening a network connection or prompting.
+pub(super) async fn resolve_auth(config: &Config, target: &ResolvedSshTarget) -> Result<AuthPlan> {
+	let interaction_allowed = stdin().is_terminal();
+	let password = env::var("BIWA_SSH_PASSWORD").ok();
+
+	if config.ssh.auth == AuthMode::Password {
+		return resolve_auth_with(
+			config,
+			target,
+			password,
+			Vec::new(),
+			Vec::new(),
+			interaction_allowed,
+		);
+	}
+
+	let agent_keys = enumerate_agent_keys().await;
+	let default_paths = default_key_paths();
 	resolve_auth_with(
 		config,
 		target,
-		resolve_default_key_path(),
-		env::var("SSH_AUTH_SOCK").ok().as_deref(),
+		password,
+		agent_keys,
+		default_paths,
+		interaction_allowed,
 	)
 }
 
-/// Resolve authentication methods with explicit local authentication state.
+/// Resolves credentials from explicit local state for deterministic tests.
 fn resolve_auth_with(
 	config: &Config,
 	target: &ResolvedSshTarget,
-	default_key_path: Option<PathBuf>,
-	auth_sock: Option<&str>,
-) -> Result<Vec<Method>> {
-	let ssh = &config.ssh;
-
-	// 1. Explicit key_path (paths are already resolved natively by confique)
-	if let Some(path) = &ssh.key_path {
-		if path.exists() {
-			info!(path = %path.display(), "Using configured SSH key file");
-			return Ok(vec![load_key(path)?]);
-		}
-		bail!("Configured SSH key file not found: {}", path.display());
+	password: Option<String>,
+	agent_keys: Vec<PublicKey>,
+	default_paths: Vec<PathBuf>,
+	interaction_allowed: bool,
+) -> Result<AuthPlan> {
+	if config.ssh.auth == AuthMode::Password {
+		return resolve_password_auth(config, target, password, interaction_allowed);
 	}
 
-	// 2. Explicit password (string value or interactive prompt)
-	match &ssh.password {
-		PasswordConfig::Value(password) => {
-			info!("Using password authentication from config");
-			return Ok(vec![Method::with_password(password)]);
+	if password.is_some() {
+		debug!("Ignoring BIWA_SSH_PASSWORD because public-key authentication is selected");
+	}
+
+	if let Some(path) = config.ssh.key_path.as_deref() {
+		if !path.is_file() {
+			bail!("Configured SSH key file not found: {}", path.display());
 		}
-		PasswordConfig::Interactive(true) => {
-			info!("Prompting for password (ssh.password = true)");
-			let password = Password::new()
-				.with_prompt(format!("Password for {}@{}", target.user, target.hostname))
-				.interact()?;
-			return Ok(vec![Method::with_password(&password)]);
-		}
-		PasswordConfig::Interactive(false) => {
-			debug!("Password authentication disabled");
+		return Ok(AuthPlan {
+			methods: vec![Method::with_key_file(path, interaction_allowed)],
+			skipped_agent_identities: 0,
+		});
+	}
+
+	let identity_paths = target
+		.identity_files
+		.iter()
+		.map(|path| expand_identity_path(path))
+		.collect::<Vec<_>>();
+	let identity_keys = identity_paths
+		.iter()
+		.map(|path| public_key_for_identity(path).ok())
+		.collect::<Vec<_>>();
+
+	let mut methods = Vec::new();
+	let mut selected_agent_keys = Vec::<PublicKey>::new();
+
+	// Configured matches are always first and do not consume the unrelated-key allowance.
+	for identity_key in identity_keys.iter().flatten() {
+		for agent_key in &agent_keys {
+			if same_key(identity_key, agent_key)
+				&& !selected_agent_keys
+					.iter()
+					.any(|key| same_key(key, agent_key))
+			{
+				selected_agent_keys.push(agent_key.clone());
+				methods.push(Method::with_agent_key(agent_key.clone()));
+			}
 		}
 	}
 
-	// 3. Try default key file paths
-	if let Some(key_path) = default_key_path {
-		info!(path = %key_path.display(), "Using default SSH key file");
-		let mut methods = vec![load_key(&key_path)?];
-		if try_agent(auth_sock) {
-			debug!("SSH agent available as fallback authentication");
-			methods.push(Method::with_agent());
+	// A public IdentityFile may be only an agent selector; try a local file only when it can be a
+	// private key. Loading and passphrase prompting remain lazy inside the concrete attempt.
+	let mut selected_paths = Vec::<PathBuf>::new();
+	for path in &identity_paths {
+		if is_private_key_candidate(path) && !selected_paths.contains(path) {
+			selected_paths.push(path.clone());
+			methods.push(Method::with_key_file(path, interaction_allowed));
 		}
-		return Ok(methods);
 	}
 
-	// 4. SSH Agent as last resort (for zero-config users)
-	if try_agent(auth_sock) {
-		info!("Using SSH agent authentication");
-		return Ok(vec![Method::with_agent()]);
+	let remaining_agent_keys = agent_keys
+		.into_iter()
+		.filter(|key| {
+			!selected_agent_keys
+				.iter()
+				.any(|selected| same_key(selected, key))
+		})
+		.collect::<Vec<_>>();
+	let skipped_agent_identities = remaining_agent_keys
+		.len()
+		.saturating_sub(UNRELATED_AGENT_LIMIT);
+	for key in remaining_agent_keys.into_iter().take(UNRELATED_AGENT_LIMIT) {
+		methods.push(Method::with_agent_key(key));
 	}
 
-	bail!(
-		"No authentication method available. \
-		Configure ssh.key_path, ssh.password, or set up an SSH agent."
+	for path in default_paths {
+		if path.is_file() && !selected_paths.contains(&path) {
+			selected_paths.push(path.clone());
+			methods.push(Method::with_key_file(path, interaction_allowed));
+		}
+	}
+
+	if methods.is_empty() {
+		bail!(
+			"No SSH public key is available. Add a key to your SSH agent, create a standard key, configure ssh.key_path, or set ssh.auth = \"password\""
+		);
+	}
+
+	info!(
+		candidate_count = methods.len(),
+		skipped_agent_identities, "Resolved SSH public-key candidates"
+	);
+	Ok(AuthPlan {
+		methods,
+		skipped_agent_identities,
+	})
+}
+
+/// Resolves explicit password mode without inspecting keys or contacting the agent.
+fn resolve_password_auth(
+	config: &Config,
+	target: &ResolvedSshTarget,
+	password: Option<String>,
+	interaction_allowed: bool,
+) -> Result<AuthPlan> {
+	if let Some(path) = config.ssh.key_path.as_deref() {
+		bail!(
+			"ssh.key_path `{}` cannot be used with ssh.auth = \"password\"; remove the key setting or select public-key authentication",
+			path.display()
+		);
+	}
+	let method = password.map_or_else(
+		|| {
+			Method::with_password_prompt(format!(
+				"Password for {}@{}",
+				target.user, target.hostname
+			))
+		},
+		Method::with_password,
+	);
+	if matches!(method, Method::PasswordPrompt { .. }) && !interaction_allowed {
+		bail!(
+			"Password authentication was requested, but BIWA_SSH_PASSWORD is unset and interactive input is unavailable"
+		);
+	}
+	Ok(AuthPlan {
+		methods: vec![method],
+		skipped_agent_identities: 0,
+	})
+}
+
+/// Enumerates and normalizes identities from the agent selected by `SSH_AUTH_SOCK`.
+async fn enumerate_agent_keys() -> Vec<PublicKey> {
+	if env::var_os("SSH_AUTH_SOCK").is_none() {
+		debug!("SSH_AUTH_SOCK is unset; skipping SSH agent");
+		return Vec::new();
+	}
+	let Ok(mut agent) = AgentClient::connect_env().await else {
+		debug!("Could not connect to the SSH agent; continuing with local keys");
+		return Vec::new();
+	};
+	let Ok(identities) = agent.request_identities().await else {
+		debug!("Could not enumerate SSH agent identities; continuing with local keys");
+		return Vec::new();
+	};
+
+	let mut keys = Vec::<PublicKey>::new();
+	for identity in identities {
+		let public_key = identity.public_key().into_owned();
+		if !keys.iter().any(|key| same_key(key, &public_key)) {
+			keys.push(public_key);
+		}
+	}
+	keys
+}
+
+/// Returns existing standard private-key paths in deterministic order.
+fn default_key_paths() -> Vec<PathBuf> {
+	let Some(home) = homedir::my_home().ok().flatten() else {
+		return Vec::new();
+	};
+	DEFAULT_KEY_PATHS
+		.iter()
+		.map(|path| home.join(path))
+		.collect()
+}
+
+/// Expands a leading home marker in an OpenSSH identity path.
+fn expand_identity_path(path: &Path) -> PathBuf {
+	path.strip_prefix("~").map_or_else(
+		|_| path.to_path_buf(),
+		|suffix| {
+			homedir::my_home()
+				.ok()
+				.flatten()
+				.map_or_else(|| path.to_path_buf(), |home| home.join(suffix))
+		},
 	)
 }
 
-/// Load an SSH key from the given path, prompting for a passphrase if needed.
-fn load_key(path: &Path) -> Result<Method> {
-	let path_str = path.to_string_lossy();
-	match load_secret_key(path_str.as_ref(), None) {
-		Err(RusshKeysError::KeyIsEncrypted) => {
-			info!(path = %path.display(), "SSH key is encrypted, prompting for passphrase");
-			let passphrase = Password::new()
-				.with_prompt(format!("Passphrase for {}", path.display()))
-				.interact()?;
-			Ok(Method::with_key_file(path_str.as_ref(), Some(&passphrase)))
-		}
-		_ => {
-			// If it succeeds, or fails with any other error (e.g. invalid format),
-			// we let the actual SSH connection attempt handle it and report the error.
-			Ok(Method::with_key_file(path_str.as_ref(), None))
-		}
+/// Loads public key material from a selector, companion public key, or unencrypted private key.
+fn public_key_for_identity(path: &Path) -> Result<PublicKey> {
+	if let Ok(key) = load_public_key(path) {
+		return Ok(key);
 	}
+	let companion = PathBuf::from(format!("{}.pub", path.to_string_lossy()));
+	if let Ok(key) = load_public_key(&companion) {
+		return Ok(key);
+	}
+	Ok(load_secret_key(path, None)?.public_key().clone())
 }
 
-/// Determine whether SSH agent authentication should be used based on the provided socket path.
-///
-/// Callers typically pass the value of the `SSH_AUTH_SOCK` environment variable
-/// (e.g. `std::env::var("SSH_AUTH_SOCK").ok().as_deref()`), and this function
-/// simply checks whether that value is present and non-empty.
-fn try_agent(auth_sock: Option<&str>) -> bool {
-	match auth_sock {
-		Some(sock) if !sock.is_empty() => {
-			debug!(sock = %sock, "SSH agent socket found");
-			true
-		}
-		_ => {
-			debug!("SSH_AUTH_SOCK not set, skipping agent auth");
-			false
-		}
-	}
+/// Returns whether a path exists and is not itself a public-key selector.
+fn is_private_key_candidate(path: &Path) -> bool {
+	path.is_file() && load_public_key(path).is_err()
 }
 
-/// Try to find a default SSH key file.
-fn resolve_default_key_path() -> Option<PathBuf> {
-	let home = homedir::my_home().ok().flatten()?;
-
-	for default_path in DEFAULT_KEY_PATHS {
-		let expanded = default_path.strip_prefix("~/").map_or_else(
-			|| PathBuf::from(default_path),
-			|stripped| home.join(stripped),
-		);
-
-		if expanded.exists() {
-			debug!(path = %expanded.display(), "Found default SSH key");
-			return Some(expanded);
-		}
-	}
-
-	debug!("No default SSH key file found");
-	None
+/// Compares public identity bytes while ignoring comments.
+fn same_key(left: &PublicKey, right: &PublicKey) -> bool {
+	left.key_data() == right.key_data()
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use pretty_assertions::assert_matches;
-	use serial_test::serial;
+	use pretty_assertions::{assert_eq, assert_matches};
 	use std::fs;
+
+	const KEY_ONE: &str =
+		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGYh1Ntz2neFcfgNyBAx3kFJwSURKqRrnAuLiQ5M296T";
+	const KEY_TWO: &str =
+		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICQvZPc4//KJ9jQpzY7zfzt6isLmdQidqqeK4cdA0hY/";
+
+	fn key(value: &str) -> PublicKey {
+		PublicKey::from_openssh(value).expect("static key is valid")
+	}
 
 	fn target() -> ResolvedSshTarget {
 		ResolvedSshTarget {
@@ -163,113 +284,75 @@ mod tests {
 	}
 
 	#[test]
-	fn explicit_key_has_no_fallback() -> Result<()> {
-		let dir = tempfile::tempdir()?;
-		let key_file = dir.path().join("my_key");
-		fs::write(&key_file, "fake key")?;
-
+	fn password_mode_uses_only_environment_password() -> Result<()> {
 		let mut config = Config::default();
-		config.ssh.key_path = Some(key_file);
-
-		let methods = resolve_auth_with(
+		config.ssh.auth = AuthMode::Password;
+		let plan = resolve_auth_with(
 			&config,
 			&target(),
-			Some(PathBuf::from("/unused/default/key")),
-			Some("/tmp/fake-agent.sock"),
+			Some("secret".to_owned()),
+			vec![key(KEY_ONE)],
+			Vec::new(),
+			false,
 		)?;
-		assert_matches!(methods.as_slice(), [Method::PrivateKeyFile { .. }]);
+		assert_matches!(plan.methods.as_slice(), [Method::Password(_)]);
 		Ok(())
 	}
 
-	#[serial]
 	#[test]
-	fn resolve_auth_missing_explicit_key_errors() {
+	fn password_mode_rejects_key_path() {
 		let mut config = Config::default();
-		config.ssh.key_path = Some(PathBuf::from("/nonexistent/path/key"));
-
-		let result = resolve_auth(&config, &target());
-		assert!(result.is_err());
-		let err_msg = result.unwrap_err().to_string();
-		assert!(err_msg.contains("not found"), "Error: {err_msg}");
-	}
-
-	#[serial]
-	#[test]
-	fn resolve_default_key_path_no_config() {
-		// Verify the function runs without panic; it may or may not find a key
-		// depending on the test environment.
-		let _path = resolve_default_key_path();
-	}
-
-	#[test]
-	fn try_agent_detects_auth_sock() {
-		assert!(
-			try_agent(Some("/tmp/fake-agent.sock")),
-			"expected agent to be detected when a socket path is provided"
-		);
-
-		assert!(
-			!try_agent(None),
-			"expected no agent when no socket path is provided"
-		);
-	}
-
-	#[test]
-	fn default_key_falls_back_to_agent() -> Result<()> {
-		let dir = tempfile::tempdir()?;
-		let key_file = dir.path().join("id_ed25519");
-		fs::write(&key_file, "fake key")?;
-
-		let methods = resolve_auth_with(
-			&Config::default(),
+		config.ssh.auth = AuthMode::Password;
+		config.ssh.key_path = Some(PathBuf::from("key"));
+		let error = resolve_auth_with(
+			&config,
 			&target(),
-			Some(key_file),
-			Some("/tmp/fake-agent.sock"),
-		)?;
-
-		assert_matches!(
-			methods.as_slice(),
-			[Method::PrivateKeyFile { .. }, Method::Agent]
-		);
-		Ok(())
+			Some("secret".to_owned()),
+			Vec::new(),
+			Vec::new(),
+			false,
+		)
+		.expect_err("key and password mode conflict");
+		assert!(error.to_string().contains("cannot be used"));
 	}
 
 	#[test]
-	fn default_key_without_agent_has_no_fallback() -> Result<()> {
+	fn identity_file_public_key_prioritizes_matching_agent() -> Result<()> {
 		let dir = tempfile::tempdir()?;
-		let key_file = dir.path().join("id_ed25519");
-		fs::write(&key_file, "fake key")?;
-
-		let methods = resolve_auth_with(&Config::default(), &target(), Some(key_file), None)?;
-
-		assert_matches!(methods.as_slice(), [Method::PrivateKeyFile { .. }]);
+		let selector = dir.path().join("cse.pub");
+		fs::write(&selector, KEY_TWO)?;
+		let mut resolved = target();
+		resolved.identity_files.push(selector);
+		let plan = resolve_auth_with(
+			&Config::default(),
+			&resolved,
+			None,
+			vec![key(KEY_ONE), key(KEY_TWO)],
+			Vec::new(),
+			false,
+		)?;
+		let first = plan.methods.first().ok_or_else(|| {
+			color_eyre::eyre::eyre!("matching agent key candidate was not created")
+		})?;
+		let Method::AgentKey { public_key } = first else {
+			bail!("matching agent key must be first")
+		};
+		assert!(same_key(public_key, &key(KEY_TWO)));
 		Ok(())
 	}
 
-	#[serial]
 	#[test]
-	fn password_config_string() -> Result<()> {
-		let mut config = Config::default();
-		config.ssh.password = PasswordConfig::Value("secret".to_owned());
-		let methods = resolve_auth(&config, &target())?;
-		assert_matches!(methods.as_slice(), [Method::Password(_)]);
+	fn unrelated_agent_identities_are_bounded() -> Result<()> {
+		let keys = (0..=UNRELATED_AGENT_LIMIT)
+			.map(|index| {
+				let mut value = key(KEY_ONE);
+				value.set_comment(format!("{index}"));
+				value
+			})
+			.collect::<Vec<_>>();
+		let plan = resolve_auth_with(&Config::default(), &target(), None, keys, Vec::new(), false)?;
+		assert_eq!(plan.methods.len(), UNRELATED_AGENT_LIMIT);
+		assert_eq!(plan.skipped_agent_identities, 1);
 		Ok(())
-	}
-
-	#[serial]
-	#[test]
-	fn password_config_false() {
-		let mut config = Config::default();
-		config.ssh.password = PasswordConfig::Interactive(false);
-		let result = resolve_auth(&config, &target());
-		// Without explicit password, it may fall back to agent or key, or fail
-		// — but it must not use Password auth (password = false means skip password)
-		if let Ok(methods) = result {
-			assert!(
-				methods
-					.iter()
-					.all(|method| matches!(method, Method::PrivateKeyFile { .. } | Method::Agent))
-			);
-		}
 	}
 }

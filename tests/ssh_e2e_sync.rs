@@ -1118,6 +1118,7 @@ fn run_pull_signal_during_commit(signal: Signal) -> Result<()> {
 		.env("BIWA_SSH_HOST", "127.0.0.1")
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_AUTH", "password")
 		.env("BIWA_SSH_PASSWORD", "password123")
 		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
 		.env("BIWA_SSH_KNOWN_HOSTS", common::test_known_hosts_path())
