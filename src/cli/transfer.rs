@@ -1,6 +1,7 @@
 use crate::Result;
 use crate::config::types::Config;
 use crate::ssh::sync::{Options, compute_project_remote_dir, normalize_remote_dir};
+use crate::ssh::target::ResolvedSshTarget;
 use crate::state;
 use clap::Args;
 use std::env;
@@ -130,11 +131,18 @@ impl TransferArgs {
 /// Records a remote directory use in local persisted state.
 pub(super) fn record_connection_use(config: &Config, remote_dir: &str) {
 	let state_dir = config.resolved_state_dir();
+	let target = match ResolvedSshTarget::resolve(&config.ssh) {
+		Ok(target) => target,
+		Err(error) => {
+			warn!(%error, "Failed to resolve SSH target for connection state");
+			return;
+		}
+	};
 	if let Err(error) = state::record_connection(
 		&state_dir,
-		&config.ssh.host,
-		&config.ssh.user,
-		config.ssh.port,
+		&target.hostname,
+		&target.user,
+		target.port,
 		remote_dir,
 	) {
 		warn!(%error, "Failed to record connection in local state");

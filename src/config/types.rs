@@ -82,16 +82,10 @@ mod schema_defaults {
 		"cse.unsw.edu.au".to_owned()
 	}
 
-	/// Default for `SshConfig::port` in schema.
+	/// Default `true` value used by boolean configuration fields.
 	#[must_use]
-	pub const fn ssh_port() -> u16 {
-		22
-	}
-
-	/// Default for `SshConfig::user` in schema.
-	#[must_use]
-	pub fn ssh_user() -> String {
-		"z1234567".to_owned()
+	pub const fn bool_true() -> bool {
+		true
 	}
 
 	/// Default for `SyncConfig::remote_root` in schema.
@@ -254,14 +248,20 @@ pub struct SshConfig {
 	#[config(default = "cse.unsw.edu.au", env = "BIWA_SSH_HOST")]
 	#[schemars(default = "crate::config::types::schema_defaults::ssh_host")]
 	pub host: String,
-	/// Port to connect to on the remote host.
-	#[config(default = 22, env = "BIWA_SSH_PORT")]
-	#[schemars(default = "crate::config::types::schema_defaults::ssh_port")]
-	pub port: u16,
-	/// Username for the SSH connection.
-	#[config(default = "z1234567", env = "BIWA_SSH_USER")]
-	#[schemars(default = "crate::config::types::schema_defaults::ssh_user")]
-	pub user: String,
+	/// Optional port override. If unset, uses OpenSSH config and then port 22.
+	#[config(env = "BIWA_SSH_PORT")]
+	pub port: Option<u16>,
+	/// Optional username. If unset, uses the matching OpenSSH `User` value.
+	#[config(env = "BIWA_SSH_USER")]
+	pub user: Option<String>,
+	/// Whether to read `~/.ssh/config` when resolving the target.
+	#[config(default = true, env = "BIWA_SSH_USE_CONFIG")]
+	#[schemars(default = "crate::config::types::schema_defaults::bool_true")]
+	#[expect(
+		clippy::struct_field_names,
+		reason = "the public ssh.use_ssh_config key is intentionally explicit"
+	)]
+	pub use_ssh_config: bool,
 	/// Optional path to the SSH private key.
 	#[config(env = "BIWA_SSH_KEY_PATH")]
 	pub key_path: Option<PathBuf>,

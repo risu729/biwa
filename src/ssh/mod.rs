@@ -11,3 +11,5 @@ pub mod exec;
 pub mod sync;
 /// Helpers shared by SSH synchronization modules.
 mod sync_paths;
+/// Effective SSH target resolution from Biwa and OpenSSH configuration.
+pub mod target;
