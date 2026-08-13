@@ -60,18 +60,42 @@ If this prints "Success!" without asking for a password, key auth is working.
 
 ## How biwa Resolves Authentication
 
-biwa tries authentication methods in this order. **Explicit configuration is always respected first:**
+Public-key authentication is the default. No Biwa authentication setting is required. For automatic discovery, Biwa tries concrete credentials in this order:
 
-1. **Configured key file** — If `ssh.key_path` is set, biwa uses it (errors if not found)
-2. **Configured password** — If `ssh.password` is a string, biwa uses it; if `true`, biwa prompts interactively
-3. **Default key files** — biwa checks `~/.ssh/id_ed25519`, then `~/.ssh/id_rsa`
-4. **SSH Agent** — If no default key exists, or the discovered default key is rejected, biwa falls back to the SSH agent
+1. Agent identities matching OpenSSH `IdentityFile` entries, in configured order
+2. Private keys named by `IdentityFile`
+3. Remaining agent identities, preserving agent order
+4. Existing `~/.ssh/id_ed25519` and `~/.ssh/id_rsa` files
+
+Every agent identity gets a fresh SSH connection, avoiding one connection's `MaxAuthTries` budget. Matching identities are all tried; unrelated agent identities are limited to 10. If an agent exposes more, add an `IdentityFile` public-key hint.
+
+Setting `ssh.key_path` selects only that private key. It does not fall back to unrelated agent or default keys. Encrypted private keys prompt for a passphrase only when reached and only in an interactive process.
 
 ::: tip Zero-Config Users
-If you want to delegate authentication to your SSH agent, **don't configure any auth settings**. biwa will automatically use the agent, including as a fallback when a default key file does not authenticate.
+If your key is at a standard path or loaded into the agent named by `SSH_AUTH_SOCK`, omit authentication settings. Biwa discovers it automatically and never falls back to a password prompt.
 :::
 
-## Configuration
+## OpenSSH aliases and per-host agent selection
+
+Biwa supports `Host`, `HostName`, `User`, `Port`, and `IdentityFile` from `~/.ssh/config`. This lets OpenSSH and Biwa share the destination and key hint:
+
+```sshconfig
+Host cse
+    HostName cse.unsw.edu.au
+    User z5555555
+    IdentityFile ~/.ssh/cse.pub
+```
+
+```toml
+[ssh]
+host = "cse"
+```
+
+`IdentityFile` may point to a public-key file. Biwa compares its key bytes with identities exposed by Bitwarden, 1Password, OpenSSH `ssh-agent`, or another compatible agent. The private key does not need to exist on disk. A public key contains no secret and can be stored in dotfiles if that suits your setup.
+
+`IdentitiesOnly` and `IdentityAgent` are not supported yet. Biwa uses `SSH_AUTH_SOCK`, and after configured matches it may try up to 10 unrelated agent identities.
+
+## Explicit private key
 
 To use a non-default key path:
 
@@ -80,6 +104,39 @@ To use a non-default key path:
 user = "z5555555"
 key_path = "~/.ssh/my_custom_key"
 ```
+
+If `key_path` and OpenSSH `IdentityFile` are both present, they must select the same public-key bytes and `IdentityFile` must contain exactly one entry. Different or ambiguous selections are configuration errors.
+
+## Password authentication
+
+Password authentication is opt-in and never follows a failed public key automatically:
+
+```toml
+[ssh]
+host = "cse"
+auth = "password"
+```
+
+Biwa prompts once in an interactive terminal. For CI or another non-interactive process, provide the secret only through the environment:
+
+```bash
+BIWA_SSH_AUTH=password BIWA_SSH_PASSWORD='...' biwa run --skip-sync true
+```
+
+`ssh.password` was removed, and literal passwords are not accepted in configuration files. Environment variables can be visible to other processes on some platforms, so use your CI secret facility and keep logs redacted.
+
+## Host key verification
+
+Biwa defaults to strict host-key verification. Running the OpenSSH verification command above normally records the server in `~/.ssh/known_hosts`. An unknown or changed key stops before authentication.
+
+For trust on first use on a private host:
+
+```toml
+[ssh]
+host_key_checking = "accept-new"
+```
+
+`insecure` disables verification and is intended only for isolated tests.
 
 ## Windows Users
 
@@ -106,6 +163,19 @@ Ensure your SSH agent is running and has your key loaded:
 ```bash
 eval "$(ssh-agent -s)"
 ssh-add ~/.ssh/id_ed25519
+```
+
+Check that `SSH_AUTH_SOCK` points to the intended agent. For Bitwarden, enable its SSH agent integration and configure your shell to use the socket it provides. If many identities are available, put the matching public key in `IdentityFile` as shown above.
+
+### OpenSSH config parsing fails
+
+Biwa supports only the subset listed above. `Include` and `Match` are not fully evaluated, and proxy/authentication directives are not executed. As an escape hatch, configure all required connection values directly and disable reading OpenSSH config:
+
+```toml
+[ssh]
+host = "cse.unsw.edu.au"
+user = "z5555555"
+use_ssh_config = false
 ```
 
 ## Further Reading

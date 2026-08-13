@@ -45,14 +45,21 @@ For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will 
 
 ### `[ssh]` — SSH Connection Settings
 
-| Key        | Type           | Default             | Description                                                                                               |
-| ---------- | -------------- | ------------------- | --------------------------------------------------------------------------------------------------------- |
-| `host`     | string         | `"cse.unsw.edu.au"` | SSH server hostname                                                                                       |
-| `port`     | integer        | `22`                | SSH server port                                                                                           |
-| `user`     | string         | `"z5555555"`        | Username (your zID)                                                                                       |
-| `key_path` | string?        | `null`              | Path to SSH private key (auto-detected if not set)                                                        |
-| `password` | bool \| string | `false`             | `false`: disabled, `true`: interactive prompt, `"string"`: literal password                               |
-| `umask`    | string         | `"077"`             | Umask (3-digit octal: owner/group/other) applied to the remote SSH execution environment and sync actions |
+| Key                | Type    | Default             | Description                                                                                               |
+| ------------------ | ------- | ------------------- | --------------------------------------------------------------------------------------------------------- |
+| `host`             | string  | `"cse.unsw.edu.au"` | Hostname or OpenSSH `Host` alias                                                                          |
+| `port`             | integer | OpenSSH, then `22`  | Optional direct port; must match OpenSSH config when both specify it                                      |
+| `user`             | string? | OpenSSH `User`      | Optional direct username; required from either Biwa or OpenSSH config                                     |
+| `use_ssh_config`   | boolean | `true`              | Read the supported subset of `~/.ssh/config`                                                              |
+| `key_path`         | string? | `null`              | Explicit private key; disables automatic agent and default-key discovery                                  |
+| `auth`             | string  | `"public-key"`      | Authentication mode: `"public-key"` or `"password"`                                                     |
+| `host_key_checking`| string  | `"strict"`          | Host-key policy: `"strict"`, `"accept-new"`, or `"insecure"`                                           |
+| `known_hosts`      | string? | `~/.ssh/known_hosts`| Optional known-hosts file override                                                                        |
+| `umask`            | string  | `"077"`             | Umask (3-digit octal: owner/group/other) applied to the remote SSH execution environment and sync actions |
+
+Biwa reads `Host`, `HostName`, `User`, `Port`, and `IdentityFile` from OpenSSH config. You may put `user`, `port`, and key selection in either Biwa or OpenSSH config. Equivalent duplicate values are accepted; conflicting values fail before connecting. `host` remains the lookup alias, while `HostName` supplies the network destination.
+
+This is intentionally a subset of `ssh_config`. `Include`, `Match`, `IdentityAgent`, `IdentitiesOnly`, `PreferredAuthentications`, `PasswordAuthentication`, `KbdInteractiveAuthentication`, `ProxyCommand`, and `ProxyJump` behavior is not implemented. Some unsupported directives are ignored by `russh-config`; set `use_ssh_config = false` if parsing or partial support makes the result unsuitable.
 
 ::: tip Understanding `umask`
 The `umask` setting ensures that any directories or files synced/created on the remote server maintain secure permissions (by default `077` prevents group and other access). Only the lower three digits are supported; to set the first digit (setuid/setgid/sticky), run `umask` manually on the remote server.
@@ -62,9 +69,25 @@ The `umask` setting ensures that any directories or files synced/created on the 
 If you need looser permissions (e.g. making a file readable by others), you must manually run `chmod`. However, be aware that biwa's umask does not protect against manual `chmod` operations. If you mistakenly run `chmod +r` or `chmod +x` without restricting it to the user (e.g., `chmod u+x`), you might accidentally grant read/execute permissions to everyone.
 :::
 
-::: warning Password in Config
-Storing your password in a configuration file is **not recommended** for security reasons. If you must use password authentication, prefer `password = true` for an interactive prompt or use environment variables (`BIWA_SSH_PASSWORD`).
+::: warning Password migration
+The old `ssh.password` boolean/string field was removed. Select `auth = "password"` explicitly. Biwa prompts when interactive, or reads the secret from `BIWA_SSH_PASSWORD`; passwords are never accepted from configuration files and are never an automatic fallback from public keys.
 :::
+
+### Host key verification
+
+`strict` is the secure default: the resolved hostname and port must already match `~/.ssh/known_hosts`. Connecting once with OpenSSH normally creates this entry. `accept-new` records an unknown key on first use but still rejects changed keys. `insecure` accepts every key, emits a warning, and should be limited to isolated test environments.
+
+```toml
+[ssh]
+host_key_checking = "accept-new"
+# known_hosts = "./test-known-hosts"
+```
+
+```bash
+ssh-keyscan -p 22 cse.unsw.edu.au >> ~/.ssh/known_hosts
+```
+
+Verify a scanned key's fingerprint through a trusted channel before relying on it; `ssh-keyscan` alone does not authenticate the server.
 
 ### `[env]` — Environment Variable Settings
 

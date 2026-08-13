@@ -64,8 +64,22 @@ host = "cse.unsw.edu.au"
 user = "z5555555"  # Your zID
 port = 22
 
-# Path to your SSH private key (optional, uses default if not specified)
+# Authentication defaults to public keys. Usually omit this.
 # key_path = "~/.ssh/id_ed25519"
+```
+
+If you already use an OpenSSH alias, Biwa can reuse it instead:
+
+```sshconfig
+# ~/.ssh/config
+Host cse
+    HostName cse.unsw.edu.au
+    User z5555555
+```
+
+```toml
+[ssh]
+host = "cse"
 ```
 
 ::: tip SSH Key Authentication
