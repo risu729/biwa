@@ -182,6 +182,10 @@ mod tests {
 	use std::fs;
 	use tempfile::tempdir;
 
+	const PUBLIC_KEY_A: &str =
+		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqfEeyNrOxuH87ZVirsvRm72W3vrW3qJKbBqjsoKn3Z biwa-e2e";
+	const PUBLIC_KEY_B: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIWBVymg7tyFs+jzE07UpfXkQEibpPg23d2KCVnIvxLN biwa-other";
+
 	fn config(host: &str) -> SshConfig {
 		let mut ssh = Config::default().ssh;
 		ssh.host = host.to_owned();
@@ -245,6 +249,211 @@ mod tests {
 		let target = ResolvedSshTarget::resolve_with_path(&ssh, Some(Path::new("missing")))?;
 		assert_eq!(target.hostname, "example.test");
 		assert_eq!(target.port, 22);
+		Ok(())
+	}
+
+	#[test]
+	fn resolve_uses_direct_values_when_openssh_is_disabled() -> Result<()> {
+		let mut ssh = config("example.test");
+		ssh.user = Some("alice".to_owned());
+		ssh.key_path = Some(PathBuf::from("unused-key"));
+		ssh.use_ssh_config = false;
+
+		let target = ResolvedSshTarget::resolve(&ssh)?;
+		assert_eq!(target.hostname, "example.test");
+		assert_eq!(target.user, "alice");
+		assert_eq!(target.port, 22);
+		Ok(())
+	}
+
+	#[test]
+	fn missing_openssh_config_uses_biwa_values() -> Result<()> {
+		let dir = tempdir()?;
+		let mut ssh = config("example.test");
+		ssh.user = Some("alice".to_owned());
+		let target =
+			ResolvedSshTarget::resolve_with_path(&ssh, Some(&dir.path().join("missing-config")))?;
+
+		assert_eq!(target.hostname, "example.test");
+		assert_eq!(target.user, "alice");
+		assert_eq!(target.port, 22);
+		assert!(target.identity_files.is_empty());
+		Ok(())
+	}
+
+	#[test]
+	fn missing_user_reports_how_to_configure_it() {
+		let error = ResolvedSshTarget::resolve_with_path(&config("example.test"), None)
+			.expect_err("a user is required");
+
+		assert!(error.to_string().contains("Missing SSH user"));
+	}
+
+	#[test]
+	fn rejects_conflicting_port() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("config");
+		fs::write(&path, "Host cse\n  User alice\n  Port 2222\n")?;
+		let mut ssh = config("cse");
+		ssh.user = Some("alice".to_owned());
+		ssh.port = Some(22);
+
+		let error = ResolvedSshTarget::resolve_with_path(&ssh, Some(&path))
+			.expect_err("different ports conflict");
+		assert!(error.to_string().contains("Conflicting SSH port"));
+		Ok(())
+	}
+
+	#[test]
+	fn invalid_openssh_config_has_actionable_context() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("config");
+		fs::write(&path, "User alice\nHost cse\n")?;
+
+		let error = ResolvedSshTarget::resolve_with_path(&config("cse"), Some(&path))
+			.expect_err("settings before the first Host block must not be ignored");
+		let message = error.to_string();
+		assert!(message.contains("Failed to parse OpenSSH configuration"));
+		assert!(message.contains("ssh.use_ssh_config = false"));
+		Ok(())
+	}
+
+	#[test]
+	fn rejects_multiple_openssh_identities_with_biwa_key() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("config");
+		fs::write(
+			&path,
+			"Host cse\n  User alice\n  IdentityFile first\n  IdentityFile second\n",
+		)?;
+		let mut ssh = config("cse");
+		ssh.key_path = Some(dir.path().join("biwa-key"));
+
+		let error = ResolvedSshTarget::resolve_with_path(&ssh, Some(&path))
+			.expect_err("one Biwa key cannot match multiple OpenSSH identities");
+		assert!(
+			error
+				.to_string()
+				.contains("supplies 2 IdentityFile entries")
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn accepts_matching_public_identity_files() -> Result<()> {
+		let dir = tempdir()?;
+		let biwa_key = dir.path().join("biwa.pub");
+		let openssh_key = dir.path().join("openssh.pub");
+		fs::write(&biwa_key, PUBLIC_KEY_A)?;
+		fs::write(&openssh_key, PUBLIC_KEY_A)?;
+		let config_path = dir.path().join("config");
+		fs::write(
+			&config_path,
+			format!(
+				"Host cse\n  User alice\n  IdentityFile {}\n",
+				openssh_key.display()
+			),
+		)?;
+		let mut ssh = config("cse");
+		ssh.key_path = Some(biwa_key);
+
+		let target = ResolvedSshTarget::resolve_with_path(&ssh, Some(&config_path))?;
+		assert_eq!(target.identity_files, vec![openssh_key]);
+		Ok(())
+	}
+
+	#[test]
+	fn accepts_companion_public_key() -> Result<()> {
+		let dir = tempdir()?;
+		let biwa_key = dir.path().join("biwa");
+		fs::write(biwa_key.with_extension("pub"), PUBLIC_KEY_A)?;
+		let openssh_key = dir.path().join("openssh.pub");
+		fs::write(&openssh_key, PUBLIC_KEY_A)?;
+		let config_path = dir.path().join("config");
+		fs::write(
+			&config_path,
+			format!(
+				"Host cse\n  User alice\n  IdentityFile {}\n",
+				openssh_key.display()
+			),
+		)?;
+		let mut ssh = config("cse");
+		ssh.key_path = Some(biwa_key);
+
+		ResolvedSshTarget::resolve_with_path(&ssh, Some(&config_path))?;
+		Ok(())
+	}
+
+	#[test]
+	fn rejects_different_identity_keys() -> Result<()> {
+		let dir = tempdir()?;
+		let biwa_key = dir.path().join("biwa.pub");
+		let openssh_key = dir.path().join("openssh.pub");
+		fs::write(&biwa_key, PUBLIC_KEY_A)?;
+		fs::write(&openssh_key, PUBLIC_KEY_B)?;
+		let config_path = dir.path().join("config");
+		fs::write(
+			&config_path,
+			format!(
+				"Host cse\n  User alice\n  IdentityFile {}\n",
+				openssh_key.display()
+			),
+		)?;
+		let mut ssh = config("cse");
+		ssh.key_path = Some(biwa_key);
+
+		let error = ResolvedSshTarget::resolve_with_path(&ssh, Some(&config_path))
+			.expect_err("different public keys conflict");
+		assert!(error.to_string().contains("contain different public keys"));
+		Ok(())
+	}
+
+	#[test]
+	fn unreadable_biwa_identity_has_comparison_context() -> Result<()> {
+		let dir = tempdir()?;
+		let openssh_key = dir.path().join("openssh.pub");
+		fs::write(&openssh_key, PUBLIC_KEY_A)?;
+		let config_path = dir.path().join("config");
+		fs::write(
+			&config_path,
+			format!(
+				"Host cse\n  User alice\n  IdentityFile {}\n",
+				openssh_key.display()
+			),
+		)?;
+		let mut ssh = config("cse");
+		ssh.key_path = Some(dir.path().join("missing"));
+
+		let error = ResolvedSshTarget::resolve_with_path(&ssh, Some(&config_path))
+			.expect_err("missing key material cannot be compared");
+		assert!(error.to_string().contains("Cannot compare ssh.key_path"));
+		Ok(())
+	}
+
+	#[test]
+	fn unreadable_openssh_identity_has_comparison_context() -> Result<()> {
+		let dir = tempdir()?;
+		let biwa_key = dir.path().join("biwa.pub");
+		fs::write(&biwa_key, PUBLIC_KEY_A)?;
+		let missing_openssh_key = dir.path().join("missing.pub");
+		let config_path = dir.path().join("config");
+		fs::write(
+			&config_path,
+			format!(
+				"Host cse\n  User alice\n  IdentityFile {}\n",
+				missing_openssh_key.display()
+			),
+		)?;
+		let mut ssh = config("cse");
+		ssh.key_path = Some(biwa_key);
+
+		let error = ResolvedSshTarget::resolve_with_path(&ssh, Some(&config_path))
+			.expect_err("missing OpenSSH key material cannot be compared");
+		assert!(
+			error
+				.to_string()
+				.contains("Cannot compare OpenSSH IdentityFile")
+		);
 		Ok(())
 	}
 }
