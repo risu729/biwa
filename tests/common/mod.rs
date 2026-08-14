@@ -10,6 +10,10 @@
 pub type Result<T> = color_eyre::Result<T>;
 
 use gethostname::gethostname;
+use russh::keys::{
+	PrivateKey,
+	ssh_key::{LineEnding, private::Ed25519Keypair},
+};
 use sha2::Digest as _;
 use std::sync::LazyLock;
 use std::{
@@ -20,6 +24,31 @@ use std::{
 /// Shared state directory for one test binary.
 static TEST_STATE_DIR: LazyLock<tempfile::TempDir> =
 	LazyLock::new(|| tempfile::tempdir().expect("create test state directory"));
+
+/// Writes the deterministic Ed25519 private key authorized by the SSH test servers.
+#[allow(
+	dead_code,
+	reason = "Only authentication integration tests need a private key."
+)]
+pub fn write_test_ssh_private_key(path: &Path) -> Result<()> {
+	const SEED: [u8; 32] = [
+		0x5a, 0x1d, 0x94, 0x0a, 0x2e, 0xff, 0x11, 0xac, 0x5b, 0xd8, 0xf8, 0xa0, 0x66, 0x3f, 0x53,
+		0x7b, 0x4c, 0xb3, 0x45, 0xcf, 0xce, 0x5e, 0x8f, 0x13, 0xe0, 0xa4, 0x59, 0xa7, 0xae, 0x45,
+		0xd7, 0x15,
+	];
+	write_ssh_private_key_from_seed(path, &SEED)
+}
+
+/// Writes a deterministic disposable SSH private key from a test-only seed.
+#[allow(
+	dead_code,
+	reason = "Only authentication integration tests need generated private keys."
+)]
+pub fn write_ssh_private_key_from_seed(path: &Path, seed: &[u8; 32]) -> Result<()> {
+	let private_key = PrivateKey::from(Ed25519Keypair::from_seed(seed));
+	private_key.write_openssh_file(path, LineEnding::LF)?;
+	Ok(())
+}
 
 /// Initializes the global testing environment.
 ///

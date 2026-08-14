@@ -331,6 +331,8 @@ const fn wildcard_match(pattern: &str, value: &str) -> bool {
 pub struct Client {
 	/// The active SSH connection handle.
 	connection_handle: Arc<Handle<ClientHandler>>,
+	/// Whether the successful credential can be reused without a terminal prompt.
+	authentication_reusable_noninteractively: bool,
 }
 
 impl Client {
@@ -386,11 +388,19 @@ impl Client {
 
 		let username = username.to_owned();
 
-		authenticate(&mut handle, &username, auth).await?;
+		let authentication_reusable_noninteractively =
+			authenticate(&mut handle, &username, auth).await?;
 
 		Ok(Self {
 			connection_handle: Arc::new(handle),
+			authentication_reusable_noninteractively,
 		})
+	}
+
+	/// Returns whether detached work can reuse the successful credential without prompting.
+	#[must_use]
+	pub const fn authentication_reusable_noninteractively(&self) -> bool {
+		self.authentication_reusable_noninteractively
 	}
 
 	/// Open a new SSH channel.

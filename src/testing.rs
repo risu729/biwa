@@ -1,6 +1,32 @@
 /// Shared test utilities — only compiled in `cfg(test)` contexts.
 use std::env;
 use std::ffi::OsString;
+use std::path::Path;
+
+use crate::Result;
+use russh::keys::ssh_key::LineEnding;
+use russh::keys::ssh_key::private::Ed25519Keypair;
+use russh::keys::{PrivateKey, PublicKey};
+
+/// Fixed seed for the disposable SSH key authorized by the E2E test server.
+pub const TEST_SSH_PRIVATE_KEY_SEED: [u8; 32] = [
+	0x5a, 0x1d, 0x94, 0x0a, 0x2e, 0xff, 0x11, 0xac, 0x5b, 0xd8, 0xf8, 0xa0, 0x66, 0x3f, 0x53, 0x7b,
+	0x4c, 0xb3, 0x45, 0xcf, 0xce, 0x5e, 0x8f, 0x13, 0xe0, 0xa4, 0x59, 0xa7, 0xae, 0x45, 0xd7, 0x15,
+];
+
+/// Derives a deterministic disposable SSH private key for tests.
+#[must_use]
+pub fn ssh_private_key_from_seed(seed: &[u8; 32]) -> PrivateKey {
+	PrivateKey::from(Ed25519Keypair::from_seed(seed))
+}
+
+/// Writes the E2E test private key without keeping PEM material in the repository.
+pub fn write_test_ssh_private_key(path: &Path) -> Result<PublicKey> {
+	let mut key = ssh_private_key_from_seed(&TEST_SSH_PRIVATE_KEY_SEED);
+	key.set_comment("biwa-e2e");
+	key.write_openssh_file(path, LineEnding::LF)?;
+	Ok(key.public_key().clone())
+}
 
 /// RAII guard that restores the previous environment variable state when dropped.
 ///

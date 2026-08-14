@@ -4,13 +4,13 @@
 )]
 #![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
 use std::io::{BufRead as _, BufReader, Read as _};
-use std::os::unix::fs::PermissionsExt as _;
 
 use core::time::Duration;
 mod common;
 use color_eyre::eyre::{WrapErr as _, eyre};
 use common::{
 	Result, biwa_cmd, biwa_cmd_capable, biwa_program_cmd, ssh_port, test_known_hosts_path,
+	write_ssh_private_key_from_seed, write_test_ssh_private_key,
 };
 use rstest::rstest;
 use std::{
@@ -216,7 +216,9 @@ fn e2e_run_command() -> Result<()> {
 
 #[test]
 fn e2e_explicit_public_key_authentication() -> Result<()> {
-	let key_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ssh/id_ed25519");
+	let dir = tempfile::tempdir()?;
+	let key_path = dir.path().join("id_ed25519");
+	write_test_ssh_private_key(&key_path)?;
 	let output = biwa_public_key_cmd(
 		&["run", "--skip-sync", "echo", "public-key-success"],
 		&key_path,
@@ -235,12 +237,10 @@ fn e2e_explicit_public_key_authentication() -> Result<()> {
 fn e2e_agent_public_key_authentication() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let auth_sock = dir.path().join("agent.sock");
+	let unauthorized_key_path = dir.path().join("unauthorized_ed25519");
 	let key_path = dir.path().join("id_ed25519");
-	fs::copy(
-		Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ssh/id_ed25519"),
-		&key_path,
-	)?;
-	fs::set_permissions(&key_path, fs::Permissions::from_mode(0o600))?;
+	write_ssh_private_key_from_seed(&unauthorized_key_path, &[0x11; 32])?;
+	write_test_ssh_private_key(&key_path)?;
 
 	let child = Command::new("ssh-agent")
 		.args([OsStr::new("-D"), OsStr::new("-a"), auth_sock.as_os_str()])
@@ -257,7 +257,7 @@ fn e2e_agent_public_key_authentication() -> Result<()> {
 	}
 
 	let add = Command::new("ssh-add")
-		.arg(&key_path)
+		.args([&unauthorized_key_path, &key_path])
 		.env("SSH_AUTH_SOCK", &auth_sock)
 		.output()?;
 	assert!(
