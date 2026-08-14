@@ -132,7 +132,7 @@ Biwa stores active transfer targets before remote work begins so automatic clean
 
 ### Automatic cleanup after sync, pull, and run
 
-When **`clean.auto`** is `true` (the default), biwa may start a **background** `biwa clean --auto` process after a successful `biwa sync`, `biwa pull`, or `biwa run`. Public keys and agents work without special cleanup settings. Password mode requires `BIWA_SSH_PASSWORD` because a detached process cannot prompt. You can turn cleanup off globally with **`BIWA_CLEAN_AUTO=false`** or in config:
+When **`clean.auto`** is `true` (the default), biwa may start a **background** `biwa clean --auto` process after a successful `biwa sync`, `biwa pull`, or `biwa run`. Agent identities and unencrypted private keys work without special cleanup settings. Password mode requires `BIWA_SSH_PASSWORD` because a detached process cannot prompt. If the successful foreground connection used a prompted password or a private-key passphrase, biwa warns and skips detached cleanup instead of prompting again. You can turn cleanup off globally with **`BIWA_CLEAN_AUTO=false`** or in config:
 
 ```toml
 [clean]
@@ -146,7 +146,7 @@ Automatic cleanup connects over SSH, reads disk **quota** usage when the server 
 
 Candidates for removal are **tracked** connection entries that are older than the effective age limit, plus **orphan** directories on the server that look like default biwa project folders under `remote_root`, are no longer listed in local state, and have a remote filesystem modification time older than the effective age limit. Orphan detection only runs when local state already has at least one tracked path for that SSH target, so it is not run on an empty or broken state file.
 
-Background cleanup does not run if another cleanup process already holds the PID lock, or if interactive password auth would be required.
+Background cleanup does not run if another cleanup process already holds the PID lock, or if reusing the successful credential would require terminal input.
 
 ### Manual `biwa clean`
 

@@ -75,11 +75,12 @@ The old `ssh.password` boolean/string field was removed. Select `auth = "passwor
 
 ### Host key verification
 
-`strict` is the secure default: the resolved hostname and port must already match `~/.ssh/known_hosts`. Connecting once with OpenSSH normally creates this entry. `accept-new` records an unknown key on first use but still rejects changed keys. `insecure` accepts every key, emits a warning, and should be limited to isolated test environments.
+`strict` is the secure default: the resolved hostname and port must already match `~/.ssh/known_hosts`. Connecting once with OpenSSH normally creates this entry. `accept-new` records an unknown key on first use but still rejects changed keys. Both policies reject a matching `@revoked` key. `insecure` accepts every key, emits a warning, and should be limited to isolated test environments.
 
 ```toml
 [ssh]
 host_key_checking = "accept-new"
+# Relative paths follow the configuration path rules described above.
 # known_hosts = "./test-known-hosts"
 ```
 
