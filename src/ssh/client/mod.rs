@@ -490,6 +490,38 @@ mod tests {
 		Ok(())
 	}
 
+	#[test]
+	fn revoked_host_patterns_support_wildcards_negation_and_case() -> Result<()> {
+		let patterns = "*.example.test,!safe.example.test".parse::<HostPatterns>()?;
+
+		assert!(host_patterns_match(&patterns, "build.EXAMPLE.test"));
+		assert!(!host_patterns_match(&patterns, "safe.example.test"));
+		assert!(!host_patterns_match(&patterns, "example.org"));
+		assert!(wildcard_match("host?.example.test", "HOST1.example.test"));
+		assert!(!wildcard_match("host?.example.test", "host12.example.test"));
+		Ok(())
+	}
+
+	#[tokio::test]
+	async fn revoked_key_for_another_host_does_not_block_accept_new() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("known_hosts");
+		fs::write(&path, format!("@revoked other.example.test {KEY_ONE}\n"))?;
+
+		let accepted = handler(path.clone(), HostKeyChecking::AcceptNew, 22)
+			.check_server_key(&key(KEY_ONE))
+			.await?;
+
+		assert!(accepted);
+		assert!(check_known_hosts_path(
+			"example.test",
+			22,
+			&key(KEY_ONE),
+			path
+		)?);
+		Ok(())
+	}
+
 	#[tokio::test]
 	async fn accept_new_records_nonstandard_port() -> Result<()> {
 		let dir = tempdir()?;
