@@ -827,6 +827,7 @@ mod tests {
 		config.ssh.port = Some(2222);
 		config.ssh.user = Some("alice".to_owned());
 		config.ssh.key_path = Some(PathBuf::from("/tmp/key"));
+		config.ssh.known_hosts = Some(PathBuf::from("/tmp/known_hosts"));
 		config.ssh.auth = AuthMode::Password;
 		config.sync.remote_root = PathBuf::from("~/remote");
 
@@ -862,6 +863,10 @@ mod tests {
 		assert_eq!(
 			envs.get("BIWA_SSH_KEY_PATH").map(String::as_str),
 			Some("/tmp/key")
+		);
+		assert_eq!(
+			envs.get("BIWA_SSH_KNOWN_HOSTS").map(String::as_str),
+			Some("/tmp/known_hosts")
 		);
 		assert_eq!(
 			envs.get("BIWA_SYNC_REMOTE_ROOT").map(String::as_str),

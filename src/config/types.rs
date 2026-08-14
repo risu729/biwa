@@ -626,4 +626,13 @@ mod tests {
 		let r: Result<Umask, _> = serde_json::from_str(r#""1000""#);
 		let _: serde_json::Error = r.unwrap_err();
 	}
+
+	#[test]
+	fn ssh_enum_values_match_their_configuration_spellings() {
+		assert_eq!(AuthMode::PublicKey.as_str(), "public-key");
+		assert_eq!(AuthMode::Password.as_str(), "password");
+		assert_eq!(HostKeyChecking::Strict.as_str(), "strict");
+		assert_eq!(HostKeyChecking::AcceptNew.as_str(), "accept-new");
+		assert_eq!(HostKeyChecking::Insecure.as_str(), "insecure");
+	}
 }
