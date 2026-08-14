@@ -54,6 +54,26 @@ fn report_is_host_key_verification_failure(report: &Report) -> bool {
 	report.downcast_ref::<HostKeyVerificationFailed>().is_some()
 }
 
+/// Describes every rejected credential without exposing secrets.
+fn authentication_failure_context(
+	target: &ResolvedSshTarget,
+	rejected_credentials: &[String],
+	skipped_agent_identities: usize,
+) -> String {
+	let attempted = rejected_credentials.join(", ");
+	let skipped = if skipped_agent_identities == 0 {
+		String::new()
+	} else {
+		format!(
+			"; skipped {skipped_agent_identities} additional agent identities—add an IdentityFile public-key hint to select one"
+		)
+	};
+	format!(
+		"Failed to authenticate as {}@{} (attempted: {attempted}{skipped}). Password was not attempted unless ssh.auth = \"password\" was selected",
+		target.user, target.hostname
+	)
+}
+
 /// Resolved environment variable to send remotely.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ResolvedEnvVar {
@@ -129,18 +149,11 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 					auth_method = fallback;
 					continue;
 				}
-				let attempted = rejected_credentials.join(", ");
-				let skipped = if skipped_agent_identities == 0 {
-					String::new()
-				} else {
-					format!(
-						"; skipped {skipped_agent_identities} additional agent identities—add an IdentityFile public-key hint to select one"
-					)
-				};
 				return Err(e).wrap_err_with(|| {
-					format!(
-						"Failed to authenticate as {}@{} (attempted: {attempted}{skipped}). Password was not attempted unless ssh.auth = \"password\" was selected",
-						target.user, target.hostname
+					authentication_failure_context(
+						&target,
+						&rejected_credentials,
+						skipped_agent_identities,
 					)
 				});
 			}
@@ -771,6 +784,43 @@ mod tests {
 
 		assert!(super::report_is_host_key_verification_failure(&report));
 		assert!(!super::report_is_authentication_failure(&report));
+	}
+
+	#[test]
+	fn authentication_failure_context_lists_attempts_without_skipped_keys() {
+		let target = ResolvedSshTarget {
+			lookup_host: "alias".to_owned(),
+			hostname: "example.test".to_owned(),
+			port: 22,
+			user: "alice".to_owned(),
+			identity_files: Vec::new(),
+		};
+		assert_eq!(
+			authentication_failure_context(
+				&target,
+				&[
+					"agent key SHA256:first".to_owned(),
+					"key ~/.ssh/id_ed25519".to_owned()
+				],
+				0,
+			),
+			"Failed to authenticate as alice@example.test (attempted: agent key SHA256:first, key ~/.ssh/id_ed25519). Password was not attempted unless ssh.auth = \"password\" was selected"
+		);
+	}
+
+	#[test]
+	fn authentication_failure_context_reports_skipped_agent_keys() {
+		let target = ResolvedSshTarget {
+			lookup_host: "alias".to_owned(),
+			hostname: "example.test".to_owned(),
+			port: 22,
+			user: "alice".to_owned(),
+			identity_files: Vec::new(),
+		};
+		let message =
+			authentication_failure_context(&target, &["agent key SHA256:first".to_owned()], 3);
+		assert!(message.contains("skipped 3 additional agent identities"));
+		assert!(message.contains("IdentityFile public-key hint"));
 	}
 
 	#[test]

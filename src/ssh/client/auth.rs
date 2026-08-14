@@ -242,7 +242,21 @@ pub(super) async fn authenticate<H: Handler>(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use pretty_assertions::assert_eq;
+	use pretty_assertions::{assert_eq, assert_matches};
+	use russh::keys::load_public_key;
+	use russh::{MethodKind, MethodSet};
+	use std::fs;
+
+	const KEY: &str =
+		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGYh1Ntz2neFcfgNyBAx3kFJwSURKqRrnAuLiQ5M296T";
+
+	fn public_key() -> PublicKey {
+		PublicKey::from_openssh(KEY).expect("static key is valid")
+	}
+
+	fn fixture_private_key() -> PathBuf {
+		Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ssh/id_ed25519")
+	}
 
 	#[test]
 	fn key_file_method_preserves_interaction_policy() {
@@ -261,5 +275,110 @@ mod tests {
 			format!("{:?}", Method::with_password("secret")),
 			"Password(\"***\")"
 		);
+	}
+
+	#[test]
+	fn method_descriptions_are_redacted_and_specific() {
+		assert_eq!(Method::with_password("secret").description(), "password");
+		assert_eq!(
+			Method::with_password_prompt("Password").description(),
+			"password"
+		);
+		assert_eq!(
+			Method::with_key_file("id_ed25519", false).description(),
+			"key id_ed25519"
+		);
+		assert!(
+			Method::with_agent_key(public_key())
+				.description()
+				.starts_with("agent key SHA256:")
+		);
+	}
+
+	#[test]
+	fn method_debug_output_identifies_nonsecret_candidates() {
+		assert_eq!(
+			format!("{:?}", Method::with_password_prompt("Password")),
+			"PasswordPrompt"
+		);
+		assert_eq!(
+			format!("{:?}", Method::with_key_file("id_ed25519", false)),
+			"PrivateKeyFile { key_file_path: \"id_ed25519\", allow_prompt: false }"
+		);
+		let agent_debug = format!("{:?}", Method::with_agent_key(public_key()));
+		assert!(agent_debug.starts_with("AgentKey { fingerprint:"));
+		assert!(!agent_debug.contains("AAAAC3Nza"));
+	}
+
+	#[test]
+	fn authentication_failure_has_stable_marker_and_message() {
+		assert_eq!(
+			AuthenticationFailed.to_string(),
+			"SSH authentication failed"
+		);
+		let report = failure("candidate rejected");
+		assert!(report.downcast_ref::<AuthenticationFailed>().is_some());
+		assert!(report.to_string().contains("candidate rejected"));
+	}
+
+	#[test]
+	fn require_success_accepts_success_and_reports_rejection() -> Result<()> {
+		require_success(&AuthResult::Success, "Password")?;
+		let remaining_methods = MethodSet::from(&[MethodKind::PublicKey][..]);
+		let error = require_success(
+			&AuthResult::Failure {
+				remaining_methods,
+				partial_success: false,
+			},
+			"Password",
+		)
+		.expect_err("rejected credential must fail");
+		assert!(
+			error
+				.to_string()
+				.contains("Password authentication was rejected")
+		);
+		assert!(error.downcast_ref::<AuthenticationFailed>().is_some());
+		Ok(())
+	}
+
+	#[test]
+	fn require_success_rejects_multifactor_continuation() {
+		let error = require_success(
+			&AuthResult::Failure {
+				remaining_methods: MethodSet::from(&[MethodKind::Password][..]),
+				partial_success: true,
+			},
+			"Public-key",
+		)
+		.expect_err("MFA continuation is unsupported");
+		assert!(
+			error
+				.to_string()
+				.contains("requires additional authentication")
+		);
+	}
+
+	#[test]
+	fn load_private_key_accepts_unencrypted_key() -> Result<()> {
+		let key = load_private_key(&fixture_private_key(), false)?;
+		let expected = load_public_key(fixture_private_key().with_extension("pub"))?;
+		assert_eq!(key.public_key().key_data(), expected.key_data());
+		Ok(())
+	}
+
+	#[test]
+	fn load_private_key_reports_malformed_input() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let path = dir.path().join("invalid-key");
+		fs::write(&path, "not a private key")?;
+
+		let error = load_private_key(&path, false).expect_err("malformed key must fail");
+		assert!(error.to_string().contains("Failed to load SSH private key"));
+		assert_matches!(
+			error.downcast_ref::<AuthenticationFailed>(),
+			Some(AuthenticationFailed)
+		);
+		Ok(())
 	}
 }

@@ -261,7 +261,9 @@ fn same_key(left: &PublicKey, right: &PublicKey) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::testing::EnvCleanup;
 	use pretty_assertions::{assert_eq, assert_matches};
+	use serial_test::serial;
 	use std::fs;
 
 	const KEY_ONE: &str =
@@ -283,6 +285,10 @@ mod tests {
 		}
 	}
 
+	fn fixture_private_key() -> PathBuf {
+		Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ssh/id_ed25519")
+	}
+
 	#[test]
 	fn password_mode_uses_only_environment_password() -> Result<()> {
 		let mut config = Config::default();
@@ -297,6 +303,31 @@ mod tests {
 		)?;
 		assert_matches!(plan.methods.as_slice(), [Method::Password(_)]);
 		Ok(())
+	}
+
+	#[test]
+	fn password_mode_uses_prompt_when_interaction_is_available() -> Result<()> {
+		let mut config = Config::default();
+		config.ssh.auth = AuthMode::Password;
+		let plan = resolve_auth_with(&config, &target(), None, Vec::new(), Vec::new(), true)?;
+		assert_matches!(
+			plan.methods.as_slice(),
+			[Method::PasswordPrompt { prompt }] if prompt == "Password for alice@example.test"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn password_mode_requires_a_noninteractive_secret() {
+		let mut config = Config::default();
+		config.ssh.auth = AuthMode::Password;
+		let error = resolve_auth_with(&config, &target(), None, Vec::new(), Vec::new(), false)
+			.expect_err("noninteractive password mode needs an environment secret");
+		assert!(
+			error
+				.to_string()
+				.contains("interactive input is unavailable")
+		);
 	}
 
 	#[test]
@@ -342,6 +373,107 @@ mod tests {
 	}
 
 	#[test]
+	fn explicit_key_path_is_the_only_candidate() -> Result<()> {
+		let private_key = fixture_private_key();
+		let mut config = Config::default();
+		config.ssh.key_path = Some(private_key.clone());
+		let plan = resolve_auth_with(
+			&config,
+			&target(),
+			Some("ignored".to_owned()),
+			vec![key(KEY_ONE)],
+			vec![fixture_private_key()],
+			false,
+		)?;
+		assert_eq!(
+			plan.methods,
+			vec![Method::with_key_file(private_key, false)]
+		);
+		assert_eq!(plan.skipped_agent_identities, 0);
+		Ok(())
+	}
+
+	#[test]
+	fn explicit_key_path_must_exist() {
+		let mut config = Config::default();
+		config.ssh.key_path = Some(PathBuf::from("missing-key"));
+		let error = resolve_auth_with(&config, &target(), None, Vec::new(), Vec::new(), false)
+			.expect_err("missing configured key must fail early");
+		assert!(error.to_string().contains("key file not found"));
+	}
+
+	#[test]
+	fn local_identity_and_default_keys_are_ordered_and_deduplicated() -> Result<()> {
+		let private_key = fixture_private_key();
+		let mut resolved = target();
+		resolved
+			.identity_files
+			.extend([private_key.clone(), private_key.clone()]);
+		let extra_dir = tempfile::tempdir()?;
+		let extra_key = extra_dir.path().join("extra-key");
+		fs::copy(&private_key, &extra_key)?;
+
+		let plan = resolve_auth_with(
+			&Config::default(),
+			&resolved,
+			None,
+			Vec::new(),
+			vec![private_key.clone(), extra_key.clone()],
+			false,
+		)?;
+
+		assert_eq!(
+			plan.methods,
+			vec![
+				Method::with_key_file(private_key, false),
+				Method::with_key_file(extra_key, false),
+			]
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn public_key_selector_does_not_become_a_private_key_candidate() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let selector = dir.path().join("selector.pub");
+		fs::write(&selector, KEY_ONE)?;
+		let mut resolved = target();
+		resolved.identity_files.push(selector);
+
+		let error = resolve_auth_with(
+			&Config::default(),
+			&resolved,
+			None,
+			Vec::new(),
+			Vec::new(),
+			false,
+		)
+		.expect_err("a public selector without a matching agent key cannot authenticate");
+		assert!(error.to_string().contains("No SSH public key is available"));
+		Ok(())
+	}
+
+	#[test]
+	fn companion_public_key_selects_an_agent_identity() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let identity = dir.path().join("agent-key");
+		fs::write(identity.with_extension("pub"), KEY_TWO)?;
+		let mut resolved = target();
+		resolved.identity_files.push(identity);
+
+		let plan = resolve_auth_with(
+			&Config::default(),
+			&resolved,
+			None,
+			vec![key(KEY_TWO)],
+			Vec::new(),
+			false,
+		)?;
+		assert_matches!(plan.methods.as_slice(), [Method::AgentKey { .. }]);
+		Ok(())
+	}
+
+	#[test]
 	fn unrelated_agent_identities_are_bounded() -> Result<()> {
 		let keys = (0..=UNRELATED_AGENT_LIMIT)
 			.map(|index| {
@@ -354,5 +486,89 @@ mod tests {
 		assert_eq!(plan.methods.len(), UNRELATED_AGENT_LIMIT);
 		assert_eq!(plan.skipped_agent_identities, 1);
 		Ok(())
+	}
+
+	#[test]
+	fn identity_helpers_cover_public_companion_private_and_missing_files() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let public = dir.path().join("direct.pub");
+		fs::write(&public, KEY_ONE)?;
+		assert!(same_key(&public_key_for_identity(&public)?, &key(KEY_ONE)));
+
+		let companion_base = dir.path().join("companion");
+		fs::write(companion_base.with_extension("pub"), KEY_TWO)?;
+		assert!(same_key(
+			&public_key_for_identity(&companion_base)?,
+			&key(KEY_TWO)
+		));
+
+		let private = fixture_private_key();
+		public_key_for_identity(&private)?;
+		assert!(is_private_key_candidate(&private));
+		assert!(!is_private_key_candidate(&public));
+		assert!(!is_private_key_candidate(&dir.path().join("missing")));
+		let _error = public_key_for_identity(&dir.path().join("missing"))
+			.expect_err("missing identity cannot be loaded");
+		Ok(())
+	}
+
+	#[test]
+	fn identity_path_expansion_preserves_absolute_paths_and_expands_home() {
+		let absolute = Path::new("/tmp/id_ed25519");
+		assert_eq!(expand_identity_path(absolute), absolute);
+
+		if let Some(home) = homedir::my_home().ok().flatten() {
+			assert_eq!(
+				expand_identity_path(Path::new("~/.ssh/key")),
+				home.join(".ssh/key")
+			);
+		}
+	}
+
+	#[test]
+	fn default_key_paths_use_standard_home_locations() {
+		let paths = default_key_paths();
+		if let Some(home) = homedir::my_home().ok().flatten() {
+			assert_eq!(
+				paths,
+				DEFAULT_KEY_PATHS
+					.iter()
+					.map(|path| home.join(path))
+					.collect::<Vec<_>>()
+			);
+		} else {
+			assert!(paths.is_empty());
+		}
+	}
+
+	#[serial]
+	#[tokio::test]
+	async fn resolve_auth_uses_environment_password_in_password_mode() -> Result<()> {
+		let _password = EnvCleanup::set("BIWA_SSH_PASSWORD", "secret");
+		let mut config = Config::default();
+		config.ssh.auth = AuthMode::Password;
+
+		let plan = resolve_auth(&config, &target()).await?;
+		assert_eq!(plan.methods, vec![Method::with_password("secret")]);
+		Ok(())
+	}
+
+	#[serial]
+	#[tokio::test]
+	async fn resolve_auth_continues_when_agent_socket_is_unavailable() -> Result<()> {
+		let _socket = EnvCleanup::set("SSH_AUTH_SOCK", "/missing/biwa-agent.sock");
+		let mut config = Config::default();
+		config.ssh.key_path = Some(fixture_private_key());
+
+		let plan = resolve_auth(&config, &target()).await?;
+		assert_matches!(plan.methods.as_slice(), [Method::PrivateKeyFile { .. }]);
+		Ok(())
+	}
+
+	#[serial]
+	#[tokio::test]
+	async fn agent_enumeration_is_empty_without_a_socket() {
+		let _socket = EnvCleanup::remove("SSH_AUTH_SOCK");
+		assert!(enumerate_agent_keys().await.is_empty());
 	}
 }
