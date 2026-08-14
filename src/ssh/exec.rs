@@ -754,6 +754,14 @@ mod tests {
 	}
 
 	#[test]
+	fn report_is_host_key_failure_detects_structured_error() {
+		let report = Report::new(super::HostKeyVerificationFailed::new("host key rejected"));
+
+		assert!(super::report_is_host_key_verification_failure(&report));
+		assert!(!super::report_is_authentication_failure(&report));
+	}
+
+	#[test]
 	fn build_command_no_args() {
 		assert_eq!(build_command("ls", &[]), "ls");
 	}
