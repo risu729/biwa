@@ -413,4 +413,50 @@ mod tests {
 		assert!(error.to_string().contains("must not be empty"));
 		Ok(())
 	}
+
+	#[test]
+	fn record_connection_use_persists_resolved_target() -> Result<()> {
+		let dir = tempdir()?;
+		let mut ssh = Config::default().ssh;
+		ssh.host = "example.test".to_owned();
+		ssh.user = Some("alice".to_owned());
+		ssh.port = Some(2222);
+		ssh.use_ssh_config = false;
+		let config = Config {
+			state_dir: Some(dir.path().to_path_buf()),
+			ssh,
+			..Config::default()
+		};
+
+		record_connection_use(&config, "~/remote/project-deadbeef");
+
+		let state = state::load_state(dir.path())?;
+		assert_eq!(state.connections.len(), 1);
+		let connection = state
+			.connections
+			.first()
+			.expect("one connection was recorded");
+		assert_eq!(connection.host, "example.test");
+		assert_eq!(connection.user, "alice");
+		assert_eq!(connection.port, 2222);
+		Ok(())
+	}
+
+	#[test]
+	fn record_connection_use_skips_unresolved_target() -> Result<()> {
+		let dir = tempdir()?;
+		let mut ssh = Config::default().ssh;
+		ssh.host = "example.test".to_owned();
+		ssh.use_ssh_config = false;
+		let config = Config {
+			state_dir: Some(dir.path().to_path_buf()),
+			ssh,
+			..Config::default()
+		};
+
+		record_connection_use(&config, "~/remote/project-deadbeef");
+
+		assert!(state::load_state(dir.path())?.connections.is_empty());
+		Ok(())
+	}
 }

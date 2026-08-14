@@ -644,19 +644,34 @@ fn configure_daemon_env(cmd: &mut Command, config: &Config, state_dir: &Path) {
 #[cfg(test)]
 mod tests {
 	use super::{
-		CleanTarget, clean_target, configure_daemon_env, join_remote_child, purge_cleanup_paths,
-		remote_dir_is_older_than, resolve_current_project_root, state_dir_from_env_or_default,
+		CleanTarget, clean_target, collect_tracked_default_dirs, configure_daemon_env,
+		join_remote_child, purge_cleanup_paths, remote_dir_is_older_than,
+		resolve_current_project_root, state_dir_from_env_or_default,
 	};
 	use crate::config::types::{Config, PasswordConfig};
 	use crate::ssh::clean::RemoteDirEntry;
+	use crate::ssh::target::ResolvedSshTarget;
+	use crate::state::{Connection, State};
 	use crate::testing::EnvCleanup;
 	use alloc::collections::BTreeMap;
 	use chrono::Utc;
 	use core::time::Duration;
 	use pretty_assertions::assert_eq;
+	use std::collections::HashSet;
+	use std::ffi::OsStr;
 	use std::path::{Path, PathBuf};
 	use std::process::Command;
 	use std::{env, fs};
+
+	fn resolved_target() -> ResolvedSshTarget {
+		ResolvedSshTarget {
+			lookup_host: "alias".to_owned(),
+			hostname: "example.test".to_owned(),
+			port: 2222,
+			user: "alice".to_owned(),
+			identity_files: Vec::new(),
+		}
+	}
 
 	struct CurrentDirGuard(PathBuf);
 
@@ -847,6 +862,64 @@ mod tests {
 		assert_eq!(
 			envs.get("BIWA_STATE_DIR").map(String::as_str),
 			Some("/tmp/state")
+		);
+	}
+
+	#[test]
+	fn configure_daemon_env_omits_unconfigured_user_and_port() {
+		let config = Config::default();
+		let mut cmd = Command::new("biwa");
+		configure_daemon_env(&mut cmd, &config, Path::new("/tmp/state"));
+		let envs = cmd
+			.get_envs()
+			.map(|(key, value)| (key.to_string_lossy().into_owned(), value))
+			.collect::<BTreeMap<_, _>>();
+
+		assert!(!envs.contains_key("BIWA_SSH_PORT"));
+		assert!(!envs.contains_key("BIWA_SSH_USER"));
+		assert_eq!(
+			envs.get("BIWA_SSH_USE_CONFIG").and_then(|value| *value),
+			Some(OsStr::new("true"))
+		);
+	}
+
+	#[test]
+	fn tracked_default_dirs_require_the_resolved_target() {
+		let target = resolved_target();
+		let remote_root = Path::new("~/root");
+		let host_hash = "abcd1234";
+		let matching = Connection {
+			host: target.hostname.clone(),
+			user: target.user.clone(),
+			port: target.port,
+			remote_dir: "~/root/project-abcd1234-deadbeef".to_owned(),
+			last_used: Utc::now(),
+		};
+		let state = State {
+			connections: vec![
+				matching.clone(),
+				Connection {
+					host: target.lookup_host.clone(),
+					..matching.clone()
+				},
+				Connection {
+					user: "bob".to_owned(),
+					..matching.clone()
+				},
+				Connection {
+					port: 22,
+					..matching.clone()
+				},
+				Connection {
+					remote_dir: "~/root/not-biwa".to_owned(),
+					..matching
+				},
+			],
+		};
+
+		assert_eq!(
+			collect_tracked_default_dirs(&target, &state, remote_root, host_hash),
+			HashSet::from(["~/root/project-abcd1234-deadbeef".to_owned()])
 		);
 	}
 }
