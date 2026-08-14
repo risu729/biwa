@@ -35,6 +35,15 @@ pub struct HostKeyVerificationFailed {
 	message: String,
 }
 
+impl HostKeyVerificationFailed {
+	/// Creates a structured host-key verification failure.
+	pub(crate) fn new(message: impl Into<String>) -> Self {
+		Self {
+			message: message.into(),
+		}
+	}
+}
+
 impl fmt::Display for HostKeyVerificationFailed {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.write_str(&self.message)
@@ -117,7 +126,7 @@ impl HostKeyVerification {
 				self.source()
 			),
 		};
-		Report::new(HostKeyVerificationFailed { message })
+		Report::new(HostKeyVerificationFailed::new(message))
 	}
 }
 
@@ -151,14 +160,12 @@ impl Handler for ClientHandler {
 				self.verification
 					.learn(server_public_key)
 					.map_err(|error| {
-						Report::new(HostKeyVerificationFailed {
-							message: format!(
-								"Failed to record SSH host key for {}:{} in {}: {error}",
-								self.verification.hostname,
-								self.verification.port,
-								self.verification.source()
-							),
-						})
+						Report::new(HostKeyVerificationFailed::new(format!(
+							"Failed to record SSH host key for {}:{} in {}: {error}",
+							self.verification.hostname,
+							self.verification.port,
+							self.verification.source()
+						)))
 					})?;
 				tracing::info!(
 					host = %self.verification.hostname,
@@ -167,14 +174,12 @@ impl Handler for ClientHandler {
 				);
 				Ok(true)
 			}
-			Ok(false) => Err(Report::new(HostKeyVerificationFailed {
-				message: format!(
-					"Unknown SSH host key for {}:{} in {}. Verify and add the key, or set ssh.host_key_checking = \"accept-new\" for trust on first use",
-					self.verification.hostname,
-					self.verification.port,
-					self.verification.source()
-				),
-			})),
+			Ok(false) => Err(Report::new(HostKeyVerificationFailed::new(format!(
+				"Unknown SSH host key for {}:{} in {}. Verify and add the key, or set ssh.host_key_checking = \"accept-new\" for trust on first use",
+				self.verification.hostname,
+				self.verification.port,
+				self.verification.source()
+			)))),
 			Err(error) => Err(self.verification.check_error(&error)),
 		}
 	}
@@ -267,6 +272,7 @@ mod tests {
 	use super::*;
 	use pretty_assertions::assert_eq;
 	use std::fs;
+	use std::os::unix::fs::PermissionsExt as _;
 	use tempfile::tempdir;
 
 	const KEY_ONE: &str =
@@ -347,5 +353,57 @@ mod tests {
 			path
 		)?);
 		Ok(())
+	}
+
+	#[tokio::test]
+	async fn insecure_accepts_unknown_key() -> Result<()> {
+		let dir = tempdir()?;
+		let accepted = handler(
+			dir.path().join("known_hosts"),
+			HostKeyChecking::Insecure,
+			22,
+		)
+		.check_server_key(&key(KEY_ONE))
+		.await?;
+
+		assert!(accepted);
+		Ok(())
+	}
+
+	#[tokio::test]
+	async fn accept_new_reports_recording_failure() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("known_hosts");
+		fs::write(&path, "")?;
+		fs::set_permissions(&path, fs::Permissions::from_mode(0o400))?;
+
+		let error = handler(path, HostKeyChecking::AcceptNew, 22)
+			.check_server_key(&key(KEY_ONE))
+			.await
+			.expect_err("a read-only known-hosts file cannot record a key");
+		assert!(error.to_string().contains("Failed to record SSH host key"));
+		Ok(())
+	}
+
+	#[tokio::test]
+	async fn strict_reports_known_hosts_read_failure() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("known_hosts-directory");
+		fs::create_dir_all(&path)?;
+
+		let error = handler(path, HostKeyChecking::Strict, 22)
+			.check_server_key(&key(KEY_ONE))
+			.await
+			.expect_err("a directory cannot be parsed as known-hosts data");
+		assert!(error.to_string().contains("Failed to verify SSH host key"));
+		Ok(())
+	}
+
+	#[test]
+	fn default_known_hosts_source_is_descriptive() {
+		let verification =
+			HostKeyVerification::new("example.test".to_owned(), 22, HostKeyChecking::Strict, None);
+
+		assert_eq!(verification.source(), "the default ~/.ssh/known_hosts file");
 	}
 }
