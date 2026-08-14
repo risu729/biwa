@@ -6,7 +6,7 @@ use crate::env_vars::{
 	EnvForwardMethod, EnvVarRule, EnvVarSource, is_environment_dependent_env_var,
 	local_env_var_names, resolve_env_var_rules,
 };
-use crate::ssh::client::auth::AuthenticationFailed;
+use crate::ssh::client::auth::{AuthenticationFailed, AuthenticationFailureKind};
 use crate::ssh::client::execute::{await_channel_confirmation, exit_status_from_signal};
 use crate::ssh::client::{Client, HostKeyVerification, HostKeyVerificationFailed};
 use crate::ssh::target::ResolvedSshTarget;
@@ -43,10 +43,11 @@ impl Drop for SpinnerGuard {
 	}
 }
 
-/// Returns true when `report` includes the structured authentication failure marker (including
-/// context added via `wrap_err`).
-fn report_is_authentication_failure(report: &Report) -> bool {
-	report.downcast_ref::<AuthenticationFailed>().is_some()
+/// Returns the fallback policy attached to an authentication failure marker.
+fn authentication_failure_kind(report: &Report) -> Option<AuthenticationFailureKind> {
+	report
+		.downcast_ref::<AuthenticationFailed>()
+		.map(|failure| failure.kind())
 }
 
 /// Returns true when host-key verification failed and retrying is unsafe.
@@ -142,7 +143,15 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 		.await
 		{
 			Ok(c) => break c,
-			Err(e) if report_is_authentication_failure(&e) => {
+			Err(e)
+				if authentication_failure_kind(&e)
+					== Some(AuthenticationFailureKind::Retryable) =>
+			{
+				debug!(
+					credential = %auth_method.description(),
+					error = %e,
+					"SSH authentication candidate failed"
+				);
 				rejected_credentials.push(auth_method.description());
 				if let Some(fallback) = auth_methods.next() {
 					info!("Authentication failed; trying the next public-key candidate");
@@ -156,6 +165,11 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 						skipped_agent_identities,
 					)
 				});
+			}
+			Err(e)
+				if authentication_failure_kind(&e) == Some(AuthenticationFailureKind::Terminal) =>
+			{
+				return Err(e);
 			}
 			Err(e) if report_is_host_key_verification_failure(&e) => return Err(e),
 			Err(e) if retries > 0 => {
@@ -766,16 +780,27 @@ mod tests {
 	use super::*;
 	use crate::config::types::EnvConfig;
 	use crate::env_vars::{EnvForwardMethod, EnvVarRule, EnvVarSelector, EnvVarSpec, EnvVars};
-	use crate::ssh::client::auth::AuthenticationFailed;
+	use crate::ssh::client::auth::{AuthenticationFailed, AuthenticationFailureKind};
 	use crate::testing::EnvCleanup;
 	use color_eyre::eyre::Report;
 	use pretty_assertions::assert_eq;
 	use serial_test::serial;
 
 	#[test]
-	fn report_is_authentication_failure_detects_wrapped_auth_error() {
-		let report = Report::from(AuthenticationFailed).wrap_err("Password authentication failed");
-		assert!(super::report_is_authentication_failure(&report));
+	fn authentication_failure_kind_detects_wrapped_auth_errors() {
+		let retryable = Report::from(AuthenticationFailed::retryable())
+			.wrap_err("Password authentication failed");
+		let terminal = Report::from(AuthenticationFailed::terminal())
+			.wrap_err("MFA continuation is unsupported");
+
+		assert_eq!(
+			super::authentication_failure_kind(&retryable),
+			Some(AuthenticationFailureKind::Retryable)
+		);
+		assert_eq!(
+			super::authentication_failure_kind(&terminal),
+			Some(AuthenticationFailureKind::Terminal)
+		);
 	}
 
 	#[test]
@@ -783,7 +808,7 @@ mod tests {
 		let report = Report::new(super::HostKeyVerificationFailed::new("host key rejected"));
 
 		assert!(super::report_is_host_key_verification_failure(&report));
-		assert!(!super::report_is_authentication_failure(&report));
+		assert_eq!(super::authentication_failure_kind(&report), None);
 	}
 
 	#[test]

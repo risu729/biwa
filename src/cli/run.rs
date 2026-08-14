@@ -289,7 +289,8 @@ pub(super) async fn run_remote(
 
 	// Spawn background cleanup daemon if enabled.
 	if config.clean.auto
-		&& let Err(e) = spawn_background_cleanup(config)
+		&& let Err(e) =
+			spawn_background_cleanup(config, client.authentication_reusable_noninteractively())
 	{
 		warn!(error = %e, "Failed to spawn background cleanup");
 	}

@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::config::types::{AuthMode, Config};
-use crate::ssh::client::auth::Method;
+use crate::ssh::client::auth::{AgentCredential, Method};
 use crate::ssh::target::ResolvedSshTarget;
 use color_eyre::eyre::bail;
 use russh::keys::agent::client::AgentClient;
@@ -27,26 +27,35 @@ pub(super) struct AuthPlan {
 /// Resolves credentials without opening a network connection or prompting.
 pub(super) async fn resolve_auth(config: &Config, target: &ResolvedSshTarget) -> Result<AuthPlan> {
 	let interaction_allowed = stdin().is_terminal();
-	let password = env::var("BIWA_SSH_PASSWORD").ok();
 
 	if config.ssh.auth == AuthMode::Password {
 		return resolve_auth_with(
 			config,
 			target,
-			password,
+			env::var("BIWA_SSH_PASSWORD").ok(),
+			Vec::new(),
+			Vec::new(),
+			interaction_allowed,
+		);
+	}
+	if config.ssh.key_path.is_some() {
+		return resolve_auth_with(
+			config,
+			target,
+			None,
 			Vec::new(),
 			Vec::new(),
 			interaction_allowed,
 		);
 	}
 
-	let agent_keys = enumerate_agent_keys().await;
+	let agent_credentials = enumerate_agent_credentials().await;
 	let default_paths = default_key_paths();
 	resolve_auth_with(
 		config,
 		target,
-		password,
-		agent_keys,
+		None,
+		agent_credentials,
 		default_paths,
 		interaction_allowed,
 	)
@@ -57,16 +66,12 @@ fn resolve_auth_with(
 	config: &Config,
 	target: &ResolvedSshTarget,
 	password: Option<String>,
-	agent_keys: Vec<PublicKey>,
+	agent_credentials: Vec<AgentCredential>,
 	default_paths: Vec<PathBuf>,
 	interaction_allowed: bool,
 ) -> Result<AuthPlan> {
 	if config.ssh.auth == AuthMode::Password {
 		return resolve_password_auth(config, target, password, interaction_allowed);
-	}
-
-	if password.is_some() {
-		debug!("Ignoring BIWA_SSH_PASSWORD because public-key authentication is selected");
 	}
 
 	if let Some(path) = config.ssh.key_path.as_deref() {
@@ -90,18 +95,16 @@ fn resolve_auth_with(
 		.collect::<Vec<_>>();
 
 	let mut methods = Vec::new();
-	let mut selected_agent_keys = Vec::<PublicKey>::new();
+	let mut selected_agent_credentials = Vec::<AgentCredential>::new();
 
 	// Configured matches are always first and do not consume the unrelated-key allowance.
 	for identity_key in identity_keys.iter().flatten() {
-		for agent_key in &agent_keys {
-			if same_key(identity_key, agent_key)
-				&& !selected_agent_keys
-					.iter()
-					.any(|key| same_key(key, agent_key))
+		for credential in &agent_credentials {
+			if same_key(identity_key, credential.public_key())
+				&& !selected_agent_credentials.contains(credential)
 			{
-				selected_agent_keys.push(agent_key.clone());
-				methods.push(Method::with_agent_key(agent_key.clone()));
+				selected_agent_credentials.push(credential.clone());
+				methods.push(Method::with_agent_credential(credential.clone()));
 			}
 		}
 	}
@@ -112,29 +115,28 @@ fn resolve_auth_with(
 	for path in &identity_paths {
 		if is_private_key_candidate(path) && !selected_paths.contains(path) {
 			selected_paths.push(path.clone());
-			methods.push(Method::with_key_file(path, interaction_allowed));
+			methods.push(Method::with_automatic_key_file(path, interaction_allowed));
 		}
 	}
 
-	let remaining_agent_keys = agent_keys
+	let remaining_agent_credentials = agent_credentials
 		.into_iter()
-		.filter(|key| {
-			!selected_agent_keys
-				.iter()
-				.any(|selected| same_key(selected, key))
-		})
+		.filter(|credential| !selected_agent_credentials.contains(credential))
 		.collect::<Vec<_>>();
-	let skipped_agent_identities = remaining_agent_keys
+	let skipped_agent_identities = remaining_agent_credentials
 		.len()
 		.saturating_sub(UNRELATED_AGENT_LIMIT);
-	for key in remaining_agent_keys.into_iter().take(UNRELATED_AGENT_LIMIT) {
-		methods.push(Method::with_agent_key(key));
+	for credential in remaining_agent_credentials
+		.into_iter()
+		.take(UNRELATED_AGENT_LIMIT)
+	{
+		methods.push(Method::with_agent_credential(credential));
 	}
 
 	for path in default_paths {
 		if path.is_file() && !selected_paths.contains(&path) {
 			selected_paths.push(path.clone());
-			methods.push(Method::with_key_file(path, interaction_allowed));
+			methods.push(Method::with_automatic_key_file(path, interaction_allowed));
 		}
 	}
 
@@ -188,7 +190,7 @@ fn resolve_password_auth(
 }
 
 /// Enumerates and normalizes identities from the agent selected by `SSH_AUTH_SOCK`.
-async fn enumerate_agent_keys() -> Vec<PublicKey> {
+async fn enumerate_agent_credentials() -> Vec<AgentCredential> {
 	if env::var_os("SSH_AUTH_SOCK").is_none() {
 		debug!("SSH_AUTH_SOCK is unset; skipping SSH agent");
 		return Vec::new();
@@ -202,14 +204,14 @@ async fn enumerate_agent_keys() -> Vec<PublicKey> {
 		return Vec::new();
 	};
 
-	let mut keys = Vec::<PublicKey>::new();
+	let mut credentials = Vec::<AgentCredential>::new();
 	for identity in identities {
-		let public_key = identity.public_key().into_owned();
-		if !keys.iter().any(|key| same_key(key, &public_key)) {
-			keys.push(public_key);
+		let credential = AgentCredential::from_identity(identity);
+		if !credentials.contains(&credential) {
+			credentials.push(credential);
 		}
 	}
-	keys
+	credentials
 }
 
 /// Returns existing standard private-key paths in deterministic order.
@@ -261,8 +263,10 @@ fn same_key(left: &PublicKey, right: &PublicKey) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::testing::EnvCleanup;
+	use crate::testing::{EnvCleanup, ssh_private_key_from_seed, write_test_ssh_private_key};
 	use pretty_assertions::{assert_eq, assert_matches};
+	use russh::keys::Certificate;
+	use russh::keys::agent::AgentIdentity;
 	use serial_test::serial;
 	use std::fs;
 
@@ -270,9 +274,14 @@ mod tests {
 		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGYh1Ntz2neFcfgNyBAx3kFJwSURKqRrnAuLiQ5M296T";
 	const KEY_TWO: &str =
 		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICQvZPc4//KJ9jQpzY7zfzt6isLmdQidqqeK4cdA0hY/";
+	const CERTIFICATE: &str = "ssh-ed25519-cert-v01@openssh.com AAAAIHNzaC1lZDI1NTE5LWNlcnQtdjAxQG9wZW5zc2guY29tAAAAIBW/4zLqXWROWmN1sPgdySnH1GUsEFBjFrRwKKw71BoBAAAAIH1MFwI1oRdEifXgBQvWQfCBBtA/Pi8YCUE/I3wXFJo2AAAAAAAAAAAAAAABAAAAA2ZvbwAAAAAAAAAAAAAAAH//////////AAAAIwAAABFoZWxsb0BleGFtcGxlLmNvbQAAAAoAAAAGZm9vYmFyAAAAAAAAAAAAAAAzAAAAC3NzaC1lZDI1NTE5AAAAIH1MFwI1oRdEifXgBQvWQfCBBtA/Pi8YCUE/I3wXFJo2AAAAUwAAAAtzc2gtZWQyNTUxOQAAAEDRoPdI48KyoaLgaDZsSGs80qBeYQOXBd84CX8GYzFt/L21rxF1EeuPOkgsx7Q39WllXp+FgMMojsHftK/DJHEN";
 
 	fn key(value: &str) -> PublicKey {
 		PublicKey::from_openssh(value).expect("static key is valid")
+	}
+
+	fn agent_key(value: &str) -> AgentCredential {
+		AgentCredential::from_public_key(key(value))
 	}
 
 	fn target() -> ResolvedSshTarget {
@@ -285,8 +294,10 @@ mod tests {
 		}
 	}
 
-	fn fixture_private_key() -> PathBuf {
-		Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ssh/id_ed25519")
+	fn fixture_private_key(directory: &Path) -> Result<PathBuf> {
+		let path = directory.join("id_ed25519");
+		write_test_ssh_private_key(&path)?;
+		Ok(path)
 	}
 
 	#[test]
@@ -297,7 +308,7 @@ mod tests {
 			&config,
 			&target(),
 			Some("secret".to_owned()),
-			vec![key(KEY_ONE)],
+			vec![agent_key(KEY_ONE)],
 			Vec::new(),
 			false,
 		)?;
@@ -358,31 +369,69 @@ mod tests {
 			&Config::default(),
 			&resolved,
 			None,
-			vec![key(KEY_ONE), key(KEY_TWO)],
+			vec![agent_key(KEY_ONE), agent_key(KEY_TWO)],
 			Vec::new(),
 			false,
 		)?;
 		let first = plan.methods.first().ok_or_else(|| {
 			color_eyre::eyre::eyre!("matching agent key candidate was not created")
 		})?;
-		let Method::AgentKey { public_key } = first else {
+		let Method::AgentKey { credential } = first else {
 			bail!("matching agent key must be first")
 		};
-		assert!(same_key(public_key, &key(KEY_TWO)));
+		assert!(same_key(credential.public_key(), &key(KEY_TWO)));
+		Ok(())
+	}
+
+	#[test]
+	fn identity_file_preserves_plain_and_certificate_agent_orderings() -> Result<()> {
+		let certificate = Certificate::from_openssh(CERTIFICATE)?;
+		let plain_credential =
+			AgentCredential::from_public_key(certificate.public_key().clone().into());
+		let certified = AgentCredential::from_identity(AgentIdentity::Certificate {
+			certificate,
+			comment: "certificate".to_owned(),
+		});
+		let dir = tempfile::tempdir()?;
+		let selector = dir.path().join("selector.pub");
+		fs::write(&selector, plain_credential.public_key().to_openssh()?)?;
+		let mut resolved = target();
+		resolved.identity_files.push(selector);
+
+		for credentials in [
+			vec![plain_credential.clone(), certified.clone()],
+			vec![certified, plain_credential],
+		] {
+			let expected = credentials
+				.iter()
+				.cloned()
+				.map(Method::with_agent_credential)
+				.collect::<Vec<_>>();
+			let auth_plan = resolve_auth_with(
+				&Config::default(),
+				&resolved,
+				None,
+				credentials,
+				Vec::new(),
+				false,
+			)?;
+			assert_eq!(auth_plan.methods, expected);
+		}
 		Ok(())
 	}
 
 	#[test]
 	fn explicit_key_path_is_the_only_candidate() -> Result<()> {
-		let private_key = fixture_private_key();
+		let dir = tempfile::tempdir()?;
+		let private_key = fixture_private_key(dir.path())?;
 		let mut config = Config::default();
 		config.ssh.key_path = Some(private_key.clone());
 		let plan = resolve_auth_with(
 			&config,
 			&target(),
 			Some("ignored".to_owned()),
-			vec![key(KEY_ONE)],
-			vec![fixture_private_key()],
+			vec![agent_key(KEY_ONE)],
+			vec![private_key.clone()],
 			false,
 		)?;
 		assert_eq!(
@@ -404,7 +453,8 @@ mod tests {
 
 	#[test]
 	fn local_identity_and_default_keys_are_ordered_and_deduplicated() -> Result<()> {
-		let private_key = fixture_private_key();
+		let dir = tempfile::tempdir()?;
+		let private_key = fixture_private_key(dir.path())?;
 		let mut resolved = target();
 		resolved
 			.identity_files
@@ -425,8 +475,8 @@ mod tests {
 		assert_eq!(
 			plan.methods,
 			vec![
-				Method::with_key_file(private_key, false),
-				Method::with_key_file(extra_key, false),
+				Method::with_automatic_key_file(private_key, false),
+				Method::with_automatic_key_file(extra_key, false),
 			]
 		);
 		Ok(())
@@ -465,7 +515,7 @@ mod tests {
 			&Config::default(),
 			&resolved,
 			None,
-			vec![key(KEY_TWO)],
+			vec![agent_key(KEY_TWO)],
 			Vec::new(),
 			false,
 		)?;
@@ -477,9 +527,10 @@ mod tests {
 	fn unrelated_agent_identities_are_bounded() -> Result<()> {
 		let keys = (0..=UNRELATED_AGENT_LIMIT)
 			.map(|index| {
-				let mut value = key(KEY_ONE);
-				value.set_comment(format!("{index}"));
-				value
+				let seed = [u8::try_from(index + 1).expect("test index fits in u8"); 32];
+				AgentCredential::from_public_key(
+					ssh_private_key_from_seed(&seed).public_key().clone(),
+				)
 			})
 			.collect::<Vec<_>>();
 		let plan = resolve_auth_with(&Config::default(), &target(), None, keys, Vec::new(), false)?;
@@ -502,8 +553,12 @@ mod tests {
 			&key(KEY_TWO)
 		));
 
-		let private = fixture_private_key();
-		public_key_for_identity(&private)?;
+		let private = fixture_private_key(dir.path())?;
+		let derived = public_key_for_identity(&private)?;
+		let expected = load_public_key(
+			Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ssh/id_ed25519.pub"),
+		)?;
+		assert!(same_key(&derived, &expected));
 		assert!(is_private_key_candidate(&private));
 		assert!(!is_private_key_candidate(&public));
 		assert!(!is_private_key_candidate(&dir.path().join("missing")));
@@ -556,9 +611,11 @@ mod tests {
 	#[serial]
 	#[tokio::test]
 	async fn resolve_auth_continues_when_agent_socket_is_unavailable() -> Result<()> {
-		let _socket = EnvCleanup::set("SSH_AUTH_SOCK", "/missing/biwa-agent.sock");
+		let dir = tempfile::tempdir()?;
+		let missing_socket = dir.path().join("missing-agent.sock");
+		let _socket = EnvCleanup::set("SSH_AUTH_SOCK", &missing_socket.to_string_lossy());
 		let mut config = Config::default();
-		config.ssh.key_path = Some(fixture_private_key());
+		config.ssh.key_path = Some(fixture_private_key(dir.path())?);
 
 		let plan = resolve_auth(&config, &target()).await?;
 		assert_matches!(plan.methods.as_slice(), [Method::PrivateKeyFile { .. }]);
@@ -569,6 +626,17 @@ mod tests {
 	#[tokio::test]
 	async fn agent_enumeration_is_empty_without_a_socket() {
 		let _socket = EnvCleanup::remove("SSH_AUTH_SOCK");
-		assert!(enumerate_agent_keys().await.is_empty());
+		assert!(enumerate_agent_credentials().await.is_empty());
+	}
+
+	#[serial]
+	#[tokio::test]
+	async fn agent_enumeration_continues_when_socket_is_unavailable() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let missing_socket = dir.path().join("missing-agent.sock");
+		let _socket = EnvCleanup::set("SSH_AUTH_SOCK", &missing_socket.to_string_lossy());
+
+		assert!(enumerate_agent_credentials().await.is_empty());
+		Ok(())
 	}
 }

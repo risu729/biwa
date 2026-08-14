@@ -45,7 +45,8 @@ impl Sync {
 		record_connection_use(&config, &transfer.remote_dir);
 
 		if config.clean.auto
-			&& let Err(error) = spawn_background_cleanup(&config)
+			&& let Err(error) =
+				spawn_background_cleanup(&config, client.authentication_reusable_noninteractively())
 		{
 			warn!(%error, "Failed to spawn background cleanup");
 		}
