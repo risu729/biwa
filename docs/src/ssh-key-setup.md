@@ -67,7 +67,7 @@ Public-key authentication is the default. No Biwa authentication setting is requ
 3. Remaining agent identities, preserving agent order
 4. Existing `~/.ssh/id_ed25519` and `~/.ssh/id_rsa` files
 
-Every agent identity gets a fresh SSH connection, avoiding one connection's `MaxAuthTries` budget. Matching identities are all tried; unrelated agent identities are limited to 10. If an agent exposes more, add an `IdentityFile` public-key hint.
+Every selected, deduplicated agent identity gets a fresh SSH connection, avoiding one connection's `MaxAuthTries` budget. A plain public key and an OpenSSH certificate for that key remain separate identities, so either can authenticate. Matching identities are all tried; unrelated agent identities are limited to 10. If an agent exposes more, add an `IdentityFile` public-key hint.
 
 Setting `ssh.key_path` selects only that private key. It does not fall back to unrelated agent or default keys. Encrypted private keys prompt for a passphrase only when reached and only in an interactive process.
 
@@ -127,7 +127,7 @@ BIWA_SSH_AUTH=password BIWA_SSH_PASSWORD='...' biwa run --skip-sync true
 
 ## Host key verification
 
-Biwa defaults to strict host-key verification. Running the OpenSSH verification command above normally records the server in `~/.ssh/known_hosts`. An unknown or changed key stops before authentication.
+Biwa defaults to strict host-key verification. Running the OpenSSH verification command above normally records the server in `~/.ssh/known_hosts`. An unknown, changed, or explicitly `@revoked` key stops before authentication. A revoked key is also rejected in `accept-new` mode rather than being learned again.
 
 For trust on first use on a private host:
 
