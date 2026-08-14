@@ -14,13 +14,16 @@ use core::fmt;
 use core::fmt::Debug;
 use core::future::{Future, ready};
 use core::result::Result as CoreResult;
+use hmac::{Hmac, KeyInit as _, Mac as _};
 use russh::Channel;
 use russh::client::{Config, Handle, Handler, Msg, connect as russh_connect};
-use russh::keys::known_hosts::{
-	check_known_hosts, check_known_hosts_path, learn_known_hosts, learn_known_hosts_path,
-};
+use russh::keys::known_hosts::{check_known_hosts_path, learn_known_hosts_path};
+use russh::keys::ssh_key::known_hosts::{Entry, HostPatterns, Marker};
 use russh::keys::{Error as KeyError, PublicKey, PublicKeyOrCertificate};
+use sha1::Sha1;
 use std::error::Error as StdError;
+use std::fs;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::net::ToSocketAddrs;
@@ -83,20 +86,60 @@ impl HostKeyVerification {
 		}
 	}
 
+	/// Resolves the known-hosts path used by every verification operation.
+	fn path(&self) -> CoreResult<PathBuf, KeyError> {
+		self.known_hosts.as_ref().map_or_else(
+			|| {
+				homedir::my_home()
+					.ok()
+					.flatten()
+					.map(|home| home.join(".ssh/known_hosts"))
+					.ok_or(KeyError::NoHomeDir)
+			},
+			|path| Ok(path.clone()),
+		)
+	}
+
 	/// Checks whether the key is already trusted.
 	fn check(&self, key: &PublicKey) -> CoreResult<bool, KeyError> {
-		self.known_hosts.as_deref().map_or_else(
-			|| check_known_hosts(&self.hostname, self.port, key),
-			|path| check_known_hosts_path(&self.hostname, self.port, key, path),
-		)
+		check_known_hosts_path(&self.hostname, self.port, key, self.path()?)
 	}
 
 	/// Records a newly trusted key.
 	fn learn(&self, key: &PublicKey) -> CoreResult<(), KeyError> {
-		self.known_hosts.as_deref().map_or_else(
-			|| learn_known_hosts(&self.hostname, self.port, key),
-			|path| learn_known_hosts_path(&self.hostname, self.port, key, path),
-		)
+		learn_known_hosts_path(&self.hostname, self.port, key, self.path()?)
+	}
+
+	/// Checks whether the presented key is explicitly revoked for this host.
+	fn is_revoked(&self, key: &PublicKey) -> CoreResult<bool, KeyError> {
+		let contents = match fs::read_to_string(self.path()?) {
+			Ok(contents) => contents,
+			Err(error)
+				if matches!(error.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) =>
+			{
+				return Ok(false);
+			}
+			Err(error) => return Err(KeyError::IO(error)),
+		};
+		let host = if self.port == 22 {
+			self.hostname.clone()
+		} else {
+			format!("[{}]:{}", self.hostname, self.port)
+		};
+
+		for line in contents.lines().map(str::trim) {
+			if !line.starts_with("@revoked ") {
+				continue;
+			}
+			let entry = line.parse::<Entry>().map_err(KeyError::from)?;
+			if entry.marker() == Some(&Marker::Revoked)
+				&& entry.public_key().key_data() == key.key_data()
+				&& host_patterns_match(entry.host_patterns(), &host)
+			{
+				return Ok(true);
+			}
+		}
+		Ok(false)
 	}
 
 	/// Describes the known-hosts source without assuming a home directory exists.
@@ -159,13 +202,24 @@ impl ClientHandler {
 			..
 		} = server_key
 		else {
-			return Err(Report::new(HostKeyVerificationFailed {
-				message: format!(
-					"SSH host certificates are not supported for {}:{}. Refusing to connect",
-					self.verification.hostname, self.verification.port
-				),
-			}));
+			return Err(Report::new(HostKeyVerificationFailed::new(format!(
+				"SSH host certificates are not supported for {}:{}. Refusing to connect",
+				self.verification.hostname, self.verification.port
+			))));
 		};
+
+		match self.verification.is_revoked(server_public_key) {
+			Ok(true) => {
+				return Err(Report::new(HostKeyVerificationFailed::new(format!(
+					"SSH host key for {}:{} is explicitly revoked in {}",
+					self.verification.hostname,
+					self.verification.port,
+					self.verification.source()
+				))));
+			}
+			Ok(false) => {}
+			Err(error) => return Err(self.verification.check_error(&error)),
+		}
 
 		match self.verification.check(server_public_key) {
 			Ok(true) => Ok(true),
@@ -209,6 +263,71 @@ impl Handler for ClientHandler {
 	}
 }
 
+/// Matches parsed known-host patterns against the effective host and port.
+fn host_patterns_match(patterns: &HostPatterns, host: &str) -> bool {
+	match patterns {
+		HostPatterns::Patterns(patterns) => {
+			let mut positive_match = false;
+			for pattern in patterns {
+				let (negated, pattern) = pattern
+					.strip_prefix('!')
+					.map_or((false, pattern.as_str()), |pattern| (true, pattern));
+				if wildcard_match(pattern, host) {
+					if negated {
+						return false;
+					}
+					positive_match = true;
+				}
+			}
+			positive_match
+		}
+		HostPatterns::HashedName { salt, hash } => {
+			Hmac::<Sha1>::new_from_slice(salt).is_ok_and(|hmac| {
+				hmac.chain_update(host.as_bytes())
+					.verify_slice(hash)
+					.is_ok()
+			})
+		}
+	}
+}
+
+/// Matches OpenSSH's `*` and `?` host wildcards case-insensitively.
+#[expect(
+	clippy::arithmetic_side_effects,
+	clippy::indexing_slicing,
+	reason = "each index operation is guarded by explicit monotonic length checks"
+)]
+fn wildcard_match(pattern: &str, value: &str) -> bool {
+	let pattern = pattern.as_bytes();
+	let value = value.as_bytes();
+	let (mut pattern_index, mut value_index) = (0, 0);
+	let (mut star_index, mut star_value_index) = (None, 0);
+
+	while value_index < value.len() {
+		if pattern_index < pattern.len()
+			&& (pattern[pattern_index] == b'?'
+				|| pattern[pattern_index].eq_ignore_ascii_case(&value[value_index]))
+		{
+			pattern_index += 1;
+			value_index += 1;
+		} else if pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+			star_index = Some(pattern_index);
+			pattern_index += 1;
+			star_value_index = value_index;
+		} else if let Some(star) = star_index {
+			pattern_index = star + 1;
+			star_value_index += 1;
+			value_index = star_value_index;
+		} else {
+			return false;
+		}
+	}
+
+	while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+		pattern_index += 1;
+	}
+	pattern_index == pattern.len()
+}
 /// An SSH client.
 #[derive(Clone)]
 pub struct Client {
@@ -296,7 +415,6 @@ mod tests {
 	use super::*;
 	use pretty_assertions::assert_eq;
 	use std::fs;
-	use std::os::unix::fs::PermissionsExt as _;
 	use tempfile::tempdir;
 
 	const KEY_ONE: &str =
@@ -358,6 +476,43 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn accept_new_rejects_explicitly_revoked_key() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("known_hosts");
+		let contents = format!("@revoked example.test {KEY_ONE}\n");
+		fs::write(&path, &contents)?;
+
+		let error = handler(path.clone(), HostKeyChecking::AcceptNew, 22)
+			.check_server_key(&key(KEY_ONE))
+			.await
+			.expect_err("accept-new must not relearn a revoked key");
+
+		assert!(error.to_string().contains("explicitly revoked"));
+		assert_eq!(fs::read_to_string(path)?, contents);
+		Ok(())
+	}
+
+	#[tokio::test]
+	async fn revoked_hashed_nonstandard_host_is_rejected() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("known_hosts");
+		fs::write(
+			&path,
+			format!(
+				"@revoked |1|MDEyMzQ1Njc4OTAxMjM0NTY3ODk=|410uIDcPGPGynJ2kieNHiAb2uZY= {KEY_ONE}\n"
+			),
+		)?;
+
+		let error = handler(path, HostKeyChecking::AcceptNew, 2222)
+			.check_server_key(&key(KEY_ONE))
+			.await
+			.expect_err("hashed host-and-port entries must retain revoked semantics");
+
+		assert!(error.to_string().contains("explicitly revoked"));
+		Ok(())
+	}
+
+	#[tokio::test]
 	async fn accept_new_records_nonstandard_port() -> Result<()> {
 		let dir = tempdir()?;
 		let path = dir.path().join("nested/known_hosts");
@@ -397,14 +552,14 @@ mod tests {
 	#[tokio::test]
 	async fn accept_new_reports_recording_failure() -> Result<()> {
 		let dir = tempdir()?;
-		let path = dir.path().join("known_hosts");
-		fs::write(&path, "")?;
-		fs::set_permissions(&path, fs::Permissions::from_mode(0o400))?;
+		let parent = dir.path().join("not-a-directory");
+		fs::write(&parent, "regular file")?;
+		let path = parent.join("known_hosts");
 
 		let error = handler(path, HostKeyChecking::AcceptNew, 22)
 			.check_server_key(&key(KEY_ONE))
 			.await
-			.expect_err("a read-only known-hosts file cannot record a key");
+			.expect_err("a file cannot be used as the known-hosts parent directory");
 		assert!(error.to_string().contains("Failed to record SSH host key"));
 		Ok(())
 	}
