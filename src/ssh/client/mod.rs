@@ -14,7 +14,7 @@ use core::future::{Future, ready};
 use core::result::Result as CoreResult;
 use russh::Channel;
 use russh::client::{Config, Handle, Handler, Msg, connect as russh_connect};
-use russh::keys::PublicKey;
+use russh::keys::PublicKeyOrCertificate;
 use tokio::net::ToSocketAddrs;
 use tokio::net::lookup_host;
 
@@ -26,7 +26,7 @@ impl Handler for ClientHandler {
 
 	fn check_server_key(
 		&mut self,
-		_server_public_key: &PublicKey,
+		_server_public_key: &PublicKeyOrCertificate,
 	) -> impl Future<Output = CoreResult<bool, Self::Error>> {
 		// TODO(#409): Implement proper host key verification
 		tracing::debug!("skipping server key verification");
