@@ -10,6 +10,7 @@ use crate::Result;
 use alloc::sync::Arc;
 use color_eyre::eyre::{Context as _, Report};
 use core::fmt::Debug;
+use core::future::{Future, ready};
 use core::result::Result as CoreResult;
 use russh::Channel;
 use russh::client::{Config, Handle, Handler, Msg, connect as russh_connect};
@@ -23,13 +24,13 @@ struct ClientHandler;
 impl Handler for ClientHandler {
 	type Error = Report;
 
-	async fn check_server_key(
+	fn check_server_key(
 		&mut self,
 		_server_public_key: &PublicKey,
-	) -> CoreResult<bool, Self::Error> {
+	) -> impl Future<Output = CoreResult<bool, Self::Error>> {
 		// TODO(#409): Implement proper host key verification
 		tracing::debug!("skipping server key verification");
-		Ok(true)
+		ready(Ok(true))
 	}
 }
 
