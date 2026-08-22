@@ -21,19 +21,22 @@ expression: content
 # Default value: "cse.unsw.edu.au"
 #host = "cse.unsw.edu.au"
 
-# Port to connect to on the remote host.
+# Optional port override. If unset, uses OpenSSH config and then port 22.
 #
 # Can also be specified via environment variable `BIWA_SSH_PORT`.
-#
-# Default value: 22
-#port = 22
+#port =
 
-# Username for the SSH connection.
+# Optional username. If unset, uses the matching OpenSSH `User` value.
 #
 # Can also be specified via environment variable `BIWA_SSH_USER`.
+#user =
+
+# Whether to read `~/.ssh/config` when resolving the target.
 #
-# Default value: "z1234567"
-#user = "z1234567"
+# Can also be specified via environment variable `BIWA_SSH_USE_CONFIG`.
+#
+# Default value: true
+#use_ssh_config = true
 
 # Optional path to the SSH private key.
 #

@@ -2,6 +2,7 @@ use crate::Result;
 use crate::config::types::Config;
 use crate::config::types::PasswordConfig;
 use crate::ssh::client::auth::Method;
+use crate::ssh::target::ResolvedSshTarget;
 use color_eyre::eyre::bail;
 use dialoguer::Password;
 use russh::keys::{Error as RusshKeysError, load_secret_key};
@@ -19,9 +20,10 @@ const DEFAULT_KEY_PATHS: &[&str] = &["~/.ssh/id_ed25519", "~/.ssh/id_rsa"];
 /// 2. Explicit password (`ssh.password = "..."` or `ssh.password = true` for prompt)
 /// 3. Default key file discovery (`~/.ssh/id_ed25519`, `~/.ssh/id_rsa`)
 /// 4. SSH agent (fallback if the discovered default key is rejected)
-pub(super) fn resolve_auth(config: &Config) -> Result<Vec<Method>> {
+pub(super) fn resolve_auth(config: &Config, target: &ResolvedSshTarget) -> Result<Vec<Method>> {
 	resolve_auth_with(
 		config,
+		target,
 		resolve_default_key_path(),
 		env::var("SSH_AUTH_SOCK").ok().as_deref(),
 	)
@@ -30,6 +32,7 @@ pub(super) fn resolve_auth(config: &Config) -> Result<Vec<Method>> {
 /// Resolve authentication methods with explicit local authentication state.
 fn resolve_auth_with(
 	config: &Config,
+	target: &ResolvedSshTarget,
 	default_key_path: Option<PathBuf>,
 	auth_sock: Option<&str>,
 ) -> Result<Vec<Method>> {
@@ -53,7 +56,7 @@ fn resolve_auth_with(
 		PasswordConfig::Interactive(true) => {
 			info!("Prompting for password (ssh.password = true)");
 			let password = Password::new()
-				.with_prompt(format!("Password for {}@{}", ssh.user, ssh.host))
+				.with_prompt(format!("Password for {}@{}", target.user, target.hostname))
 				.interact()?;
 			return Ok(vec![Method::with_password(&password)]);
 		}
@@ -149,6 +152,16 @@ mod tests {
 	use serial_test::serial;
 	use std::fs;
 
+	fn target() -> ResolvedSshTarget {
+		ResolvedSshTarget {
+			lookup_host: "example.test".to_owned(),
+			hostname: "example.test".to_owned(),
+			port: 22,
+			user: "alice".to_owned(),
+			identity_files: Vec::new(),
+		}
+	}
+
 	#[test]
 	fn explicit_key_has_no_fallback() -> Result<()> {
 		let dir = tempfile::tempdir()?;
@@ -160,6 +173,7 @@ mod tests {
 
 		let methods = resolve_auth_with(
 			&config,
+			&target(),
 			Some(PathBuf::from("/unused/default/key")),
 			Some("/tmp/fake-agent.sock"),
 		)?;
@@ -173,7 +187,7 @@ mod tests {
 		let mut config = Config::default();
 		config.ssh.key_path = Some(PathBuf::from("/nonexistent/path/key"));
 
-		let result = resolve_auth(&config);
+		let result = resolve_auth(&config, &target());
 		assert!(result.is_err());
 		let err_msg = result.unwrap_err().to_string();
 		assert!(err_msg.contains("not found"), "Error: {err_msg}");
@@ -208,6 +222,7 @@ mod tests {
 
 		let methods = resolve_auth_with(
 			&Config::default(),
+			&target(),
 			Some(key_file),
 			Some("/tmp/fake-agent.sock"),
 		)?;
@@ -225,7 +240,7 @@ mod tests {
 		let key_file = dir.path().join("id_ed25519");
 		fs::write(&key_file, "fake key")?;
 
-		let methods = resolve_auth_with(&Config::default(), Some(key_file), None)?;
+		let methods = resolve_auth_with(&Config::default(), &target(), Some(key_file), None)?;
 
 		assert_matches!(methods.as_slice(), [Method::PrivateKeyFile { .. }]);
 		Ok(())
@@ -236,7 +251,7 @@ mod tests {
 	fn password_config_string() -> Result<()> {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Value("secret".to_owned());
-		let methods = resolve_auth(&config)?;
+		let methods = resolve_auth(&config, &target())?;
 		assert_matches!(methods.as_slice(), [Method::Password(_)]);
 		Ok(())
 	}
@@ -246,7 +261,7 @@ mod tests {
 	fn password_config_false() {
 		let mut config = Config::default();
 		config.ssh.password = PasswordConfig::Interactive(false);
-		let result = resolve_auth(&config);
+		let result = resolve_auth(&config, &target());
 		// Without explicit password, it may fall back to agent or key, or fail
 		// — but it must not use Password auth (password = false means skip password)
 		if let Ok(methods) = result {
