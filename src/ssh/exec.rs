@@ -9,6 +9,7 @@ use crate::env_vars::{
 use crate::ssh::client::Client;
 use crate::ssh::client::auth::AuthenticationFailed;
 use crate::ssh::client::execute::{await_channel_confirmation, exit_status_from_signal};
+use crate::ssh::target::ResolvedSshTarget;
 use crate::ui::create_spinner;
 use bytes::Bytes;
 use color_eyre::eyre::{Context as _, Report, bail};
@@ -78,18 +79,17 @@ struct RunCommandOptions<'a> {
 /// Connect to the SSH server using the resolved authentication method.
 #[expect(clippy::redundant_pub_crate, reason = "Preferred by reviewer")]
 pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
-	let mut auth_methods = resolve_auth(config)?.into_iter();
+	let target = ResolvedSshTarget::resolve(&config.ssh)?;
+	let mut auth_methods = resolve_auth(config, &target)?.into_iter();
 	let mut auth_method = auth_methods
 		.next()
 		.expect("authentication resolution must return at least one method");
-	let ssh = &config.ssh;
-
 	let spinner = if quiet {
 		None
 	} else {
 		Some(create_spinner(format!(
 			"Connecting to {}@{}:{}...",
-			ssh.user, ssh.host, ssh.port
+			target.user, target.hostname, target.port
 		)))
 	};
 
@@ -100,8 +100,8 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 
 	let client = loop {
 		match Client::connect(
-			(ssh.host.as_str(), ssh.port),
-			ssh.user.as_str(),
+			(target.hostname.as_str(), target.port),
+			target.user.as_str(),
 			auth_method.clone(),
 		)
 		.await
@@ -114,7 +114,10 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 					continue;
 				}
 				return Err(e).wrap_err_with(|| {
-					format!("Failed to authenticate as {}@{}", ssh.user, ssh.host)
+					format!(
+						"Failed to authenticate as {}@{}",
+						target.user, target.hostname
+					)
 				});
 			}
 			Err(e) if retries > 0 => {
@@ -132,7 +135,7 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 				return Err(e).wrap_err_with(|| {
 					format!(
 						"Failed to connect to {}@{}:{}",
-						ssh.user, ssh.host, ssh.port
+						target.user, target.hostname, target.port
 					)
 				});
 			}
@@ -140,9 +143,9 @@ pub(crate) async fn connect(config: &Config, quiet: bool) -> Result<Client> {
 	};
 
 	info!(
-		host = %ssh.host,
-		port = ssh.port,
-		user = %ssh.user,
+		host = %target.hostname,
+		port = target.port,
+		user = %target.user,
 		"Connected to SSH server"
 	);
 
