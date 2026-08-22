@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+## [1.1.0](https://github.com/risu729/biwa/compare/v1.0.0...v1.1.0)
+
+### ⛰️ Features
+
+
+- Add usage command effects ([#946](https://github.com/risu729/biwa/pull/946)) - ([2d98f42](https://github.com/risu729/biwa/commit/2d98f42ae12e44b352504396f7cb1d3622981ea4))
+
+### 🐛 Bug Fixes
+
+
+- *(deps)* Update rust crate russh to v0.63.0 ([#1088](https://github.com/risu729/biwa/pull/1088)) - ([6e4196e](https://github.com/risu729/biwa/commit/6e4196e2f203b04db3f1e7ef684addfca1dca848))
+- *(deps)* Update rust crate russh to v0.62.7 ([#1072](https://github.com/risu729/biwa/pull/1072)) - ([8dd030f](https://github.com/risu729/biwa/commit/8dd030f5b61f9a92c5cb52535c3b9b965f26a726))
+- *(deps)* Update rust crate russh to v0.62.6 ([#1040](https://github.com/risu729/biwa/pull/1040)) - ([526eb3a](https://github.com/risu729/biwa/commit/526eb3a70f8c8a8d812750dbc132d991c679a569))
+- *(deps)* Update rust crate clap to v4.6.6 ([#1017](https://github.com/risu729/biwa/pull/1017)) - ([b092c4a](https://github.com/risu729/biwa/commit/b092c4a441f0900931c028bd8436b79b720063c9))
+- *(deps)* Update rust crate globset to v0.4.20 ([#1003](https://github.com/risu729/biwa/pull/1003)) - ([6e133c7](https://github.com/risu729/biwa/commit/6e133c70e123e4d6c9df0d46c5693d0348854608))
+- *(deps)* Update rust crate ignore to v0.4.33 ([#1004](https://github.com/risu729/biwa/pull/1004)) - ([e7712a8](https://github.com/risu729/biwa/commit/e7712a86318969feaabb296d1b898076f489288d))
+- *(deps)* Update rust crate russh-sftp to v2.4.0 ([#996](https://github.com/risu729/biwa/pull/996)) - ([fb07520](https://github.com/risu729/biwa/commit/fb07520cfad8b25133701a2a7acf89fe742624a9))
+- *(deps)* Update rust crate ignore to v0.4.32 ([#994](https://github.com/risu729/biwa/pull/994)) - ([fc05205](https://github.com/risu729/biwa/commit/fc0520508d1425b8b69c64d46f3454b0fc59234a))
+- *(deps)* Update rust crate russh to v0.62.5 ([#977](https://github.com/risu729/biwa/pull/977)) - ([5e30982](https://github.com/risu729/biwa/commit/5e30982f812f9834c0f2d4c898e30ef389e2eead))
+- *(deps)* Update rust crate clap to v4.6.5 ([#975](https://github.com/risu729/biwa/pull/975)) - ([6f0e877](https://github.com/risu729/biwa/commit/6f0e877e10c288f0448579acddf09b71200abbab))
+- *(deps)* Update rust crate usage-lib to v4.1.0 ([#971](https://github.com/risu729/biwa/pull/971)) - ([e6b3dd6](https://github.com/risu729/biwa/commit/e6b3dd60326f450b791009f314b83f8db8c5bce0))
+- *(deps)* Update rust crate toml to v1.1.4 ([#958](https://github.com/risu729/biwa/pull/958)) - ([fff346a](https://github.com/risu729/biwa/commit/fff346a0772a6e31e74adaf4b1665b308116cb95))
+- *(deps)* Update rust crate schemars to v1.2.2 ([#955](https://github.com/risu729/biwa/pull/955)) - ([e04a860](https://github.com/risu729/biwa/commit/e04a860173d9a2e185142a88493bc3d59c52dc34))
+- *(deps)* Update rust crate usage-lib to v4 ([#945](https://github.com/risu729/biwa/pull/945)) - ([2045ce5](https://github.com/risu729/biwa/commit/2045ce5be010fcd78302861895da95855471feb9))
+- *(deps)* Update rust crate usage-lib to v3.6.0 ([#941](https://github.com/risu729/biwa/pull/941)) - ([f90f2da](https://github.com/risu729/biwa/commit/f90f2dad25993fad2a1eab1268cf104be0878695))
+- *(ssh)* Fall back to agent after key rejection ([#952](https://github.com/risu729/biwa/pull/952)) - ([5eabf5f](https://github.com/risu729/biwa/commit/5eabf5fcdcdd29e34e0f8b78cd637d1524598981))
+
+### 🧪 Testing
+
+
+- *(cli)* Verify generated usage artifact freshness ([#935](https://github.com/risu729/biwa/pull/935)) - ([a75ca99](https://github.com/risu729/biwa/commit/a75ca9901d730a5350173dd28f127a48ad3d7d5c))
+- *(sync)* Cover pull file-directory replacements ([#934](https://github.com/risu729/biwa/pull/934)) - ([da17e35](https://github.com/risu729/biwa/commit/da17e353bb30cbe27f4133f990513ce6ac9e1898))
+- *(sync)* Cover push file-directory replacements ([#936](https://github.com/risu729/biwa/pull/936)) - ([2cd9a7c](https://github.com/risu729/biwa/commit/2cd9a7cc854fb015b0b246aff8ccd316fe24b1d6))
+
+### 🧹 Chore
+
+
+- *(deps)* Update dependency rust to v1.98.0 ([#1083](https://github.com/risu729/biwa/pull/1083)) - ([5dcce86](https://github.com/risu729/biwa/commit/5dcce86700791ccff61f2dbb03389ddbe4069e16))
+- *(deps)* Lock file maintenance ([#1069](https://github.com/risu729/biwa/pull/1069)) - ([2af467d](https://github.com/risu729/biwa/commit/2af467db2368554e1c9e53975dd28e85195d36ec))
+- *(deps)* Lock file maintenance ([#1029](https://github.com/risu729/biwa/pull/1029)) - ([e846d9f](https://github.com/risu729/biwa/commit/e846d9f6ab31d0c92878bbe5c4f14751e899661a))
+- *(deps)* Update rust crate ctor to v1.0.13 ([#1028](https://github.com/risu729/biwa/pull/1028)) - ([f93594a](https://github.com/risu729/biwa/commit/f93594aaf8fc0919ce47a508740f23e00a0783cc))
+- *(deps)* Lock file maintenance ([#990](https://github.com/risu729/biwa/pull/990)) - ([e7e9221](https://github.com/risu729/biwa/commit/e7e9221df976f0b18df5a3a09137a0b6dbbbbd2b))
+- *(deps)* Update rust crate ctor to v1.0.12 ([#965](https://github.com/risu729/biwa/pull/965)) - ([c317be8](https://github.com/risu729/biwa/commit/c317be8bc059cdf3c6e70649e3926ab2514fdd6b))
+- *(deps)* Lock file maintenance ([#953](https://github.com/risu729/biwa/pull/953)) - ([91e5b44](https://github.com/risu729/biwa/commit/91e5b447d79e7f9ab4217c3a881ceaf9d3d52270))
+- *(deps)* Update rust crate ctor to v1.0.11 ([#948](https://github.com/risu729/biwa/pull/948)) - ([d258fd7](https://github.com/risu729/biwa/commit/d258fd74227a01dc76b2a3d5df024469be78a447))
+- *(deps)* Update rust crate serial_test to v4 ([#942](https://github.com/risu729/biwa/pull/942)) - ([59c2b33](https://github.com/risu729/biwa/commit/59c2b3309034b3b324a388f64444f6106c56fa1c))
+
+
 ## [1.0.0](https://github.com/risu729/biwa/compare/v0.1.0...v1.0.0)
 
 ### ⛰️ Features
