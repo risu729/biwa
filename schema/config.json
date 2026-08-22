@@ -42,7 +42,9 @@
       "$ref": "#/$defs/SshConfig",
       "default": {
         "host": "cse.unsw.edu.au",
+        "host_key_checking": "strict",
         "key_path": null,
+        "known_hosts": null,
         "password": false,
         "port": null,
         "umask": "077",
@@ -253,6 +255,26 @@
         }
       }
     },
+    "HostKeyChecking": {
+      "description": "Policy for verifying an SSH server's host key.",
+      "oneOf": [
+        {
+          "description": "Require an existing matching entry in the known-hosts file.",
+          "type": "string",
+          "const": "strict"
+        },
+        {
+          "description": "Record an unknown host key, but reject changed keys.",
+          "type": "string",
+          "const": "accept-new"
+        },
+        {
+          "description": "Accept every host key. Intended only for isolated tests and debugging.",
+          "type": "string",
+          "const": "insecure"
+        }
+      ]
+    },
     "HumanDuration": {
       "type": "string"
     },
@@ -293,8 +315,20 @@
           "type": "string",
           "default": "cse.unsw.edu.au"
         },
+        "host_key_checking": {
+          "description": "Policy for verifying the SSH server's host key.",
+          "$ref": "#/$defs/HostKeyChecking",
+          "default": "strict"
+        },
         "key_path": {
           "description": "Optional path to the SSH private key.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "known_hosts": {
+          "description": "Optional known-hosts file override.",
           "type": [
             "string",
             "null"
