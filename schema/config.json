@@ -41,11 +41,11 @@
       "description": "SSH connection configuration.",
       "$ref": "#/$defs/SshConfig",
       "default": {
+        "auth": "public-key",
         "host": "cse.unsw.edu.au",
         "host_key_checking": "strict",
         "key_path": null,
         "known_hosts": null,
-        "password": false,
         "port": null,
         "umask": "077",
         "use_ssh_config": true,
@@ -81,6 +81,21 @@
     }
   },
   "$defs": {
+    "AuthMode": {
+      "description": "Authentication mode requested for the SSH connection.",
+      "oneOf": [
+        {
+          "description": "Discover and use public keys without falling back to passwords.",
+          "type": "string",
+          "const": "public-key"
+        },
+        {
+          "description": "Use password authentication only.",
+          "type": "string",
+          "const": "password"
+        }
+      ]
+    },
     "CleanConfig": {
       "description": "Cleanup configuration for stale remote directories.",
       "type": "object",
@@ -278,19 +293,6 @@
     "HumanDuration": {
       "type": "string"
     },
-    "PasswordConfig": {
-      "description": "Password authentication configuration.\n\n- `false` (default): No password authentication.\n- `true`: Interactively prompt for a password.\n- `\"string\"`: Use the provided password value.",
-      "anyOf": [
-        {
-          "description": "Interactive prompt (`true`) or disabled (`false`).",
-          "type": "boolean"
-        },
-        {
-          "description": "A literal password value.",
-          "type": "string"
-        }
-      ]
-    },
     "SftpPermissions": {
       "description": "Strategy for enforcing file permissions during SFTP upload.",
       "oneOf": [
@@ -310,6 +312,11 @@
       "description": "SSH connection settings.",
       "type": "object",
       "properties": {
+        "auth": {
+          "description": "Authentication mode. Password authentication must be selected explicitly.",
+          "$ref": "#/$defs/AuthMode",
+          "default": "public-key"
+        },
         "host": {
           "description": "Hostname or IP address of the remote host.",
           "type": "string",
@@ -333,11 +340,6 @@
             "string",
             "null"
           ]
-        },
-        "password": {
-          "description": "Password authentication: `false` (default), `true` (prompt), or a string value.",
-          "$ref": "#/$defs/PasswordConfig",
-          "default": false
         },
         "port": {
           "description": "Optional port override. If unset, uses OpenSSH config and then port 22.",

@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::cli::transfer::TransferArgs;
 use crate::cli::usage::CommandEffects;
-use crate::config::types::{Config, PasswordConfig};
+use crate::config::types::{AuthMode, Config};
 use crate::duration::HumanDuration;
 use crate::ssh::clean::{
 	QuotaUsage, RemoteDirEntry, check_quota, list_remote_dir_entries, list_remote_dirs,
@@ -565,11 +565,12 @@ fn join_remote_child(remote_root: &str, child: &str) -> String {
 ///
 /// The child process is fully detached (new session, stdio to /dev/null) so it
 /// survives the parent exiting.
-pub fn spawn_background_cleanup(config: &Config) -> Result<()> {
-	if matches!(config.ssh.password, PasswordConfig::Interactive(true)) {
-		warn!(
-			"Skipping background auto-cleanup: ssh.password is interactive-only; use a string password, SSH key, or agent authentication"
-		);
+pub fn spawn_background_cleanup(
+	config: &Config,
+	authentication_reusable_noninteractively: bool,
+) -> Result<()> {
+	if let Some(reason) = background_cleanup_skip_reason(authentication_reusable_noninteractively) {
+		warn!("Skipping background auto-cleanup: {reason}");
 		return Ok(());
 	}
 
@@ -612,6 +613,17 @@ pub fn spawn_background_cleanup(config: &Config) -> Result<()> {
 	Ok(())
 }
 
+/// Explains why detached cleanup cannot reuse the successful foreground credential.
+const fn background_cleanup_skip_reason(
+	authentication_reusable_noninteractively: bool,
+) -> Option<&'static str> {
+	if authentication_reusable_noninteractively {
+		None
+	} else {
+		Some("the successful SSH credential requires terminal input")
+	}
+}
+
 /// Applies resolved config values needed by the detached cleanup process.
 fn configure_daemon_env(cmd: &mut Command, config: &Config, state_dir: &Path) {
 	cmd.env("BIWA_SSH_HOST", &config.ssh.host);
@@ -622,6 +634,11 @@ fn configure_daemon_env(cmd: &mut Command, config: &Config, state_dir: &Path) {
 		cmd.env("BIWA_SSH_USER", user);
 	}
 	cmd.env("BIWA_SSH_USE_CONFIG", config.ssh.use_ssh_config.to_string());
+	cmd.env("BIWA_SSH_AUTH", config.ssh.auth.as_str());
+	cmd.env(
+		"BIWA_SSH_HOST_KEY_CHECKING",
+		config.ssh.host_key_checking.as_str(),
+	);
 	cmd.env("BIWA_SSH_UMASK", config.ssh.umask.to_string());
 	cmd.env("BIWA_SYNC_REMOTE_ROOT", &config.sync.remote_root);
 	cmd.env("BIWA_STATE_DIR", state_dir);
@@ -629,26 +646,26 @@ fn configure_daemon_env(cmd: &mut Command, config: &Config, state_dir: &Path) {
 	if let Some(key_path) = &config.ssh.key_path {
 		cmd.env("BIWA_SSH_KEY_PATH", key_path);
 	}
-
-	match &config.ssh.password {
-		PasswordConfig::Value(password) => {
+	if let Some(known_hosts) = &config.ssh.known_hosts {
+		cmd.env("BIWA_SSH_KNOWN_HOSTS", known_hosts);
+	}
+	if config.ssh.auth == AuthMode::Password {
+		if let Some(password) = env::var_os("BIWA_SSH_PASSWORD") {
 			cmd.env("BIWA_SSH_PASSWORD", password);
 		}
-		PasswordConfig::Interactive(false) => {
-			cmd.env("BIWA_SSH_PASSWORD", "false");
-		}
-		PasswordConfig::Interactive(true) => {}
+	} else {
+		cmd.env_remove("BIWA_SSH_PASSWORD");
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::{
-		CleanTarget, clean_target, collect_tracked_default_dirs, configure_daemon_env,
-		join_remote_child, purge_cleanup_paths, remote_dir_is_older_than,
+		CleanTarget, background_cleanup_skip_reason, clean_target, collect_tracked_default_dirs,
+		configure_daemon_env, join_remote_child, purge_cleanup_paths, remote_dir_is_older_than,
 		resolve_current_project_root, state_dir_from_env_or_default,
 	};
-	use crate::config::types::{Config, PasswordConfig};
+	use crate::config::types::{AuthMode, Config};
 	use crate::ssh::clean::RemoteDirEntry;
 	use crate::ssh::target::ResolvedSshTarget;
 	use crate::state::{Connection, State};
@@ -657,6 +674,7 @@ mod tests {
 	use chrono::Utc;
 	use core::time::Duration;
 	use pretty_assertions::assert_eq;
+	use serial_test::serial;
 	use std::collections::HashSet;
 	use std::ffi::OsStr;
 	use std::path::{Path, PathBuf};
@@ -716,6 +734,15 @@ mod tests {
 	#[test]
 	fn clean_target_purge_wins_over_all() {
 		assert_eq!(clean_target(false, true, true), CleanTarget::Purge);
+	}
+
+	#[test]
+	fn background_cleanup_skips_prompt_dependent_authentication() {
+		assert_eq!(
+			background_cleanup_skip_reason(false),
+			Some("the successful SSH credential requires terminal input")
+		);
+		assert_eq!(background_cleanup_skip_reason(true), None);
 	}
 
 	#[test]
@@ -816,14 +843,16 @@ mod tests {
 		);
 	}
 
+	#[serial]
 	#[test]
-	fn configure_daemon_env_uses_resolved_config_values() {
+	fn configure_daemon_env_forwards_password_mode_values() {
+		let _password = EnvCleanup::set("BIWA_SSH_PASSWORD", "secret");
 		let mut config = Config::default();
 		config.ssh.host = "example.test".to_owned();
 		config.ssh.port = Some(2222);
 		config.ssh.user = Some("alice".to_owned());
-		config.ssh.key_path = Some(PathBuf::from("/tmp/key"));
-		config.ssh.password = PasswordConfig::Value("secret".to_owned());
+		config.ssh.known_hosts = Some(PathBuf::from("/tmp/known_hosts"));
+		config.ssh.auth = AuthMode::Password;
 		config.sync.remote_root = PathBuf::from("~/remote");
 
 		let mut cmd = Command::new("biwa");
@@ -848,12 +877,16 @@ mod tests {
 		assert_eq!(envs.get("BIWA_SSH_PORT").map(String::as_str), Some("2222"));
 		assert_eq!(envs.get("BIWA_SSH_USER").map(String::as_str), Some("alice"));
 		assert_eq!(
+			envs.get("BIWA_SSH_AUTH").map(String::as_str),
+			Some("password")
+		);
+		assert_eq!(
 			envs.get("BIWA_SSH_PASSWORD").map(String::as_str),
 			Some("secret")
 		);
 		assert_eq!(
-			envs.get("BIWA_SSH_KEY_PATH").map(String::as_str),
-			Some("/tmp/key")
+			envs.get("BIWA_SSH_KNOWN_HOSTS").map(String::as_str),
+			Some("/tmp/known_hosts")
 		);
 		assert_eq!(
 			envs.get("BIWA_SYNC_REMOTE_ROOT").map(String::as_str),
@@ -863,6 +896,28 @@ mod tests {
 			envs.get("BIWA_STATE_DIR").map(String::as_str),
 			Some("/tmp/state")
 		);
+	}
+
+	#[serial]
+	#[test]
+	fn configure_daemon_env_removes_password_in_public_key_mode() {
+		let _password = EnvCleanup::set("BIWA_SSH_PASSWORD", "must-not-be-forwarded");
+		let mut config = Config::default();
+		config.ssh.key_path = Some(PathBuf::from("/tmp/key"));
+
+		let mut cmd = Command::new("biwa");
+		configure_daemon_env(&mut cmd, &config, Path::new("/tmp/state"));
+		let envs = cmd
+			.get_envs()
+			.map(|(key, value)| (key.to_string_lossy().into_owned(), value))
+			.collect::<BTreeMap<_, _>>();
+
+		assert_eq!(
+			envs.get("BIWA_SSH_KEY_PATH").and_then(|value| *value),
+			Some(OsStr::new("/tmp/key"))
+		);
+		assert!(envs.contains_key("BIWA_SSH_PASSWORD"));
+		assert_eq!(envs.get("BIWA_SSH_PASSWORD").and_then(|value| *value), None);
 	}
 
 	#[test]

@@ -22,11 +22,11 @@ expression: content
     "pre_sync": null
   },
   "ssh": {
+    "auth": "public-key",
     "host": "cse.unsw.edu.au",
     "host_key_checking": "strict",
     "key_path": null,
     "known_hosts": null,
-    "password": false,
     "port": null,
     "umask": "077",
     "use_ssh_config": true,

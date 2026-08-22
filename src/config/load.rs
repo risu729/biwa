@@ -167,6 +167,7 @@ impl Config {
 		config_root: &Path,
 	) -> Result<<Self as confique::Config>::Layer> {
 		let content = fs::read_to_string(path).wrap_err("Failed to read config file")?;
+		reject_removed_ssh_password(&content, format)?;
 		let mut partial: <Self as confique::Config>::Layer = match format {
 			ConfigFormat::Toml => toml::from_str(&content).wrap_err("Failed to parse TOML")?,
 			ConfigFormat::Yaml => {
@@ -276,6 +277,27 @@ impl Config {
 			}
 		}
 	}
+}
+
+/// Rejects the removed file-based password field before Serde can ignore it as unknown input.
+fn reject_removed_ssh_password(content: &str, format: ConfigFormat) -> Result<()> {
+	let value = match format {
+		ConfigFormat::Toml => serde_json::to_value(
+			toml::from_str::<toml::Value>(content).wrap_err("Failed to parse TOML")?,
+		)?,
+		ConfigFormat::Yaml => serde_json::to_value(
+			serde_yaml::from_str::<serde_yaml::Value>(content).wrap_err("Failed to parse YAML")?,
+		)?,
+		ConfigFormat::Json | ConfigFormat::Json5 => {
+			json5::from_str::<serde_json::Value>(content).wrap_err("Failed to parse JSON")?
+		}
+	};
+	if value.pointer("/ssh/password").is_some() {
+		bail!(
+			"ssh.password was removed. Set ssh.auth = \"password\" and provide the secret through BIWA_SSH_PASSWORD, or omit auth to use public-key authentication"
+		);
+	}
+	Ok(())
 }
 
 impl RequiredConfigPresence {
@@ -446,7 +468,7 @@ mod tests {
 		    "key_path": null,
 		    "host_key_checking": "strict",
 		    "known_hosts": null,
-		    "password": false,
+		    "auth": "public-key",
 		    "umask": "077"
 		  },
 		  "sync": {
@@ -1372,6 +1394,20 @@ user = "user"
 			err.contains("Failed to parse TOML"),
 			"Error string mismatch: {err}"
 		);
+		Ok(())
+	}
+
+	#[test]
+	fn removed_ssh_password_has_migration_error() -> Result<()> {
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(&path, "[ssh]\nhost = 'example.test'\npassword = true\n")?;
+		let Err(error) = Config::load_partial(&path, ConfigFormat::Toml, dir.path()) else {
+			bail!("removed password field must not be ignored")
+		};
+		let message = error.to_string();
+		assert!(message.contains("ssh.password was removed"));
+		assert!(message.contains("BIWA_SSH_PASSWORD"));
 		Ok(())
 	}
 

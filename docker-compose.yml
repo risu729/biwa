@@ -7,6 +7,7 @@ services:
       - USER_NAME=testuser
       - USER_PASSWORD=password123
       - PASSWORD_ACCESS=true
+      - PUBLIC_KEY=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqfEeyNrOxuH87ZVirsvRm72W3vrW3qJKbBqjsoKn3Z biwa-e2e
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "2222"]
       interval: 1s
@@ -22,6 +23,7 @@ services:
       - USER_NAME=testuser
       - USER_PASSWORD=password123
       - PASSWORD_ACCESS=true
+      - PUBLIC_KEY=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqfEeyNrOxuH87ZVirsvRm72W3vrW3qJKbBqjsoKn3Z biwa-e2e
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "2222"]
       interval: 1s
