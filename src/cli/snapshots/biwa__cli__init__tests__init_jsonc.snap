@@ -41,6 +41,18 @@ expression: content
     // Can also be specified via environment variable `BIWA_SSH_KEY_PATH`.
     //"key_path": ,
 
+    // Policy for verifying the SSH server's host key.
+    //
+    // Can also be specified via environment variable `BIWA_SSH_HOST_KEY_CHECKING`.
+    //
+    // Default value: "strict"
+    //"host_key_checking": "strict",
+
+    // Optional known-hosts file override.
+    //
+    // Can also be specified via environment variable `BIWA_SSH_KNOWN_HOSTS`.
+    //"known_hosts": ,
+
     // Password authentication: `false` (default), `true` (prompt), or a string value.
     //
     // Can also be specified via environment variable `BIWA_SSH_PASSWORD`.

@@ -1119,6 +1119,8 @@ fn run_pull_signal_during_commit(signal: Signal) -> Result<()> {
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
+		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
+		.env("BIWA_SSH_KNOWN_HOSTS", common::test_known_hosts_path())
 		.env("BIWA_SYNC_REMOTE_ROOT", "~/.cache/biwa/projects")
 		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", FILE_COUNT.to_string())
 		.env("BIWA_CLEAN_AUTO", "false")

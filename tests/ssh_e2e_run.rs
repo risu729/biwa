@@ -8,7 +8,9 @@ use std::io::{BufRead as _, BufReader, Read as _};
 use core::time::Duration;
 mod common;
 use color_eyre::eyre::{WrapErr as _, eyre};
-use common::{Result, biwa_cmd, biwa_cmd_capable, biwa_program_cmd, ssh_port};
+use common::{
+	Result, biwa_cmd, biwa_cmd_capable, biwa_program_cmd, ssh_port, test_known_hosts_path,
+};
 use rstest::rstest;
 use std::{
 	env,
@@ -36,8 +38,21 @@ fn biwa_process(args: &[&str]) -> Command {
 		.env("BIWA_SSH_HOST", "127.0.0.1")
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
-		.env("BIWA_SSH_PASSWORD", "password123");
+		.env("BIWA_SSH_PASSWORD", "password123")
+		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
+		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path());
 	command
+}
+
+fn biwa_host_key_cmd(args: &[&str], checking: &str, known_hosts: &Path) -> duct::Expression {
+	duct::cmd(env!("CARGO_BIN_EXE_biwa"), args)
+		.env("BIWA_SSH_HOST", "127.0.0.1")
+		.env("BIWA_SSH_PORT", ssh_port())
+		.env("BIWA_SSH_USER", "testuser")
+		.env("BIWA_SSH_PASSWORD", "password123")
+		.env("BIWA_SSH_HOST_KEY_CHECKING", checking)
+		.env("BIWA_SSH_KNOWN_HOSTS", known_hosts)
+		.env("BIWA_CLEAN_AUTO", "false")
 }
 
 const SIGINT_REMOTE_SCRIPT: &str =
@@ -125,6 +140,8 @@ sys.exit(0)
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
+		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
+		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())
 		.output()?;
 
 	assert!(
@@ -154,6 +171,75 @@ fn e2e_run_command() -> Result<()> {
 
 	assert!(output.status.success());
 	assert!(stdout.contains("hello e2e from biwa"));
+	Ok(())
+}
+
+#[test]
+fn e2e_accept_new_then_strict_host_key_checking() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let known_hosts = dir.path().join("known_hosts");
+
+	let first = biwa_host_key_cmd(&["run", "--skip-sync", "true"], "accept-new", &known_hosts)
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		first.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&first.stderr)
+	);
+	assert!(known_hosts.is_file());
+
+	let strict = biwa_host_key_cmd(&["run", "--skip-sync", "true"], "strict", &known_hosts)
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		strict.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&strict.stderr)
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_strict_rejects_unknown_host_key() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let output = biwa_host_key_cmd(
+		&["run", "--skip-sync", "true"],
+		"strict",
+		&dir.path().join("known_hosts"),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("Unknown SSH host key"), "stderr: {stderr}");
+	Ok(())
+}
+
+#[test]
+fn e2e_insecure_accepts_without_learning_host_key() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let known_hosts = dir.path().join("known_hosts");
+	let output = biwa_host_key_cmd(&["run", "--skip-sync", "true"], "insecure", &known_hosts)
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(!known_hosts.exists());
+	assert!(
+		stdout.contains("SSH host key verification is disabled"),
+		"stdout: {stdout}"
+	);
 	Ok(())
 }
 
@@ -697,6 +783,8 @@ sys.exit(proc.returncode)
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
+		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
+		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())
 		.output()?;
 
 	assert!(
@@ -762,6 +850,8 @@ sys.exit(0)
 		.env("BIWA_SSH_PORT", ssh_port())
 		.env("BIWA_SSH_USER", "testuser")
 		.env("BIWA_SSH_PASSWORD", "password123")
+		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
+		.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())
 		.output()?;
 
 	assert!(
