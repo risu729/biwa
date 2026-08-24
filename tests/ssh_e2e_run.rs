@@ -223,6 +223,27 @@ fn e2e_strict_rejects_unknown_host_key() -> Result<()> {
 }
 
 #[test]
+fn e2e_insecure_accepts_without_learning_host_key() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let known_hosts = dir.path().join("known_hosts");
+	let output = biwa_host_key_cmd(&["run", "--skip-sync", "true"], "insecure", &known_hosts)
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(!known_hosts.exists());
+	assert!(
+		stdout.contains("SSH host key verification is disabled"),
+		"stdout: {stdout}"
+	);
+	Ok(())
+}
+
+#[test]
 fn e2e_run_pull_round_trip_applies_remote_results() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("input.txt"), "local")?;

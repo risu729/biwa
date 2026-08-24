@@ -182,10 +182,7 @@ struct ClientHandler {
 
 impl ClientHandler {
 	/// Verifies a server key using the configured host-key policy.
-	fn verify_server_key(
-		&mut self,
-		server_key: &PublicKeyOrCertificate,
-	) -> CoreResult<bool, Report> {
+	fn verify_server_key(&self, server_key: &PublicKeyOrCertificate) -> CoreResult<bool, Report> {
 		if self.verification.checking == HostKeyChecking::Insecure {
 			if !INSECURE_WARNING_EMITTED.swap(true, Ordering::Relaxed) {
 				tracing::warn!(
@@ -297,7 +294,7 @@ fn host_patterns_match(patterns: &HostPatterns, host: &str) -> bool {
 	clippy::indexing_slicing,
 	reason = "each index operation is guarded by explicit monotonic length checks"
 )]
-fn wildcard_match(pattern: &str, value: &str) -> bool {
+const fn wildcard_match(pattern: &str, value: &str) -> bool {
 	let pattern = pattern.as_bytes();
 	let value = value.as_bytes();
 	let (mut pattern_index, mut value_index) = (0, 0);
@@ -328,6 +325,7 @@ fn wildcard_match(pattern: &str, value: &str) -> bool {
 	}
 	pattern_index == pattern.len()
 }
+
 /// An SSH client.
 #[derive(Clone)]
 pub struct Client {
@@ -427,6 +425,11 @@ mod tests {
 		PublicKey::from_openssh(value).expect("static public key is valid")
 	}
 
+	/// Parses a static test key as the identity passed to the Russh handler.
+	fn server_key(value: &str) -> PublicKeyOrCertificate {
+		key(value).into()
+	}
+
 	/// Creates a handler backed by an isolated known-hosts file.
 	fn handler(path: PathBuf, checking: HostKeyChecking, port: u16) -> ClientHandler {
 		ClientHandler {
@@ -445,7 +448,7 @@ mod tests {
 		let path = dir.path().join("known_hosts");
 		learn_known_hosts_path("example.test", 22, &key(KEY_ONE), &path)?;
 		let accepted = handler(path, HostKeyChecking::Strict, 22)
-			.check_server_key(&key(KEY_ONE))
+			.check_server_key(&server_key(KEY_ONE))
 			.await?;
 		assert!(accepted);
 		Ok(())
@@ -455,7 +458,7 @@ mod tests {
 	async fn strict_rejects_unknown_key() -> Result<()> {
 		let dir = tempdir()?;
 		let error = handler(dir.path().join("known_hosts"), HostKeyChecking::Strict, 22)
-			.check_server_key(&key(KEY_ONE))
+			.check_server_key(&server_key(KEY_ONE))
 			.await
 			.expect_err("strict mode rejects an unknown key");
 		assert!(error.to_string().contains("Unknown SSH host key"));
@@ -468,7 +471,7 @@ mod tests {
 		let path = dir.path().join("known_hosts");
 		learn_known_hosts_path("example.test", 22, &key(KEY_ONE), &path)?;
 		let error = handler(path, HostKeyChecking::AcceptNew, 22)
-			.check_server_key(&key(KEY_TWO))
+			.check_server_key(&server_key(KEY_TWO))
 			.await
 			.expect_err("accept-new must reject a changed key");
 		assert!(error.to_string().contains("changed"));
@@ -483,7 +486,7 @@ mod tests {
 		fs::write(&path, &contents)?;
 
 		let error = handler(path.clone(), HostKeyChecking::AcceptNew, 22)
-			.check_server_key(&key(KEY_ONE))
+			.check_server_key(&server_key(KEY_ONE))
 			.await
 			.expect_err("accept-new must not relearn a revoked key");
 
@@ -504,7 +507,7 @@ mod tests {
 		)?;
 
 		let error = handler(path, HostKeyChecking::AcceptNew, 2222)
-			.check_server_key(&key(KEY_ONE))
+			.check_server_key(&server_key(KEY_ONE))
 			.await
 			.expect_err("hashed host-and-port entries must retain revoked semantics");
 
@@ -531,7 +534,7 @@ mod tests {
 		fs::write(&path, format!("@revoked other.example.test {KEY_ONE}\n"))?;
 
 		let accepted = handler(path.clone(), HostKeyChecking::AcceptNew, 22)
-			.check_server_key(&key(KEY_ONE))
+			.check_server_key(&server_key(KEY_ONE))
 			.await?;
 
 		assert!(accepted);
@@ -549,7 +552,7 @@ mod tests {
 		let dir = tempdir()?;
 		let path = dir.path().join("nested/known_hosts");
 		let accepted = handler(path.clone(), HostKeyChecking::AcceptNew, 2222)
-			.check_server_key(&key(KEY_ONE))
+			.check_server_key(&server_key(KEY_ONE))
 			.await?;
 		assert!(accepted);
 		let contents = fs::read_to_string(&path)?;
@@ -574,7 +577,7 @@ mod tests {
 			HostKeyChecking::Insecure,
 			22,
 		)
-		.check_server_key(&key(KEY_ONE))
+		.check_server_key(&server_key(KEY_ONE))
 		.await?;
 
 		assert!(accepted);
@@ -589,7 +592,7 @@ mod tests {
 		let path = parent.join("known_hosts");
 
 		let error = handler(path, HostKeyChecking::AcceptNew, 22)
-			.check_server_key(&key(KEY_ONE))
+			.check_server_key(&server_key(KEY_ONE))
 			.await
 			.expect_err("a file cannot be used as the known-hosts parent directory");
 		assert!(error.to_string().contains("Failed to record SSH host key"));
@@ -603,7 +606,7 @@ mod tests {
 		fs::create_dir_all(&path)?;
 
 		let error = handler(path, HostKeyChecking::Strict, 22)
-			.check_server_key(&key(KEY_ONE))
+			.check_server_key(&server_key(KEY_ONE))
 			.await
 			.expect_err("a directory cannot be parsed as known-hosts data");
 		assert!(error.to_string().contains("Failed to verify SSH host key"));
