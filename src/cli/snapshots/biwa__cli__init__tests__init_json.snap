@@ -25,9 +25,10 @@ expression: content
     "host": "cse.unsw.edu.au",
     "key_path": null,
     "password": false,
-    "port": 22,
+    "port": null,
     "umask": "077",
-    "user": "z1234567"
+    "use_ssh_config": true,
+    "user": null
   },
   "state_dir": null,
   "sync": {

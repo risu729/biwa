@@ -13,6 +13,7 @@ use crate::ssh::sync::{
 	compute_client_host_hash, compute_project_remote_dir, is_biwa_remote_dir,
 	is_default_biwa_remote_dir,
 };
+use crate::ssh::target::ResolvedSshTarget;
 use crate::state::{
 	Connection, State, default_state_dir, is_daemon_running, kill_daemon, load_state,
 	remove_connections_for_target, remove_pid_file, stale_connections, write_pid_file,
@@ -213,6 +214,7 @@ async fn remove_remote_dirs_bounded(
 
 /// Clean current project's remote directory.
 async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<()> {
+	let target = ResolvedSshTarget::resolve(&config.ssh)?;
 	let sync_root = resolve_current_project_root(config)?;
 	let remote_dir = compute_project_remote_dir(config, &sync_root)?;
 
@@ -226,9 +228,9 @@ async fn run_current_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Res
 	let state_dir = config.resolved_state_dir();
 	remove_connections_for_target(
 		&state_dir,
-		&config.ssh.host,
-		&config.ssh.user,
-		config.ssh.port,
+		&target.hostname,
+		&target.user,
+		target.port,
 		&[remote_dir.as_str()],
 	)?;
 
@@ -248,6 +250,7 @@ fn resolve_current_project_root(config: &Config) -> Result<PathBuf> {
 
 /// Clean all this client's tracked remote directories.
 async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<()> {
+	let target = ResolvedSshTarget::resolve(&config.ssh)?;
 	let state_dir = config.resolved_state_dir();
 	let state = load_state(&state_dir)?;
 	let host_hash = compute_client_host_hash();
@@ -257,8 +260,11 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 	let matching: Vec<_> = state
 		.connections
 		.iter()
-		.filter(|c| {
-			c.host == config.ssh.host && c.user == config.ssh.user && c.port == config.ssh.port
+		.filter(|connection| {
+			let host_matches = connection.host == target.hostname;
+			let user_matches = connection.user == target.user;
+			let port_matches = connection.port == target.port;
+			host_matches && user_matches && port_matches
 		})
 		.filter(|c| is_default_biwa_remote_dir(&c.remote_dir, remote_root, &host_hash))
 		.collect();
@@ -291,9 +297,9 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections_for_target(
 		&state_dir,
-		&config.ssh.host,
-		&config.ssh.user,
-		config.ssh.port,
+		&target.hostname,
+		&target.user,
+		target.port,
 		&dir_refs,
 	)?;
 
@@ -315,6 +321,7 @@ async fn run_all_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<
 
 /// Clean ALL biwa directories under `remote_root` (including other clients).
 async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Result<()> {
+	let target = ResolvedSshTarget::resolve(&config.ssh)?;
 	let client = connect(config, quiet).await?;
 	let remote_root = config.sync.remote_root.to_string_lossy().into_owned();
 	let dirs = list_remote_dirs(&client, &remote_root).await?;
@@ -343,9 +350,9 @@ async fn run_purge_cleanup(config: &Config, dry_run: bool, quiet: bool) -> Resul
 	let state_dir = config.resolved_state_dir();
 	remove_connections_for_target(
 		&state_dir,
-		&config.ssh.host,
-		&config.ssh.user,
-		config.ssh.port,
+		&target.hostname,
+		&target.user,
+		target.port,
 		&dir_refs,
 	)?;
 
@@ -377,6 +384,7 @@ fn purge_cleanup_paths(remote_root: &Path, dirs: &[String]) -> Vec<String> {
 
 /// Automatic background cleanup driven by quota thresholds.
 async fn run_auto_cleanup(config: &Config, state_dir: &Path) -> Result<()> {
+	let target = ResolvedSshTarget::resolve(&config.ssh)?;
 	// Ensure only one daemon runs at a time.
 	let already_running = write_pid_file(state_dir)?;
 	if already_running {
@@ -403,7 +411,7 @@ async fn run_auto_cleanup(config: &Config, state_dir: &Path) -> Result<()> {
 	};
 
 	let to_remove =
-		auto_cleanup_candidates(&client, config, &state, max_age, remote_root, &host_hash).await?;
+		auto_cleanup_candidates(&client, &target, &state, max_age, remote_root, &host_hash).await?;
 
 	if to_remove.is_empty() {
 		debug!("No stale directories to clean");
@@ -426,9 +434,9 @@ async fn run_auto_cleanup(config: &Config, state_dir: &Path) -> Result<()> {
 	let dir_refs: Vec<&str> = succeeded.iter().map(String::as_str).collect();
 	remove_connections_for_target(
 		state_dir,
-		&config.ssh.host,
-		&config.ssh.user,
-		config.ssh.port,
+		&target.hostname,
+		&target.user,
+		target.port,
 		&dir_refs,
 	)?;
 
@@ -468,16 +476,16 @@ fn applicable_cleanup_threshold(
 /// Collects tracked stale dirs and safe orphan dirs for automatic cleanup.
 async fn auto_cleanup_candidates(
 	client: &Client,
-	config: &Config,
+	target: &ResolvedSshTarget,
 	state: &State,
 	max_age: Duration,
 	remote_root: &Path,
 	host_hash: &str,
 ) -> Result<HashSet<String>> {
-	let tracked_default_dirs = collect_tracked_default_dirs(config, state, remote_root, host_hash);
+	let tracked_default_dirs = collect_tracked_default_dirs(target, state, remote_root, host_hash);
 	let mut to_remove: HashSet<String> = stale_connections(state, max_age)
 		.into_iter()
-		.filter(|connection| default_target_connection(config, connection, remote_root, host_hash))
+		.filter(|connection| default_target_connection(target, connection, remote_root, host_hash))
 		.map(|connection| connection.remote_dir.clone())
 		.collect();
 
@@ -517,7 +525,7 @@ fn remote_dir_is_older_than(
 
 /// Returns tracked default-layout dirs for the current SSH target.
 fn collect_tracked_default_dirs(
-	config: &Config,
+	target: &ResolvedSshTarget,
 	state: &State,
 	remote_root: &Path,
 	host_hash: &str,
@@ -525,22 +533,23 @@ fn collect_tracked_default_dirs(
 	state
 		.connections
 		.iter()
-		.filter(|connection| default_target_connection(config, connection, remote_root, host_hash))
+		.filter(|connection| default_target_connection(target, connection, remote_root, host_hash))
 		.map(|connection| connection.remote_dir.clone())
 		.collect()
 }
 
 /// Returns whether a state connection belongs to this target and default biwa layout.
 fn default_target_connection(
-	config: &Config,
+	target: &ResolvedSshTarget,
 	connection: &Connection,
 	remote_root: &Path,
 	host_hash: &str,
 ) -> bool {
-	connection.host == config.ssh.host
-		&& connection.user == config.ssh.user
-		&& connection.port == config.ssh.port
-		&& is_default_biwa_remote_dir(&connection.remote_dir, remote_root, host_hash)
+	let host_matches = connection.host == target.hostname;
+	let user_matches = connection.user == target.user;
+	let port_matches = connection.port == target.port;
+	let path_matches = is_default_biwa_remote_dir(&connection.remote_dir, remote_root, host_hash);
+	host_matches && user_matches && port_matches && path_matches
 }
 
 /// Joins a remote root and direct child name without introducing a duplicate slash.
@@ -606,8 +615,13 @@ pub fn spawn_background_cleanup(config: &Config) -> Result<()> {
 /// Applies resolved config values needed by the detached cleanup process.
 fn configure_daemon_env(cmd: &mut Command, config: &Config, state_dir: &Path) {
 	cmd.env("BIWA_SSH_HOST", &config.ssh.host);
-	cmd.env("BIWA_SSH_PORT", config.ssh.port.to_string());
-	cmd.env("BIWA_SSH_USER", &config.ssh.user);
+	if let Some(port) = config.ssh.port {
+		cmd.env("BIWA_SSH_PORT", port.to_string());
+	}
+	if let Some(user) = &config.ssh.user {
+		cmd.env("BIWA_SSH_USER", user);
+	}
+	cmd.env("BIWA_SSH_USE_CONFIG", config.ssh.use_ssh_config.to_string());
 	cmd.env("BIWA_SSH_UMASK", config.ssh.umask.to_string());
 	cmd.env("BIWA_SYNC_REMOTE_ROOT", &config.sync.remote_root);
 	cmd.env("BIWA_STATE_DIR", state_dir);
@@ -630,19 +644,34 @@ fn configure_daemon_env(cmd: &mut Command, config: &Config, state_dir: &Path) {
 #[cfg(test)]
 mod tests {
 	use super::{
-		CleanTarget, clean_target, configure_daemon_env, join_remote_child, purge_cleanup_paths,
-		remote_dir_is_older_than, resolve_current_project_root, state_dir_from_env_or_default,
+		CleanTarget, clean_target, collect_tracked_default_dirs, configure_daemon_env,
+		join_remote_child, purge_cleanup_paths, remote_dir_is_older_than,
+		resolve_current_project_root, state_dir_from_env_or_default,
 	};
 	use crate::config::types::{Config, PasswordConfig};
 	use crate::ssh::clean::RemoteDirEntry;
+	use crate::ssh::target::ResolvedSshTarget;
+	use crate::state::{Connection, State};
 	use crate::testing::EnvCleanup;
 	use alloc::collections::BTreeMap;
 	use chrono::Utc;
 	use core::time::Duration;
 	use pretty_assertions::assert_eq;
+	use std::collections::HashSet;
+	use std::ffi::OsStr;
 	use std::path::{Path, PathBuf};
 	use std::process::Command;
 	use std::{env, fs};
+
+	fn resolved_target() -> ResolvedSshTarget {
+		ResolvedSshTarget {
+			lookup_host: "alias".to_owned(),
+			hostname: "example.test".to_owned(),
+			port: 2222,
+			user: "alice".to_owned(),
+			identity_files: Vec::new(),
+		}
+	}
 
 	struct CurrentDirGuard(PathBuf);
 
@@ -791,8 +820,8 @@ mod tests {
 	fn configure_daemon_env_uses_resolved_config_values() {
 		let mut config = Config::default();
 		config.ssh.host = "example.test".to_owned();
-		config.ssh.port = 2222;
-		config.ssh.user = "alice".to_owned();
+		config.ssh.port = Some(2222);
+		config.ssh.user = Some("alice".to_owned());
 		config.ssh.key_path = Some(PathBuf::from("/tmp/key"));
 		config.ssh.password = PasswordConfig::Value("secret".to_owned());
 		config.sync.remote_root = PathBuf::from("~/remote");
@@ -833,6 +862,64 @@ mod tests {
 		assert_eq!(
 			envs.get("BIWA_STATE_DIR").map(String::as_str),
 			Some("/tmp/state")
+		);
+	}
+
+	#[test]
+	fn configure_daemon_env_omits_unconfigured_user_and_port() {
+		let config = Config::default();
+		let mut cmd = Command::new("biwa");
+		configure_daemon_env(&mut cmd, &config, Path::new("/tmp/state"));
+		let envs = cmd
+			.get_envs()
+			.map(|(key, value)| (key.to_string_lossy().into_owned(), value))
+			.collect::<BTreeMap<_, _>>();
+
+		assert!(!envs.contains_key("BIWA_SSH_PORT"));
+		assert!(!envs.contains_key("BIWA_SSH_USER"));
+		assert_eq!(
+			envs.get("BIWA_SSH_USE_CONFIG").and_then(|value| *value),
+			Some(OsStr::new("true"))
+		);
+	}
+
+	#[test]
+	fn tracked_default_dirs_require_the_resolved_target() {
+		let target = resolved_target();
+		let remote_root = Path::new("~/root");
+		let host_hash = "abcd1234";
+		let matching = Connection {
+			host: target.hostname.clone(),
+			user: target.user.clone(),
+			port: target.port,
+			remote_dir: "~/root/project-abcd1234-deadbeef".to_owned(),
+			last_used: Utc::now(),
+		};
+		let state = State {
+			connections: vec![
+				matching.clone(),
+				Connection {
+					host: target.lookup_host.clone(),
+					..matching.clone()
+				},
+				Connection {
+					user: "bob".to_owned(),
+					..matching.clone()
+				},
+				Connection {
+					port: 22,
+					..matching.clone()
+				},
+				Connection {
+					remote_dir: "~/root/not-biwa".to_owned(),
+					..matching
+				},
+			],
+		};
+
+		assert_eq!(
+			collect_tracked_default_dirs(&target, &state, remote_root, host_hash),
+			HashSet::from(["~/root/project-abcd1234-deadbeef".to_owned()])
 		);
 	}
 }

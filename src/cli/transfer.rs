@@ -1,6 +1,7 @@
 use crate::Result;
 use crate::config::types::Config;
 use crate::ssh::sync::{Options, compute_project_remote_dir, normalize_remote_dir};
+use crate::ssh::target::ResolvedSshTarget;
 use crate::state;
 use clap::Args;
 use std::env;
@@ -130,15 +131,31 @@ impl TransferArgs {
 /// Records a remote directory use in local persisted state.
 pub(super) fn record_connection_use(config: &Config, remote_dir: &str) {
 	let state_dir = config.resolved_state_dir();
-	if let Err(error) = state::record_connection(
-		&state_dir,
-		&config.ssh.host,
-		&config.ssh.user,
-		config.ssh.port,
-		remote_dir,
-	) {
+	let target = match ResolvedSshTarget::resolve(&config.ssh) {
+		Ok(target) => target,
+		Err(error) => {
+			warn!(%error, "Failed to resolve SSH target for connection state");
+			return;
+		}
+	};
+	if let Err(error) = record_resolved_connection_use(&state_dir, &target, remote_dir) {
 		warn!(%error, "Failed to record connection in local state");
 	}
+}
+
+/// Records an already-resolved SSH target in local persisted state.
+fn record_resolved_connection_use(
+	state_dir: &Path,
+	target: &ResolvedSshTarget,
+	remote_dir: &str,
+) -> Result<()> {
+	state::record_connection(
+		state_dir,
+		&target.hostname,
+		&target.user,
+		target.port,
+		remote_dir,
+	)
 }
 
 /// Returns the default sync root for the current directory.
@@ -403,6 +420,50 @@ mod tests {
 		}
 		let error = normalize_remote_dir("").unwrap_err();
 		assert!(error.to_string().contains("must not be empty"));
+		Ok(())
+	}
+
+	#[test]
+	fn record_connection_use_persists_resolved_target() -> Result<()> {
+		let dir = tempdir()?;
+		let target = ResolvedSshTarget {
+			lookup_host: "cse".to_owned(),
+			hostname: "login.cse.unsw.edu.au".to_owned(),
+			port: 2222,
+			user: "alice".to_owned(),
+			identity_files: Vec::new(),
+		};
+
+		record_resolved_connection_use(dir.path(), &target, "~/remote/project-deadbeef")?;
+
+		let state = state::load_state(dir.path())?;
+		assert_eq!(state.connections.len(), 1);
+		let connection = state
+			.connections
+			.first()
+			.expect("one connection was recorded");
+		assert_eq!(connection.host, "login.cse.unsw.edu.au");
+		assert_eq!(connection.user, "alice");
+		assert_eq!(connection.port, 2222);
+		assert_eq!(connection.remote_dir, "~/remote/project-deadbeef");
+		Ok(())
+	}
+
+	#[test]
+	fn record_connection_use_skips_unresolved_target() -> Result<()> {
+		let dir = tempdir()?;
+		let mut ssh = Config::default().ssh;
+		ssh.host = "example.test".to_owned();
+		ssh.use_ssh_config = false;
+		let config = Config {
+			state_dir: Some(dir.path().to_path_buf()),
+			ssh,
+			..Config::default()
+		};
+
+		record_connection_use(&config, "~/remote/project-deadbeef");
+
+		assert!(state::load_state(dir.path())?.connections.is_empty());
 		Ok(())
 	}
 }
