@@ -119,9 +119,9 @@ version = "0.32.0"
 backend = "aqua:axodotdev/cargo-dist"
 
 [tools.cargo-dist."platforms.linux-arm64"]
-checksum = "sha256:16d4394af9b91366ca92cb4601a72dd0a209a49301ef535749e2141039e26ed6"
-url = "https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-aarch64-unknown-linux-musl.tar.xz"
-url_api = "https://api.github.com/repos/axodotdev/cargo-dist/releases/assets/426804445"
+checksum = "sha256:d29bcffeb3f8b0c517b4ce0dd2470926ed5cb0bb29d78c6bdd5f88d76ee14a6a"
+url = "https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-aarch64-unknown-linux-gnu.tar.xz"
+url_api = "https://api.github.com/repos/axodotdev/cargo-dist/releases/assets/426804449"
 provenance = "github-attestations"
 
 [tools.cargo-dist."platforms.linux-arm64-musl"]
@@ -131,9 +131,9 @@ url_api = "https://api.github.com/repos/axodotdev/cargo-dist/releases/assets/426
 provenance = "github-attestations"
 
 [tools.cargo-dist."platforms.linux-x64"]
-checksum = "sha256:0d9dc001b0e937e9cc18e0dc11784aa7a3fd566656b07828d5e1d10ce1c1c48c"
-url = "https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-x86_64-unknown-linux-musl.tar.xz"
-url_api = "https://api.github.com/repos/axodotdev/cargo-dist/releases/assets/426804479"
+checksum = "sha256:eb52f9fae0d0506774e9f1801c1168f87fa2c87a45e2d64d3ae7c89401929946"
+url = "https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-x86_64-unknown-linux-gnu.tar.xz"
+url_api = "https://api.github.com/repos/axodotdev/cargo-dist/releases/assets/426804471"
 provenance = "github-attestations"
 
 [tools.cargo-dist."platforms.linux-x64-musl"]
@@ -159,9 +159,9 @@ version = "1.46.3"
 backend = "aqua:mitsuhiko/insta"
 
 [tools.cargo-insta."platforms.linux-x64"]
-checksum = "sha256:c738c47f8d7e834a0277dddb9410a1f7369d37818738fc6a380f22904a83f6e4"
-url = "https://github.com/mitsuhiko/insta/releases/download/1.46.3/cargo-insta-x86_64-unknown-linux-musl.tar.xz"
-url_api = "https://api.github.com/repos/mitsuhiko/insta/releases/assets/349574609"
+checksum = "sha256:bad9a7c73d30f844ba04ce1808cbb72935c849cadb38a741f4b5c17c6514f077"
+url = "https://github.com/mitsuhiko/insta/releases/download/1.46.3/cargo-insta-x86_64-unknown-linux-gnu.tar.xz"
+url_api = "https://api.github.com/repos/mitsuhiko/insta/releases/assets/349574607"
 
 [tools.cargo-insta."platforms.linux-x64-musl"]
 checksum = "sha256:c738c47f8d7e834a0277dddb9410a1f7369d37818738fc6a380f22904a83f6e4"
@@ -441,9 +441,9 @@ version = "0.3.159"
 backend = "aqua:release-plz/release-plz"
 
 [tools.release-plz."platforms.linux-arm64"]
-checksum = "sha256:58b80ecce86ac24cbecf3f4cf37eeb0412583a0adf3a8ae608b6a4eb71737f35"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.159/release-plz-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442830780"
+checksum = "sha256:68c8a1790cb30dbf6a1a16de8e4ab5c343a961197c381b0e4dc4e314fbfa1c99"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.159/release-plz-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442831569"
 
 [tools.release-plz."platforms.linux-arm64-musl"]
 checksum = "sha256:58b80ecce86ac24cbecf3f4cf37eeb0412583a0adf3a8ae608b6a4eb71737f35"
@@ -451,9 +451,9 @@ url = "https://github.com/release-plz/release-plz/releases/download/release-plz-
 url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442830780"
 
 [tools.release-plz."platforms.linux-x64"]
-checksum = "sha256:b634dcb4a1b0724e00e924ab50e685704ef2bf8c6ebb809f4ac2ab16ac8458d9"
-url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.159/release-plz-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442830250"
+checksum = "sha256:baeb11c5dd4a3d76971bbd9b48583519d0e0644a5ae60eb666c4f9331598157f"
+url = "https://github.com/release-plz/release-plz/releases/download/release-plz-v0.3.159/release-plz-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/release-plz/release-plz/releases/assets/442829710"
 
 [tools.release-plz."platforms.linux-x64-musl"]
 checksum = "sha256:b634dcb4a1b0724e00e924ab50e685704ef2bf8c6ebb809f4ac2ab16ac8458d9"
@@ -585,9 +585,9 @@ version = "4.1.0"
 backend = "aqua:jdx/usage"
 
 [tools.usage."platforms.linux-arm64"]
-checksum = "sha256:35ae4c707c42c954fed092de8859614d6a9d6b77ac0d9d3b8e2bd2c817a5a891"
-url = "https://github.com/jdx/usage/releases/download/v4.1.0/usage-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/usage/releases/assets/495318972"
+checksum = "sha256:91730961150e550fc84585bc7f7e8c9ca6432f91ef6703217589454a6ef6e7f9"
+url = "https://github.com/jdx/usage/releases/download/v4.1.0/usage-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/usage/releases/assets/495318962"
 
 [tools.usage."platforms.linux-arm64-musl"]
 checksum = "sha256:35ae4c707c42c954fed092de8859614d6a9d6b77ac0d9d3b8e2bd2c817a5a891"
@@ -595,9 +595,9 @@ url = "https://github.com/jdx/usage/releases/download/v4.1.0/usage-aarch64-unkno
 url_api = "https://api.github.com/repos/jdx/usage/releases/assets/495318972"
 
 [tools.usage."platforms.linux-x64"]
-checksum = "sha256:3a7d28cb6e3bbdea3415f3a34beb980c4a750ce8c836c707e7157d93d628abfc"
-url = "https://github.com/jdx/usage/releases/download/v4.1.0/usage-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/jdx/usage/releases/assets/495319369"
+checksum = "sha256:64e08fea0b74e8d158550e2e5d18867ef676a2a36fa7a5b49621dc70c3246480"
+url = "https://github.com/jdx/usage/releases/download/v4.1.0/usage-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/jdx/usage/releases/assets/495318955"
 
 [tools.usage."platforms.linux-x64-musl"]
 checksum = "sha256:3a7d28cb6e3bbdea3415f3a34beb980c4a750ce8c836c707e7157d93d628abfc"
@@ -619,9 +619,9 @@ version = "0.12.5"
 backend = "aqua:astral-sh/uv"
 
 [tools.uv."platforms.linux-arm64"]
-checksum = "sha256:8767a0e77f2cd45436401b1b42bf7e9ed5a4a91a74a5305d6fe93249d0f6dbc5"
-url = "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/514850993"
+checksum = "sha256:9bf43b4d1a07665bf64d4c4e710930b382321a785e0eb10aac07f46471f86a31"
+url = "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/514850990"
 provenance = "github-attestations"
 
 [tools.uv."platforms.linux-arm64-musl"]
@@ -631,9 +631,9 @@ url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/514850993"
 provenance = "github-attestations"
 
 [tools.uv."platforms.linux-x64"]
-checksum = "sha256:a4742988791c9aeae68c78150d6cba762062ad2a47e53738c2779d2b596bfcdb"
-url = "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/514851105"
+checksum = "sha256:68a509da24b06b4223a1c0175fb5eb5bc79342b76cbeff0cfe51ac3f5b17b6b2"
+url = "https://github.com/astral-sh/uv/releases/download/0.12.5/uv-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/514851093"
 provenance = "github-attestations"
 
 [tools.uv."platforms.linux-x64-musl"]
