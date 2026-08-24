@@ -48,7 +48,7 @@ For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will 
 | Key                | Type    | Default             | Description                                                                                               |
 | ------------------ | ------- | ------------------- | --------------------------------------------------------------------------------------------------------- |
 | `host`             | string  | `"cse.unsw.edu.au"` | Hostname or OpenSSH `Host` alias                                                                          |
-| `port`             | integer | OpenSSH, then `22`  | Optional direct port; must match OpenSSH config when both specify it                                      |
+| `port`             | integer | OpenSSH, then `22`  | Biwa value, otherwise OpenSSH `Port`, otherwise `22`; duplicate values must match                         |
 | `user`             | string? | OpenSSH `User`      | Optional direct username; required from either Biwa or OpenSSH config                                     |
 | `use_ssh_config`   | boolean | `true`              | Read the supported subset of `~/.ssh/config`                                                              |
 | `key_path`         | string? | `null`              | Explicit private key; disables automatic agent and default-key discovery                                  |
@@ -80,15 +80,15 @@ The old `ssh.password` boolean/string field was removed. Select `auth = "passwor
 ```toml
 [ssh]
 host_key_checking = "accept-new"
-# Relative paths follow the configuration path rules described above.
-# known_hosts = "./test-known-hosts"
+# In a local config, this resolves from the project root.
+known_hosts = ".biwa-known-hosts"
 ```
 
 ```bash
-ssh-keyscan -p 22 cse.unsw.edu.au >> ~/.ssh/known_hosts
+ssh-keyscan -p 22 cse.unsw.edu.au >> .biwa-known-hosts
 ```
 
-Verify a scanned key's fingerprint through a trusted channel before relying on it; `ssh-keyscan` alone does not authenticate the server.
+Relative `known_hosts` paths follow the same rules described above: project root for local config, home directory for global config, and current directory for environment values. Verify a scanned key's fingerprint through a trusted channel before relying on it; `ssh-keyscan` alone does not authenticate the server.
 
 ### `[env]` — Environment Variable Settings
 
