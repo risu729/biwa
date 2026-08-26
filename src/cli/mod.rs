@@ -137,7 +137,7 @@ impl Cli {
 		};
 		Ok(Self {
 			command,
-			run_command_args: usage::trailing_arg_values(output, "RUN_COMMAND_ARGS"),
+			run_command_args: usage::arg_values(output, "RUN_COMMAND_ARGS"),
 			verbose: usage::flag_count(output, "verbose"),
 			quiet: usage::flag_given(output, "quiet"),
 			silent: usage::flag_given(output, "silent"),

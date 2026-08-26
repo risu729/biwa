@@ -1,7 +1,7 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
 use crate::cli::transfer::{TransferArgs, record_connection_use};
-use crate::cli::usage::{arg_value, flag_given, flag_values, trailing_arg_values};
+use crate::cli::usage::{arg_value, arg_values, flag_given, flag_values};
 use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
 use crate::{
@@ -296,7 +296,7 @@ impl Run {
 			env_vars: flag_values(output, "env"),
 			command: arg_value(output, "COMMAND")
 				.ok_or_else(|| eyre!("Missing required arg: <COMMAND>"))?,
-			command_args: trailing_arg_values(output, "COMMAND_ARGS"),
+			command_args: arg_values(output, "COMMAND_ARGS"),
 		})
 	}
 
@@ -521,6 +521,17 @@ mod tests {
 		let run = parse_run_command(&["biwa", "run", "--", "echo", "--pull"]);
 		assert!(!run.pull);
 		assert_eq!(run.command_args, vec!["--pull"]);
+	}
+
+	#[test]
+	fn first_separator_is_consumed_and_second_is_forwarded() {
+		// usage semantics: the first `--` is always a separator, even after the
+		// trailing capture started; only a second `--` reaches the remote command.
+		let run = parse_run_command(&["biwa", "run", "sh", "-c", "script", "--", "path"]);
+		assert_eq!(run.command_args, vec!["-c", "script", "path"]);
+
+		let run = parse_run_command(&["biwa", "run", "sh", "-c", "script", "--", "--", "path"]);
+		assert_eq!(run.command_args, vec!["-c", "script", "--", "path"]);
 	}
 
 	#[expect(

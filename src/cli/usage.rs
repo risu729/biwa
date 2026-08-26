@@ -1,6 +1,6 @@
 use crate::Result;
 use ::usage::Spec;
-use ::usage::parse::{ParseOutput, ParseValue, TokenRole};
+use ::usage::parse::{ParseOutput, ParseValue};
 use std::sync::OnceLock;
 
 /// Raw usage spec committed at the repository root.
@@ -105,55 +105,6 @@ pub(super) fn arg_values(output: &ParseOutput, name: &str) -> Vec<String> {
 		Some(ParseValue::MultiString(values)) => values.clone(),
 		_ => Vec::new(),
 	}
-}
-
-/// Returns the values of a trailing variadic argument, keeping a late `--` verbatim.
-///
-/// The usage parser always consumes the first explicit `--` as a separator, even
-/// after a `double_dash=automatic` argument has started collecting values. Clap's
-/// `trailing_var_arg` instead kept such a `--` as an ordinary value (for example
-/// `biwa run sh -c 'test -d "$1"' -- <path>` forwards the `--` to the remote
-/// shell). Re-insert the separator when the trailing capture had already begun.
-pub(super) fn trailing_arg_values(output: &ParseOutput, name: &str) -> Vec<String> {
-	let mut values = arg_values(output, name);
-	let Some(separator_index) = output.tokens.iter().position(|token| {
-		token
-			.roles
-			.iter()
-			.any(|role| matches!(role, TokenRole::Separator))
-	}) else {
-		return values;
-	};
-	let values_before_separator: usize = output
-		.tokens
-		.iter()
-		.take(separator_index)
-		.flat_map(|token| &token.roles)
-		.map(|role| {
-			if let TokenRole::Arg {
-				arg,
-				values: bound_values,
-			} = role
-			{
-				if arg.name == name {
-					bound_values.len()
-				} else {
-					0
-				}
-			} else if let TokenRole::UnknownFlag {
-				bound_as: Some(arg),
-			} = role
-			{
-				usize::from(arg.name == name)
-			} else {
-				0
-			}
-		})
-		.sum();
-	if values_before_separator > 0 && values_before_separator <= values.len() {
-		values.insert(values_before_separator, "--".to_owned());
-	}
-	values
 }
 
 #[cfg(test)]
