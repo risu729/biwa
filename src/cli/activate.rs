@@ -1,9 +1,9 @@
 use crate::Result;
 use crate::cli::run::validate_direct_options;
-use crate::cli::usage::{CommandEffects, apply_subcommand_effects, set_flag_effect};
+use crate::cli::usage::{flag_given, flag_value};
 use crate::config::types::Config;
+use ::usage::parse::ParseOutput;
 use alloc::collections::BTreeSet;
-use clap::{Args, Subcommand, ValueEnum};
 use color_eyre::eyre::{WrapErr as _, bail};
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -15,19 +15,17 @@ use std::path::{Path, PathBuf};
 const MANAGED_SHIMS_FILE: &str = ".biwa-managed-shims";
 
 /// Shell activation and direct command shim management.
-#[derive(Args, Debug)]
+#[derive(Debug)]
 pub(super) struct Activate {
 	/// Print activation code for this shell.
-	#[arg(long, value_enum)]
 	shell: Option<ActivationShell>,
 
 	/// Activation command to run.
-	#[command(subcommand)]
 	command: Option<ActivateCommand>,
 }
 
 /// Supported activation commands.
-#[derive(Subcommand, Debug)]
+#[derive(Debug)]
 enum ActivateCommand {
 	/// Reconcile configured direct command shims.
 	Install(Install),
@@ -36,15 +34,14 @@ enum ActivateCommand {
 }
 
 /// Direct command shim installation options.
-#[derive(Args, Debug)]
+#[derive(Debug)]
 struct Install {
 	/// Replace existing entries not already managed by biwa.
-	#[arg(long, short)]
 	force: bool,
 }
 
 /// Shells that can receive activation code.
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActivationShell {
 	/// Bash shell.
 	Bash,
@@ -52,6 +49,18 @@ enum ActivationShell {
 	Zsh,
 	/// Fish shell.
 	Fish,
+}
+
+impl ActivationShell {
+	/// Parses a shell name from the usage spec's `--shell` choices.
+	fn from_name(name: &str) -> Result<Self> {
+		match name {
+			"bash" => Ok(Self::Bash),
+			"zsh" => Ok(Self::Zsh),
+			"fish" => Ok(Self::Fish),
+			other => bail!("Unknown activation shell `{other}`"),
+		}
+	}
 }
 
 /// Result from a shim installation run.
@@ -75,6 +84,24 @@ enum ShimInstallStatus {
 }
 
 impl Activate {
+	/// Builds the activate command from a successful spec parse.
+	pub(super) fn from_parse(output: &ParseOutput) -> Result<Self> {
+		let command = match output.cmds.get(2).map(|cmd| cmd.name.as_str()) {
+			None => None,
+			Some("install") => Some(ActivateCommand::Install(Install {
+				force: flag_given(output, "force"),
+			})),
+			Some("doctor") => Some(ActivateCommand::Doctor),
+			Some(other) => bail!("Unhandled activate command `{other}` in usage spec"),
+		};
+		Ok(Self {
+			shell: flag_value(output, "shell")
+				.map(|shell| ActivationShell::from_name(&shell))
+				.transpose()?,
+			command,
+		})
+	}
+
 	/// Runs the activation command.
 	pub(super) fn run(self) -> Result<()> {
 		let config = Config::load_global_optional_ssh()?;
@@ -104,30 +131,6 @@ impl Activate {
 			bail!("Specify `--shell <bash|zsh|fish>`, `install`, or `doctor`.");
 		}
 		Ok(())
-	}
-}
-
-impl CommandEffects for Activate {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Read;
-
-	fn apply_effects(command: &mut ::usage::SpecCommand) {
-		command.effect = Some(Self::EFFECT);
-		set_flag_effect(command, "shell", ::usage::SpecCommandEffect::Write);
-		apply_subcommand_effects::<Install>(command, "install");
-		command
-			.subcommands
-			.get_mut("doctor")
-			.expect("Clap-generated usage spec must contain activate doctor")
-			.effect = Some(::usage::SpecCommandEffect::Read);
-	}
-}
-
-impl CommandEffects for Install {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Write;
-
-	fn apply_effects(command: &mut ::usage::SpecCommand) {
-		command.effect = Some(Self::EFFECT);
-		set_flag_effect(command, "force", ::usage::SpecCommandEffect::Destructive);
 	}
 }
 

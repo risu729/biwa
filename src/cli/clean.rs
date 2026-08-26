@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::cli::transfer::TransferArgs;
-use crate::cli::usage::CommandEffects;
+use crate::cli::usage::{arg_value, flag_given};
 use crate::config::types::{AuthMode, Config};
 use crate::duration::HumanDuration;
 use crate::ssh::clean::{
@@ -18,9 +18,9 @@ use crate::state::{
 	Connection, State, default_state_dir, is_daemon_running, kill_daemon, load_state,
 	remove_connections_for_target, remove_pid_file, stale_connections, write_pid_file,
 };
+use ::usage::parse::ParseOutput;
 use alloc::sync::Arc;
 use chrono::{DateTime, Utc};
-use clap::{Args, ValueEnum};
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
 use core::time::Duration;
@@ -35,40 +35,30 @@ use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
 /// Clean stale remote project directories.
-#[derive(Args, Debug)]
-#[command(visible_alias = "c")]
+#[derive(Debug)]
 #[expect(
 	clippy::struct_excessive_bools,
 	reason = "Each bool maps to an independent CLI flag with distinct semantics"
 )]
 pub(super) struct Clean {
 	/// Optional clean action (`stop` stops the background cleanup daemon).
-	#[arg(value_enum)]
 	action: Option<CleanAction>,
 
 	/// Remove all this client's tracked remote directories.
-	#[arg(long)]
 	all: bool,
 
 	/// Remove ALL biwa directories under `remote_root` (including other clients).
-	#[arg(long)]
 	purge: bool,
 
 	/// Preview what would be removed without deleting.
-	#[arg(long)]
 	dry_run: bool,
 
 	/// Background auto-cleanup mode (used internally by the daemon).
-	#[arg(long, hide = true)]
 	auto: bool,
 }
 
-impl CommandEffects for Clean {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Destructive;
-}
-
 /// Optional action for `biwa clean`.
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CleanAction {
 	/// Stop the running background cleanup daemon.
 	Stop,
@@ -104,6 +94,23 @@ pub(super) const fn clean_target(auto: bool, purge: bool, all: bool) -> CleanTar
 }
 
 impl Clean {
+	/// Builds the clean command from a successful spec parse.
+	pub(super) fn from_parse(output: &ParseOutput) -> Result<Self> {
+		let action = arg_value(output, "ACTION")
+			.map(|action| match action.as_str() {
+				"stop" => Ok(CleanAction::Stop),
+				other => Err(color_eyre::eyre::eyre!("Unknown clean action `{other}`")),
+			})
+			.transpose()?;
+		Ok(Self {
+			action,
+			all: flag_given(output, "all"),
+			purge: flag_given(output, "purge"),
+			dry_run: flag_given(output, "dry-run"),
+			auto: flag_given(output, "auto"),
+		})
+	}
+
 	/// Run the clean command.
 	pub async fn run(self, quiet: bool) -> Result<()> {
 		// Handle `biwa clean stop`.

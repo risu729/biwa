@@ -1,25 +1,31 @@
 use crate::Result;
-use crate::cli::usage::{CommandEffects, set_flag_effect};
+use crate::cli::usage::{flag_given, flag_value};
 use crate::{config::format::ConfigFormat, config::types::Config};
-use clap::Args;
+use ::usage::parse::ParseOutput;
 use color_eyre::eyre::{bail, eyre};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
 
 /// Initialize a new configuration file.
-#[derive(Args, Debug)]
+#[derive(Debug)]
 pub(super) struct Init {
 	/// Force overwrite if file exists.
-	#[arg(long, short)]
 	force: bool,
 
 	/// Format to generate (toml, json, jsonc, json5, yaml, yml).
-	#[arg(long, default_value = "toml")]
 	format: String,
 }
 
 impl Init {
+	/// Builds the init command from a successful spec parse.
+	pub(super) fn from_parse(output: &ParseOutput) -> Self {
+		Self {
+			force: flag_given(output, "force"),
+			format: flag_value(output, "format").unwrap_or_else(|| "toml".to_owned()),
+		}
+	}
+
 	/// Run the initialization logic.
 	pub(super) fn run(self) -> Result<()> {
 		let (filename, content) = self.generate()?;
@@ -75,15 +81,6 @@ impl Init {
 		};
 
 		Ok((filename, content))
-	}
-}
-
-impl CommandEffects for Init {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Write;
-
-	fn apply_effects(command: &mut ::usage::SpecCommand) {
-		command.effect = Some(Self::EFFECT);
-		set_flag_effect(command, "force", ::usage::SpecCommandEffect::Destructive);
 	}
 }
 

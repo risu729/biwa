@@ -1,25 +1,31 @@
 use crate::Result;
-use crate::cli::usage::CommandEffects;
-use clap::Args;
-use clap::builder::PossibleValue;
-use color_eyre::eyre::bail;
+use crate::cli::usage::arg_value;
+use ::usage::parse::ParseOutput;
+use color_eyre::eyre::{Context as _, bail, eyre};
 use std::io;
 use strum::EnumString;
 
 /// Generate shell completions.
 ///
 /// Requires the `usage` CLI: <https://usage.jdx.dev>.
-#[derive(Args, Debug)]
+#[derive(Debug)]
 pub(super) struct Completion {
 	/// Shell type to generate completions for.
 	shell: Shell,
 }
 
-impl CommandEffects for Completion {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Read;
-}
-
 impl Completion {
+	/// Builds the completion command from a successful spec parse.
+	pub(super) fn from_parse(output: &ParseOutput) -> Result<Self> {
+		let shell =
+			arg_value(output, "SHELL").ok_or_else(|| eyre!("Missing required arg: <SHELL>"))?;
+		Ok(Self {
+			shell: shell
+				.parse()
+				.wrap_err_with(|| format!("Unknown completion shell `{shell}`"))?,
+		})
+	}
+
 	/// Run the completion generation logic.
 	pub(super) fn run(self) -> Result<()> {
 		let script = self.call_usage()?;
@@ -69,21 +75,10 @@ enum Shell {
 	Zsh,
 }
 
-impl clap::ValueEnum for Shell {
-	fn value_variants<'a>() -> &'a [Self] {
-		&[Self::Bash, Self::Fish, Self::Zsh]
-	}
-
-	fn to_possible_value(&self) -> Option<PossibleValue> {
-		Some(PossibleValue::new(self.to_string()))
-	}
-}
-
 #[cfg(test)]
 mod tests {
 
 	use crate::cli::{Cli, Commands};
-	use clap::Parser as _;
 
 	#[test]
 	fn completion_parse_bash() {

@@ -17,7 +17,7 @@ By default, only warnings and errors are shown.
 flag "-q --quiet" help="Suppress biwa internal logs, only showing remote command output" global=#true
 flag "-s --silent" help="Suppress all output, including remote command stdout/stderr" global=#true
 arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true effect=destructive
-cmd activate help="Print shell activation code and manage direct command shims" effect=read {
+cmd activate disable_help_subcommand=#true help="Print shell activation code and manage direct command shims" effect=read {
     flag --shell help="Print activation code for this shell" effect=write {
         arg <SHELL> {
             choices bash zsh fish
@@ -30,10 +30,16 @@ cmd activate help="Print shell activation code and manage direct command shims" 
 }
 cmd run help="Run commands on remote host" effect=destructive {
     alias r
-    flag --skip-sync help="Skip automatic synchronization before running the command (automatically selected if --remote-dir is used)"
-    flag --sync help="Push project files before running, even when sync.auto is disabled or --remote-dir is set"
-    flag --pull help="Push before running, then mirror the remote project back after a successful command. May overwrite or delete local files."
-    flag --pull-always help="Push before running, then mirror the remote project back after any confirmed exit status. May overwrite or delete local files."
+    flag --skip-sync help="Skip automatic synchronization before running the command (automatically selected if --remote-dir is used)" {
+        conflicts "--sync" "--pull" "--pull-always"
+    }
+    flag --sync help="Push project files before running, even when sync.auto is disabled or --remote-dir is set" conflicts=--skip-sync
+    flag --pull help="Push before running, then mirror the remote project back after a successful command. May overwrite or delete local files." {
+        conflicts "--skip-sync" "--pull-always"
+    }
+    flag --pull-always help="Push before running, then mirror the remote project back after any confirmed exit status. May overwrite or delete local files." {
+        conflicts "--skip-sync" "--pull"
+    }
     flag --sync-root help="Local project root used for synchronization" {
         arg <SYNC_ROOT>
     }

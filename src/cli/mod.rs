@@ -2,10 +2,14 @@ use crate::Result;
 use crate::cli::transfer::TransferArgs;
 use crate::config::types::Config;
 use crate::env_flag;
-use ::usage::SpecCommand;
-use clap::{ArgAction, Parser, Subcommand};
-use color_eyre::eyre::eyre;
+use ::usage::docs::cli::render_help;
+use ::usage::error::UsageErr;
+use ::usage::parse::{ParseOutput, Parser as UsageParser};
+use color_eyre::eyre::{bail, eyre};
+use itertools::Itertools as _;
 use std::env;
+use std::ffi::OsString;
+use std::process;
 use tracing::Level;
 use tracing_subscriber::{
 	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
@@ -32,44 +36,30 @@ mod transfer;
 /// Usage specification generation command.
 mod usage;
 
-/// CLI arguments parser.
-#[derive(Parser, Debug)]
-#[command(version, about)]
-#[command(arg_required_else_help = true)]
+/// Parsed CLI arguments.
+///
+/// Argument definitions live in the usage spec (`biwa.usage.kdl`); this struct
+/// is built from the spec parser's output.
+#[derive(Debug)]
 struct Cli {
 	/// The command to run on the remote host.
-	#[command(subcommand)]
 	command: Option<Commands>,
 
 	/// The arguments for the command to run on the remote host.
-	#[arg(allow_hyphen_values = true, trailing_var_arg = true, hide = true)]
 	run_command_args: Vec<String>,
 
-	/// Set the verbosity level.
-	///
-	/// Can be used multiple times to increase verbosity (e.g., -v, -vv, -vvv).
-	/// By default, only warnings and errors are shown.
-	/// -v: info
-	/// -vv: debug
-	/// -vvv: trace
-	#[expect(
-		clippy::doc_paragraphs_missing_punctuation,
-		reason = "no need to add period after the list of options"
-	)]
-	#[arg(short, long, action = ArgAction::Count, global = true, verbatim_doc_comment)]
+	/// The verbosity level (number of `-v` flags).
 	verbose: u8,
 
 	/// Suppress biwa internal logs, only showing remote command output.
-	#[arg(short, long, global = true)]
 	quiet: bool,
 
 	/// Suppress all output, including remote command stdout/stderr.
-	#[arg(short, long, global = true)]
 	silent: bool,
 }
 
 /// Supported subcommands for the biwa CLI.
-#[derive(Subcommand, Debug)]
+#[derive(Debug)]
 enum Commands {
 	/// Print shell activation code and manage direct command shims.
 	Activate(activate::Activate),
@@ -94,24 +84,137 @@ enum Commands {
 	Usage(usage::Usage),
 }
 
-/// Applies effects declared by each subcommand to the generated usage tree.
-fn apply_command_effects(root: &mut SpecCommand) {
-	use usage::apply_subcommand_effects;
+/// Result of parsing CLI arguments, including built-in early exits.
+enum ParsedCli {
+	/// A regular invocation.
+	Cli(Cli),
+	/// `-h`/`--help` was given; contains the rendered help text.
+	Help(String),
+	/// `-V`/`--version` was given; contains the version string.
+	Version(String),
+}
 
-	apply_subcommand_effects::<activate::Activate>(root, "activate");
-	apply_subcommand_effects::<run::Run>(root, "run");
-	apply_subcommand_effects::<sync::Sync>(root, "sync");
-	apply_subcommand_effects::<pull::Pull>(root, "pull");
-	apply_subcommand_effects::<clean::Clean>(root, "clean");
-	apply_subcommand_effects::<init::Init>(root, "init");
-	apply_subcommand_effects::<schema::Schema>(root, "schema");
-	apply_subcommand_effects::<completion::Completion>(root, "completion");
-	apply_subcommand_effects::<usage::Usage>(root, "usage");
+/// Parses an argv (including `argv[0]`) against the usage spec.
+fn parse_cli(argv: &[String]) -> Result<ParsedCli> {
+	let spec = usage::usage_spec();
+	let output = UsageParser::new(spec)
+		.explain(argv)
+		.map_err(|error| eyre!("{error}"))?;
+	for error in &output.errors {
+		if let UsageErr::Help(text) = error {
+			return Ok(ParsedCli::Help(text.clone()));
+		}
+		if let UsageErr::Version(version) = error {
+			return Ok(ParsedCli::Version(version.clone()));
+		}
+	}
+	if !output.errors.is_empty() {
+		bail!(
+			"{}",
+			output.errors.iter().map(ToString::to_string).join("\n")
+		);
+	}
+	Ok(ParsedCli::Cli(Cli::from_parse_output(&output)?))
+}
+
+impl Cli {
+	/// Builds the CLI representation from a successful spec parse.
+	fn from_parse_output(output: &ParseOutput) -> Result<Self> {
+		let command = match output.cmds.get(1).map(|cmd| cmd.name.as_str()) {
+			None => None,
+			Some("activate") => Some(Commands::Activate(activate::Activate::from_parse(output)?)),
+			Some("run") => Some(Commands::Run(run::Run::from_parse(output)?)),
+			Some("sync") => Some(Commands::Sync(sync::Sync::from_parse(output))),
+			Some("pull") => Some(Commands::Pull(pull::Pull::from_parse(output))),
+			Some("clean") => Some(Commands::Clean(clean::Clean::from_parse(output)?)),
+			Some("init") => Some(Commands::Init(init::Init::from_parse(output))),
+			Some("schema") => Some(Commands::Schema(schema::Schema)),
+			Some("completion") => Some(Commands::Completion(completion::Completion::from_parse(
+				output,
+			)?)),
+			Some("usage") => Some(Commands::Usage(usage::Usage)),
+			Some(other) => bail!("Unhandled command `{other}` in usage spec"),
+		};
+		Ok(Self {
+			command,
+			run_command_args: usage::trailing_arg_values(output, "RUN_COMMAND_ARGS"),
+			verbose: usage::flag_count(output, "verbose"),
+			quiet: usage::flag_given(output, "quiet"),
+			silent: usage::flag_given(output, "silent"),
+		})
+	}
+
+	/// Parses CLI arguments, returning an error for invalid or early-exit input.
+	fn try_parse_from<I: IntoIterator<Item = S>, S: Into<String>>(args: I) -> Result<Self> {
+		let words: Vec<String> = args.into_iter().map(Into::into).collect();
+		match parse_cli(&words)? {
+			ParsedCli::Cli(cli) => Ok(cli),
+			ParsedCli::Help(_) => bail!("Unexpected --help in programmatic CLI arguments"),
+			ParsedCli::Version(_) => bail!("Unexpected --version in programmatic CLI arguments"),
+		}
+	}
+
+	/// Parses CLI arguments, panicking on invalid input (test helper).
+	#[cfg(test)]
+	fn parse_from<I: IntoIterator<Item = S>, S: Into<String>>(args: I) -> Self {
+		Self::try_parse_from(args).expect("CLI arguments should parse")
+	}
+}
+
+/// Converts OS argv entries into UTF-8 strings.
+fn argv_strings(args: impl IntoIterator<Item = OsString>) -> Result<Vec<String>> {
+	args.into_iter()
+		.map(|arg| {
+			arg.into_string()
+				.map_err(|arg| eyre!("Argument {arg:?} is not valid UTF-8"))
+		})
+		.collect()
+}
+
+/// Prints a usage error and exits with the conventional CLI error status.
+#[expect(
+	clippy::exit,
+	reason = "argument parsing failures exit with status 2, matching common CLI conventions"
+)]
+fn exit_with_usage_error(error: &color_eyre::Report) -> ! {
+	eprintln!("{error:#}");
+	process::exit(2)
 }
 
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
 pub async fn run() -> Result<()> {
-	let cli = Cli::parse_from(activate::expand_direct_invocation(env::args_os())?);
+	let argv = argv_strings(activate::expand_direct_invocation(env::args_os())?)?;
+	if argv.len() <= 1 {
+		// Bare `biwa` prints help and fails, mirroring Clap's `arg_required_else_help`.
+		let spec = usage::usage_spec();
+		eprintln!("{}", render_help(spec, &spec.cmd, false));
+		#[expect(
+			clippy::exit,
+			reason = "an argument-less invocation exits with status 2, matching common CLI conventions"
+		)]
+		process::exit(2);
+	}
+	let cli = match parse_cli(&argv) {
+		Ok(ParsedCli::Cli(cli)) => cli,
+		Ok(ParsedCli::Help(text)) => {
+			println!("{text}");
+			return Ok(());
+		}
+		Ok(ParsedCli::Version(version)) => {
+			println!("{} {version}", usage::usage_spec().bin);
+			return Ok(());
+		}
+		Err(error) => exit_with_usage_error(&error),
+	};
+	if cli.command.is_none()
+		&& let Some(("help", help_command_path)) = cli
+			.run_command_args
+			.split_first()
+			.map(|(first, rest)| (first.as_str(), rest))
+	{
+		print_help_subcommand(help_command_path)?;
+		return Ok(());
+	}
 	let output_mode = OutputMode::resolve(&cli);
 	init_logging(cli.verbose, output_mode);
 
@@ -126,7 +229,7 @@ pub async fn run() -> Result<()> {
 		Some(Commands::Completion(cmd)) => cmd.run()?,
 		Some(Commands::Usage(cmd)) => cmd.run()?,
 		None => {
-			let (command, args) = cli.run_command_args.split_first().ok_or_else(|| {
+			let (command, command_args) = cli.run_command_args.split_first().ok_or_else(|| {
 				eyre!("No command provided. Use `biwa --help` for usage information.")
 			})?;
 			let config = Config::load()?;
@@ -135,7 +238,7 @@ pub async fn run() -> Result<()> {
 				&TransferArgs::default(),
 				run::RemoteCommand {
 					command,
-					command_args: args,
+					command_args,
 					cli_env_vars: &[],
 				},
 				run::RunTransferMode::from_auto(config.sync.auto),
@@ -146,6 +249,19 @@ pub async fn run() -> Result<()> {
 		}
 	}
 
+	Ok(())
+}
+
+/// Prints long help for the subcommand path given to `biwa help [COMMAND]...`.
+fn print_help_subcommand(command_path: &[String]) -> Result<()> {
+	let spec = usage::usage_spec();
+	let mut command = &spec.cmd;
+	for name in command_path {
+		command = command
+			.find_subcommand(name)
+			.ok_or_else(|| eyre!("Unknown command `{name}` for `biwa help`"))?;
+	}
+	println!("{}", render_help(spec, command, true));
 	Ok(())
 }
 
@@ -259,7 +375,7 @@ mod tests {
 	fn cli_pull_is_a_dedicated_subcommand() {
 		let cli = Cli::parse_from(["biwa", "pull"]);
 		assert!(matches!(cli.command, Some(Commands::Pull(_))));
-		Cli::try_parse_from(["biwa", "sync", "--pull"]).unwrap_err();
+		let _pull_on_sync_error = Cli::try_parse_from(["biwa", "sync", "--pull"]).unwrap_err();
 	}
 
 	#[test]

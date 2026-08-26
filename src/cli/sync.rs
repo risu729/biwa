@@ -1,27 +1,27 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
 use crate::cli::transfer::{TransferArgs, record_connection_use};
-use crate::cli::usage::CommandEffects;
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::push_project;
-use clap::Args;
+use ::usage::parse::ParseOutput;
 use tracing::warn;
 
 /// Push local project files to the remote server.
-#[derive(Args, Debug)]
-#[clap(visible_alias = "s", visible_alias = "push")]
+#[derive(Debug)]
 pub(super) struct Sync {
 	/// Project transfer options.
-	#[clap(flatten)]
 	args: TransferArgs,
 }
 
-impl CommandEffects for Sync {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Destructive;
-}
-
 impl Sync {
+	/// Builds the sync command from a successful spec parse.
+	pub(super) fn from_parse(output: &ParseOutput) -> Self {
+		Self {
+			args: TransferArgs::from_parse(output),
+		}
+	}
+
 	/// Run the push logic.
 	pub async fn run(self, quiet: bool) -> Result<()> {
 		let config = Config::load()?;

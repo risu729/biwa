@@ -1,9 +1,10 @@
 use crate::Result;
+use crate::cli::usage::{flag_given, flag_value, flag_values};
 use crate::config::types::Config;
 use crate::ssh::sync::{Options, compute_project_remote_dir, normalize_remote_dir};
 use crate::ssh::target::ResolvedSshTarget;
 use crate::state;
-use clap::Args;
+use ::usage::parse::ParseOutput;
 use std::env;
 #[cfg(unix)]
 use std::fs::{Permissions, set_permissions};
@@ -15,30 +16,24 @@ use std::path::{Path, PathBuf, absolute};
 use tracing::warn;
 
 /// Direction-neutral project transfer arguments.
-#[derive(Args, Debug, Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub(super) struct TransferArgs {
 	/// Local project root used for synchronization.
-	#[arg(long)]
 	pub sync_root: Option<PathBuf>,
 
 	/// Use the current working directory as the local project root instead of the nearest Git root.
-	#[arg(long)]
 	pub sync_cwd: bool,
 
 	/// Override the remote project directory path. Bypasses the default `remote_root` + project name.
-	#[arg(long, short = 'd')]
 	pub remote_dir: Option<String>,
 
 	/// Transfer selected files even when content hashes match.
-	#[arg(long, short = 'f')]
 	pub force: bool,
 
 	/// Exclude files matching these paths or globs.
-	#[arg(long, short = 'e')]
 	pub exclude: Vec<String>,
 
 	/// Only transfer files matching these paths or globs.
-	#[arg(long, short = 'i')]
 	pub include: Vec<String>,
 }
 
@@ -53,6 +48,18 @@ pub(super) struct ResolvedTransfer {
 }
 
 impl TransferArgs {
+	/// Builds the transfer options from a successful spec parse.
+	pub(super) fn from_parse(output: &ParseOutput) -> Self {
+		Self {
+			sync_root: flag_value(output, "sync-root").map(PathBuf::from),
+			sync_cwd: flag_given(output, "sync-cwd"),
+			remote_dir: flag_value(output, "remote-dir"),
+			force: flag_given(output, "force"),
+			exclude: flag_values(output, "exclude"),
+			include: flag_values(output, "include"),
+		}
+	}
+
 	/// Resolve the target for a push or round-trip operation.
 	pub fn resolve(&self, config: &Config) -> Result<ResolvedTransfer> {
 		let local_root = self.resolve_sync_root(config)?;

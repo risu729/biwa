@@ -1,18 +1,32 @@
 use crate::Result;
-use crate::cli::{Cli, apply_command_effects};
-use clap::{Args, CommandFactory as _};
-use usage::{Spec, SpecCommand, SpecCommandEffect};
+use ::usage::Spec;
+use ::usage::parse::{ParseOutput, ParseValue, TokenRole};
+use std::sync::OnceLock;
+
+/// Raw usage spec committed at the repository root.
+///
+/// This file is the source of truth for the CLI surface: commands, flags,
+/// arguments, help text, and effects. It is embedded so the binary parses
+/// arguments against the exact spec that completions and docs are built from.
+const SPEC_KDL: &str = include_str!("../../biwa.usage.kdl");
+
+/// Returns the parsed usage spec with the current crate version applied.
+pub(super) fn usage_spec() -> &'static Spec {
+	static SPEC: OnceLock<Spec> = OnceLock::new();
+	SPEC.get_or_init(|| {
+		let mut spec: Spec = SPEC_KDL
+			.parse()
+			.expect("embedded usage spec must be valid KDL");
+		spec.version = Some(env!("CARGO_PKG_VERSION").to_owned());
+		spec
+	})
+}
 
 /// Generate a usage CLI spec.
 ///
 /// See <https://usage.jdx.dev> for more information.
-#[derive(Args, Debug)]
-#[command(hide = true)]
+#[derive(Debug)]
 pub(super) struct Usage;
-
-impl CommandEffects for Usage {
-	const EFFECT: SpecCommandEffect = SpecCommandEffect::Read;
-}
 
 impl Usage {
 	/// Run the usage spec generation logic.
@@ -22,73 +36,130 @@ impl Usage {
 		reason = "usage subcommand doesn't return Err"
 	)]
 	pub(super) fn run(self) -> Result<()> {
-		let spec = usage_spec();
-		println!("{}", spec.to_string().trim());
+		println!("{}", usage_spec().to_string().trim());
 		Ok(())
 	}
 }
 
-/// Builds the usage specification and annotates command side effects.
-fn usage_spec() -> Spec {
-	let cli = Cli::command();
-	let mut spec: Spec = cli.into();
-	apply_effects(&mut spec);
-	spec
+/// Returns the parsed value bound to a flag, looked up by its spec name.
+fn flag_value_ref<'a>(output: &'a ParseOutput, name: &str) -> Option<&'a ParseValue> {
+	output
+		.flags
+		.iter()
+		.find_map(|(flag, value)| (flag.name == name).then_some(value))
 }
 
-/// Adds conservative effects to commands, flags, and arguments.
-fn apply_effects(spec: &mut Spec) {
-	set_arg_effect(
-		&mut spec.cmd,
-		"RUN_COMMAND_ARGS",
-		SpecCommandEffect::Destructive,
-	);
-	apply_command_effects(&mut spec.cmd);
+/// Returns whether a boolean flag was given.
+pub(super) fn flag_given(output: &ParseOutput, name: &str) -> bool {
+	matches!(
+		flag_value_ref(output, name),
+		Some(&ParseValue::Bool(given)) if given
+	)
 }
 
-/// Lets a CLI command declare its own usage effects.
-pub(super) trait CommandEffects {
-	/// The effect of invoking the command without effect-raising options.
-	const EFFECT: SpecCommandEffect;
-
-	/// Adds this command's effects to its Clap-generated usage command.
-	fn apply_effects(command: &mut SpecCommand) {
-		command.effect = Some(Self::EFFECT);
+/// Returns how many times a count flag was given.
+pub(super) fn flag_count(output: &ParseOutput, name: &str) -> u8 {
+	match flag_value_ref(output, name) {
+		Some(ParseValue::MultiBool(occurrences)) => {
+			u8::try_from(occurrences.len()).unwrap_or(u8::MAX)
+		}
+		_ => 0,
 	}
 }
 
-/// Applies a command type's declared effects to a named subcommand.
-pub(super) fn apply_subcommand_effects<T: CommandEffects>(parent: &mut SpecCommand, name: &str) {
-	let command = parent
-		.subcommands
-		.get_mut(name)
-		.expect("Clap-generated usage spec must contain annotated command");
-	T::apply_effects(command);
+/// Returns the value of a flag that takes a single argument.
+pub(super) fn flag_value(output: &ParseOutput, name: &str) -> Option<String> {
+	match flag_value_ref(output, name) {
+		Some(ParseValue::String(value)) => Some(value.clone()),
+		_ => None,
+	}
 }
 
-/// Sets the effect for a long flag on a command.
-pub(super) fn set_flag_effect(command: &mut SpecCommand, long: &str, effect: SpecCommandEffect) {
-	let flag = command
-		.flags
-		.iter_mut()
-		.find(|flag| flag.long.iter().any(|candidate| candidate == long))
-		.expect("Clap-generated usage spec must contain annotated flag");
-	flag.effect = Some(effect);
+/// Returns the values of a flag that can be given multiple times.
+pub(super) fn flag_values(output: &ParseOutput, name: &str) -> Vec<String> {
+	match flag_value_ref(output, name) {
+		Some(ParseValue::MultiString(values)) => values.clone(),
+		_ => Vec::new(),
+	}
 }
 
-/// Sets the effect for a positional argument on a command.
-fn set_arg_effect(command: &mut SpecCommand, name: &str, effect: SpecCommandEffect) {
-	let arg = command
+/// Returns the parsed value bound to a positional argument.
+fn arg_value_ref<'a>(output: &'a ParseOutput, name: &str) -> Option<&'a ParseValue> {
+	output
 		.args
-		.iter_mut()
-		.find(|arg| arg.name == name)
-		.expect("Clap-generated usage spec must contain annotated argument");
-	arg.effect = Some(effect);
+		.iter()
+		.find_map(|(arg, value)| (arg.name == name).then_some(value))
+}
+
+/// Returns the value of a single-valued positional argument.
+pub(super) fn arg_value(output: &ParseOutput, name: &str) -> Option<String> {
+	match arg_value_ref(output, name) {
+		Some(ParseValue::String(value)) => Some(value.clone()),
+		_ => None,
+	}
+}
+
+/// Returns the values of a variadic positional argument.
+pub(super) fn arg_values(output: &ParseOutput, name: &str) -> Vec<String> {
+	match arg_value_ref(output, name) {
+		Some(ParseValue::MultiString(values)) => values.clone(),
+		_ => Vec::new(),
+	}
+}
+
+/// Returns the values of a trailing variadic argument, keeping a late `--` verbatim.
+///
+/// The usage parser always consumes the first explicit `--` as a separator, even
+/// after a `double_dash=automatic` argument has started collecting values. Clap's
+/// `trailing_var_arg` instead kept such a `--` as an ordinary value (for example
+/// `biwa run sh -c 'test -d "$1"' -- <path>` forwards the `--` to the remote
+/// shell). Re-insert the separator when the trailing capture had already begun.
+pub(super) fn trailing_arg_values(output: &ParseOutput, name: &str) -> Vec<String> {
+	let mut values = arg_values(output, name);
+	let Some(separator_index) = output.tokens.iter().position(|token| {
+		token
+			.roles
+			.iter()
+			.any(|role| matches!(role, TokenRole::Separator))
+	}) else {
+		return values;
+	};
+	let values_before_separator: usize = output
+		.tokens
+		.iter()
+		.take(separator_index)
+		.flat_map(|token| &token.roles)
+		.map(|role| {
+			if let TokenRole::Arg {
+				arg,
+				values: bound_values,
+			} = role
+			{
+				if arg.name == name {
+					bound_values.len()
+				} else {
+					0
+				}
+			} else if let TokenRole::UnknownFlag {
+				bound_as: Some(arg),
+			} = role
+			{
+				usize::from(arg.name == name)
+			} else {
+				0
+			}
+		})
+		.sum();
+	if values_before_separator > 0 && values_before_separator <= values.len() {
+		values.insert(values_before_separator, "--".to_owned());
+	}
+	values
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use ::usage::SpecCommandEffect;
 	use pretty_assertions::assert_eq;
 
 	#[test]
@@ -102,11 +173,17 @@ mod tests {
 
 	#[test]
 	fn usage_spec_matches_committed_artifact() {
-		let spec = usage_spec();
-
 		assert_eq!(
-			spec.to_string().trim(),
+			usage_spec().to_string().trim(),
 			include_str!("../../biwa.usage.kdl").trim()
+		);
+	}
+
+	#[test]
+	fn usage_spec_version_tracks_the_crate() {
+		assert_eq!(
+			usage_spec().version.as_deref(),
+			Some(env!("CARGO_PKG_VERSION"))
 		);
 	}
 
