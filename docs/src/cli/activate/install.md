@@ -4,9 +4,10 @@
 - **Usage:** `biwa activate install [-f --force]`
 - **Effect:** modifies state
 
-Reconcile configured direct command shims
+Reconcile configured direct command shims.
 
 ## Flags
-- **`-f --force`** — Replace existing entries not already managed by biwa
+- **`-f --force`** — Replace existing entries not already managed by biwa.
 
   **Effect:** destructive — may delete or irreversibly overwrite
+- **`-h --help`** — Print help

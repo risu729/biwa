@@ -4,24 +4,18 @@ use crate::cli::transfer::{TransferArgs, record_connection_use};
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::push_project;
-use ::usage::parse::ParseOutput;
 use tracing::warn;
 
-/// Push local project files to the remote server.
-#[derive(Debug)]
+/// Push local project files to the remote host.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "destructive")]
 pub(super) struct Sync {
 	/// Project transfer options.
+	#[usage(flatten)]
 	args: TransferArgs,
 }
 
 impl Sync {
-	/// Builds the sync command from a successful spec parse.
-	pub(super) fn from_parse(output: &ParseOutput) -> Self {
-		Self {
-			args: TransferArgs::from_parse(output),
-		}
-	}
-
 	/// Run the push logic.
 	pub async fn run(self, quiet: bool) -> Result<()> {
 		let config = Config::load()?;

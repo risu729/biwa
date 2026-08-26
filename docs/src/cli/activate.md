@@ -4,14 +4,15 @@
 - **Usage:** `biwa activate [--shell <SHELL>] <SUBCOMMAND>`
 - **Effect:** read-only
 
-Print shell activation code and manage direct command shims
+Print shell activation code and manage direct command shims.
 
 ## Flags
-- **`--shell <SHELL>`** — Print activation code for this shell
+- **`--shell <SHELL>`** — Print activation code for this shell.
 
   **Effect:** modifies state
 
   **Choices:** `bash`, `zsh`, `fish`
+- **`-h --help`** — Print help
 
 ## Subcommands
 

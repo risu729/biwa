@@ -1,31 +1,24 @@
 use crate::Result;
-use crate::cli::usage::{flag_given, flag_value};
 use crate::{config::format::ConfigFormat, config::types::Config};
-use ::usage::parse::ParseOutput;
 use color_eyre::eyre::{bail, eyre};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
 
-/// Initialize a new configuration file.
-#[derive(Debug)]
+/// Initialize a biwa configuration file.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "write")]
 pub(super) struct Init {
 	/// Force overwrite if file exists.
+	#[usage(long, short, effect = "destructive")]
 	force: bool,
 
 	/// Format to generate (toml, json, jsonc, json5, yaml, yml).
+	#[usage(long, default = "toml")]
 	format: String,
 }
 
 impl Init {
-	/// Builds the init command from a successful spec parse.
-	pub(super) fn from_parse(output: &ParseOutput) -> Self {
-		Self {
-			force: flag_given(output, "force"),
-			format: flag_value(output, "format").unwrap_or_else(|| "toml".to_owned()),
-		}
-	}
-
 	/// Run the initialization logic.
 	pub(super) fn run(self) -> Result<()> {
 		let (filename, content) = self.generate()?;

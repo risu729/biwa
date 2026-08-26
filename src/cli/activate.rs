@@ -1,8 +1,6 @@
 use crate::Result;
 use crate::cli::run::validate_direct_options;
-use crate::cli::usage::{flag_given, flag_value};
 use crate::config::types::Config;
-use ::usage::parse::ParseOutput;
 use alloc::collections::BTreeSet;
 use color_eyre::eyre::{WrapErr as _, bail};
 use std::env;
@@ -14,34 +12,47 @@ use std::path::{Path, PathBuf};
 /// File recording the shim names created by biwa in a configured directory.
 const MANAGED_SHIMS_FILE: &str = ".biwa-managed-shims";
 
-/// Shell activation and direct command shim management.
-#[derive(Debug)]
+/// Print shell activation code and manage direct command shims.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "read")]
 pub(super) struct Activate {
 	/// Print activation code for this shell.
+	#[usage(long, value_enum, effect = "write")]
 	shell: Option<ActivationShell>,
 
 	/// Activation command to run.
+	#[usage(subcommand)]
 	command: Option<ActivateCommand>,
 }
 
 /// Supported activation commands.
-#[derive(Debug)]
+///
+/// Help text comes from each command struct's doc comment; variant doc
+/// comments here are for code readers only and must not diverge.
+#[derive(usage_rs::Subcommands, Debug)]
 enum ActivateCommand {
 	/// Reconcile configured direct command shims.
 	Install(Install),
 	/// Print diagnostic information for direct command activation.
-	Doctor,
+	Doctor(Doctor),
 }
 
-/// Direct command shim installation options.
-#[derive(Debug)]
+/// Reconcile configured direct command shims.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "write")]
 struct Install {
 	/// Replace existing entries not already managed by biwa.
+	#[usage(long, short, effect = "destructive")]
 	force: bool,
 }
 
+/// Print diagnostic information for direct command activation.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "read")]
+struct Doctor;
+
 /// Shells that can receive activation code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(usage_rs::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 enum ActivationShell {
 	/// Bash shell.
 	Bash,
@@ -49,18 +60,6 @@ enum ActivationShell {
 	Zsh,
 	/// Fish shell.
 	Fish,
-}
-
-impl ActivationShell {
-	/// Parses a shell name from the usage spec's `--shell` choices.
-	fn from_name(name: &str) -> Result<Self> {
-		match name {
-			"bash" => Ok(Self::Bash),
-			"zsh" => Ok(Self::Zsh),
-			"fish" => Ok(Self::Fish),
-			other => bail!("Unknown activation shell `{other}`"),
-		}
-	}
 }
 
 /// Result from a shim installation run.
@@ -84,24 +83,6 @@ enum ShimInstallStatus {
 }
 
 impl Activate {
-	/// Builds the activate command from a successful spec parse.
-	pub(super) fn from_parse(output: &ParseOutput) -> Result<Self> {
-		let command = match output.cmds.get(2).map(|cmd| cmd.name.as_str()) {
-			None => None,
-			Some("install") => Some(ActivateCommand::Install(Install {
-				force: flag_given(output, "force"),
-			})),
-			Some("doctor") => Some(ActivateCommand::Doctor),
-			Some(other) => bail!("Unhandled activate command `{other}` in usage spec"),
-		};
-		Ok(Self {
-			shell: flag_value(output, "shell")
-				.map(|shell| ActivationShell::from_name(&shell))
-				.transpose()?,
-			command,
-		})
-	}
-
 	/// Runs the activation command.
 	pub(super) fn run(self) -> Result<()> {
 		let config = Config::load_global_optional_ssh()?;
@@ -114,7 +95,7 @@ impl Activate {
 				print_install_report(&report);
 				did_work = true;
 			}
-			Some(ActivateCommand::Doctor) => {
+			Some(ActivateCommand::Doctor(_)) => {
 				print_doctor(&config)?;
 				did_work = true;
 			}

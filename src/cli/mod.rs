@@ -2,18 +2,15 @@ use crate::Result;
 use crate::cli::transfer::TransferArgs;
 use crate::config::types::Config;
 use crate::env_flag;
-use ::usage::docs::cli::render_help;
-use ::usage::error::UsageErr;
-use ::usage::parse::{ParseOutput, Parser as UsageParser};
-use color_eyre::eyre::{bail, eyre};
-use itertools::Itertools as _;
+use color_eyre::eyre::eyre;
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::process;
 use tracing::Level;
 use tracing_subscriber::{
 	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
 };
+use usage_rs::help;
 
 /// Shell activation and direct command shims.
 mod activate;
@@ -36,43 +33,66 @@ mod transfer;
 /// Usage specification generation command.
 mod usage;
 
-/// Parsed CLI arguments.
-///
-/// Argument definitions live in the usage spec (`biwa.usage.kdl`); this struct
-/// is built from the spec parser's output.
-#[derive(Debug)]
+/// CLI arguments parser.
+#[derive(usage_rs::Cli, Debug)]
+#[usage(
+	name = "biwa",
+	bin = "biwa",
+	version,
+	about,
+	arg_required_else_help = true,
+	completion = true
+)]
 struct Cli {
 	/// The command to run on the remote host.
+	#[usage(subcommand)]
 	command: Option<Commands>,
 
 	/// The arguments for the command to run on the remote host.
+	#[usage(double_dash = "automatic", hide = true)]
 	run_command_args: Vec<String>,
 
-	/// The verbosity level (number of `-v` flags).
+	/// Set the verbosity level.
+	///
+	/// Can be used multiple times to increase verbosity (e.g., -v, -vv, -vvv).
+	/// By default, only warnings and errors are shown.
+	/// -v: info
+	/// -vv: debug
+	/// -vvv: trace
+	#[expect(
+		clippy::doc_paragraphs_missing_punctuation,
+		reason = "no need to add period after the list of options"
+	)]
+	#[usage(short, long, count, global = true, verbatim_doc_comment)]
 	verbose: u8,
 
 	/// Suppress biwa internal logs, only showing remote command output.
+	#[usage(short, long, global = true)]
 	quiet: bool,
 
 	/// Suppress all output, including remote command stdout/stderr.
+	#[usage(short, long, global = true)]
 	silent: bool,
 }
 
 /// Supported subcommands for the biwa CLI.
-#[derive(Debug)]
+///
+/// Help text comes from each command struct's doc comment; variant doc
+/// comments here are for code readers only and must not diverge.
+#[derive(usage_rs::Subcommands, Debug)]
 enum Commands {
 	/// Print shell activation code and manage direct command shims.
 	Activate(activate::Activate),
 	/// Run commands on remote host.
+	#[usage(visible_alias = "r")]
 	Run(run::Run),
 	/// Push local project files to the remote host.
+	#[usage(visible_aliases = ["s", "push"])]
 	Sync(sync::Sync),
 	/// Mirror remote project files into the local root.
-	///
-	/// The remote project is the source of truth. Selected local files and
-	/// directories that are absent remotely are deleted.
 	Pull(pull::Pull),
 	/// Clean stale remote project directories.
+	#[usage(visible_alias = "c")]
 	Clean(clean::Clean),
 	/// Initialize a biwa configuration file.
 	Init(init::Init),
@@ -84,137 +104,91 @@ enum Commands {
 	Usage(usage::Usage),
 }
 
-/// Result of parsing CLI arguments, including built-in early exits.
-enum ParsedCli {
-	/// A regular invocation.
-	Cli(Cli),
-	/// `-h`/`--help` was given; contains the rendered help text.
-	Help(String),
-	/// `-V`/`--version` was given; contains the version string.
-	Version(String),
-}
-
-/// Parses an argv (including `argv[0]`) against the usage spec.
-fn parse_cli(argv: &[String]) -> Result<ParsedCli> {
-	let spec = usage::usage_spec();
-	let output = UsageParser::new(spec)
-		.explain(argv)
-		.map_err(|error| eyre!("{error}"))?;
-	for error in &output.errors {
-		if let UsageErr::Help(text) = error {
-			return Ok(ParsedCli::Help(text.clone()));
-		}
-		if let UsageErr::Version(version) = error {
-			return Ok(ParsedCli::Version(version.clone()));
-		}
-	}
-	if !output.errors.is_empty() {
-		bail!(
-			"{}",
-			output.errors.iter().map(ToString::to_string).join("\n")
-		);
-	}
-	Ok(ParsedCli::Cli(Cli::from_parse_output(&output)?))
-}
-
 impl Cli {
-	/// Builds the CLI representation from a successful spec parse.
-	fn from_parse_output(output: &ParseOutput) -> Result<Self> {
-		let command = match output.cmds.get(1).map(|cmd| cmd.name.as_str()) {
-			None => None,
-			Some("activate") => Some(Commands::Activate(activate::Activate::from_parse(output)?)),
-			Some("run") => Some(Commands::Run(run::Run::from_parse(output)?)),
-			Some("sync") => Some(Commands::Sync(sync::Sync::from_parse(output))),
-			Some("pull") => Some(Commands::Pull(pull::Pull::from_parse(output))),
-			Some("clean") => Some(Commands::Clean(clean::Clean::from_parse(output)?)),
-			Some("init") => Some(Commands::Init(init::Init::from_parse(output))),
-			Some("schema") => Some(Commands::Schema(schema::Schema)),
-			Some("completion") => Some(Commands::Completion(completion::Completion::from_parse(
-				output,
-			)?)),
-			Some("usage") => Some(Commands::Usage(usage::Usage)),
-			Some(other) => bail!("Unhandled command `{other}` in usage spec"),
-		};
-		Ok(Self {
-			command,
-			run_command_args: usage::arg_values(output, "RUN_COMMAND_ARGS"),
-			verbose: usage::flag_count(output, "verbose"),
-			quiet: usage::flag_given(output, "quiet"),
-			silent: usage::flag_given(output, "silent"),
+	/// Parses CLI arguments, returning an error for invalid input.
+	fn try_parse_args<I: IntoIterator<Item = S>, S: Into<OsString>>(args: I) -> Result<Self> {
+		let words: Vec<OsString> = args.into_iter().map(Into::into).collect();
+		let word_refs: Vec<&OsStr> = words.iter().map(OsString::as_os_str).collect();
+		Self::parse_from_argv(&word_refs).map_err(|error| {
+			eyre!(
+				"{}",
+				usage_rs::render_failure_plain(
+					Self::spec(),
+					word_refs.get(1..).unwrap_or_default(),
+					&error
+				)
+			)
 		})
-	}
-
-	/// Parses CLI arguments, returning an error for invalid or early-exit input.
-	fn try_parse_from<I: IntoIterator<Item = S>, S: Into<String>>(args: I) -> Result<Self> {
-		let words: Vec<String> = args.into_iter().map(Into::into).collect();
-		match parse_cli(&words)? {
-			ParsedCli::Cli(cli) => Ok(cli),
-			ParsedCli::Help(_) => bail!("Unexpected --help in programmatic CLI arguments"),
-			ParsedCli::Version(_) => bail!("Unexpected --version in programmatic CLI arguments"),
-		}
 	}
 
 	/// Parses CLI arguments, panicking on invalid input (test helper).
 	#[cfg(test)]
-	fn parse_from<I: IntoIterator<Item = S>, S: Into<String>>(args: I) -> Self {
-		Self::try_parse_from(args).expect("CLI arguments should parse")
+	fn parse_unchecked<I: IntoIterator<Item = S>, S: Into<OsString>>(args: I) -> Self {
+		Self::try_parse_args(args).expect("CLI arguments should parse")
 	}
 }
 
-/// Converts OS argv entries into UTF-8 strings.
-fn argv_strings(args: impl IntoIterator<Item = OsString>) -> Result<Vec<String>> {
-	args.into_iter()
-		.map(|arg| {
-			arg.into_string()
-				.map_err(|arg| eyre!("Argument {arg:?} is not valid UTF-8"))
-		})
-		.collect()
-}
-
-/// Prints a usage error and exits with the conventional CLI error status.
+/// Answers a built-in request or renders a parse failure, then exits.
+///
+/// Help and version requests go to stdout and exit 0; everything else is a
+/// usage failure that goes to stderr and exits 2, following CLI conventions.
 #[expect(
 	clippy::exit,
-	reason = "argument parsing failures exit with status 2, matching common CLI conventions"
+	reason = "argument parsing is the process entry; built-ins and failures exit directly"
 )]
-fn exit_with_usage_error(error: &color_eyre::Report) -> ! {
-	eprintln!("{error:#}");
-	process::exit(2)
+#[expect(
+	clippy::wildcard_enum_match_arm,
+	reason = "usage_rs::Error is non-exhaustive; every other variant is a parse failure"
+)]
+fn usage_error(argv: &[&OsStr], error: usage_rs::Error<'_, '_>) -> ! {
+	let spec = Cli::spec();
+	match error {
+		usage_rs::Error::Help { cmd, long } => {
+			if let Some(page) = help::render(spec, cmd, long) {
+				print!("{page}");
+			}
+			process::exit(0)
+		}
+		usage_rs::Error::HelpAll { cmd } => {
+			if let Some(page) = help::render_all(spec, cmd) {
+				print!("{page}");
+			}
+			process::exit(0)
+		}
+		usage_rs::Error::MissingArgsHelp { cmd } => {
+			if let Some(page) = help::render(spec, cmd, false) {
+				eprint!("{page}");
+			}
+			process::exit(2)
+		}
+		usage_rs::Error::Version { long } => {
+			let version = if long {
+				spec.long_version.or(spec.version)
+			} else {
+				spec.version
+			}
+			.unwrap_or_default();
+			println!("{} {version}", spec.name);
+			process::exit(0)
+		}
+		failure => {
+			eprint!("{}", usage_rs::render_failure(spec, argv, &failure));
+			process::exit(2)
+		}
+	}
 }
 
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
 pub async fn run() -> Result<()> {
-	let argv = argv_strings(activate::expand_direct_invocation(env::args_os())?)?;
-	if argv.len() <= 1 {
-		// Bare `biwa` prints help and fails, mirroring Clap's `arg_required_else_help`.
-		let spec = usage::usage_spec();
-		eprintln!("{}", render_help(spec, &spec.cmd, false));
-		#[expect(
-			clippy::exit,
-			reason = "an argument-less invocation exits with status 2, matching common CLI conventions"
-		)]
-		process::exit(2);
-	}
-	let cli = match parse_cli(&argv) {
-		Ok(ParsedCli::Cli(cli)) => cli,
-		Ok(ParsedCli::Help(text)) => {
-			println!("{text}");
-			return Ok(());
-		}
-		Ok(ParsedCli::Version(version)) => {
-			println!("{} {version}", usage::usage_spec().bin);
-			return Ok(());
-		}
-		Err(error) => exit_with_usage_error(&error),
-	};
-	if cli.command.is_none()
-		&& let Some(("help", help_command_path)) = cli
-			.run_command_args
-			.split_first()
-			.map(|(first, rest)| (first.as_str(), rest))
-	{
-		print_help_subcommand(help_command_path)?;
+	let args = activate::expand_direct_invocation(env::args_os())?;
+	// Answer the hidden shell completion protocol before anything else runs.
+	if let Some(answer) = completion::completion_request(args.get(1..).unwrap_or_default()) {
+		print!("{answer}");
 		return Ok(());
 	}
+	let arg_refs: Vec<&OsStr> = args.iter().map(OsString::as_os_str).collect();
+	let cli = Cli::parse_from_argv(&arg_refs)
+		.unwrap_or_else(|error| usage_error(arg_refs.get(1..).unwrap_or_default(), error));
 	let output_mode = OutputMode::resolve(&cli);
 	init_logging(cli.verbose, output_mode);
 
@@ -249,19 +223,6 @@ pub async fn run() -> Result<()> {
 		}
 	}
 
-	Ok(())
-}
-
-/// Prints long help for the subcommand path given to `biwa help [COMMAND]...`.
-fn print_help_subcommand(command_path: &[String]) -> Result<()> {
-	let spec = usage::usage_spec();
-	let mut command = &spec.cmd;
-	for name in command_path {
-		command = command
-			.find_subcommand(name)
-			.ok_or_else(|| eyre!("Unknown command `{name}` for `biwa help`"))?;
-	}
-	println!("{}", render_help(spec, command, true));
 	Ok(())
 }
 
@@ -366,82 +327,82 @@ mod tests {
 
 	#[test]
 	fn cli_run_subcommand() {
-		let cli = Cli::parse_from(["biwa", "run", "ls", "-la"]);
+		let cli = Cli::parse_unchecked(["biwa", "run", "ls", "-la"]);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
 		assert!(cli.run_command_args.is_empty());
 	}
 
 	#[test]
 	fn cli_pull_is_a_dedicated_subcommand() {
-		let cli = Cli::parse_from(["biwa", "pull"]);
+		let cli = Cli::parse_unchecked(["biwa", "pull"]);
 		assert!(matches!(cli.command, Some(Commands::Pull(_))));
-		let _pull_on_sync_error = Cli::try_parse_from(["biwa", "sync", "--pull"]).unwrap_err();
+		let _pull_on_sync_error = Cli::try_parse_args(["biwa", "sync", "--pull"]).unwrap_err();
 	}
 
 	#[test]
 	fn cli_push_is_a_sync_alias() {
-		let cli = Cli::parse_from(["biwa", "push"]);
+		let cli = Cli::parse_unchecked(["biwa", "push"]);
 		assert!(matches!(cli.command, Some(Commands::Sync(_))));
 	}
 
 	#[test]
 	fn cli_activate_subcommand() {
-		let cli = Cli::parse_from(["biwa", "activate", "--shell", "bash"]);
+		let cli = Cli::parse_unchecked(["biwa", "activate", "--shell", "bash"]);
 		assert!(matches!(cli.command, Some(Commands::Activate(_))));
 		assert!(cli.run_command_args.is_empty());
 
-		let cli = Cli::parse_from(["biwa", "activate", "doctor"]);
+		let cli = Cli::parse_unchecked(["biwa", "activate", "doctor"]);
 		assert!(matches!(cli.command, Some(Commands::Activate(_))));
 		assert!(cli.run_command_args.is_empty());
 
-		let cli = Cli::parse_from(["biwa", "activate", "install", "--force"]);
+		let cli = Cli::parse_unchecked(["biwa", "activate", "install", "--force"]);
 		assert!(matches!(cli.command, Some(Commands::Activate(_))));
 		assert!(cli.run_command_args.is_empty());
 	}
 
 	#[test]
 	fn cli_implicit_run_command() {
-		let cli = Cli::parse_from(["biwa", "ls", "-la"]);
+		let cli = Cli::parse_unchecked(["biwa", "ls", "-la"]);
 		assert!(cli.command.is_none());
 		assert_eq!(cli.run_command_args, vec!["ls", "-la"]);
 	}
 
 	#[test]
 	fn cli_verbose() {
-		let cli = Cli::parse_from(["biwa", "-v", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "-v", "ls"]);
 		assert_eq!(cli.verbose, 1);
 
-		let cli = Cli::parse_from(["biwa", "-vv", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "-vv", "ls"]);
 		assert_eq!(cli.verbose, 2);
 
-		let cli = Cli::parse_from(["biwa", "-vvv", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "-vvv", "ls"]);
 		assert_eq!(cli.verbose, 3);
 	}
 
 	#[test]
 	fn cli_run_with_verbose() {
-		let cli = Cli::parse_from(["biwa", "-vv", "run", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "-vv", "run", "ls"]);
 		assert_eq!(cli.verbose, 2);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
 	}
 
 	#[test]
 	fn cli_quiet() {
-		let cli = Cli::parse_from(["biwa", "-q", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "-q", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.run_command_args, vec!["ls"]);
 	}
 
 	#[test]
 	fn cli_quiet_long() {
-		let cli = Cli::parse_from(["biwa", "--quiet", "run", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "--quiet", "run", "ls"]);
 		assert!(cli.quiet);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
 	}
 
 	#[test]
 	fn cli_quiet_with_verbose() {
-		let cli = Cli::parse_from(["biwa", "-q", "-vv", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "-q", "-vv", "ls"]);
 		assert!(cli.quiet);
 		assert_eq!(cli.verbose, 2);
 	}
@@ -452,7 +413,7 @@ mod tests {
 		let _quiet_cleanup = EnvCleanup::remove("BIWA_LOG_QUIET");
 		let _silent_cleanup = EnvCleanup::remove("BIWA_LOG_SILENT");
 
-		let cli = Cli::parse_from(["biwa", "run", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "run", "ls"]);
 		assert_eq!(
 			OutputMode::resolve(&cli),
 			OutputMode {
@@ -468,7 +429,7 @@ mod tests {
 		let _quiet_cleanup = EnvCleanup::set("BIWA_LOG_QUIET", "true");
 		let _silent_cleanup = EnvCleanup::set("BIWA_LOG_SILENT", "0");
 
-		let cli = Cli::parse_from(["biwa", "run", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "run", "ls"]);
 		assert_eq!(
 			OutputMode::resolve(&cli),
 			OutputMode {
@@ -484,7 +445,7 @@ mod tests {
 		let _quiet_cleanup = EnvCleanup::remove("BIWA_LOG_QUIET");
 		let _silent_cleanup = EnvCleanup::set("BIWA_LOG_SILENT", "yes");
 
-		let cli = Cli::parse_from(["biwa", "run", "ls"]);
+		let cli = Cli::parse_unchecked(["biwa", "run", "ls"]);
 		assert_eq!(
 			OutputMode::resolve(&cli),
 			OutputMode {

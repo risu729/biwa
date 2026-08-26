@@ -1,31 +1,11 @@
 use crate::Result;
-use ::usage::Spec;
-use ::usage::parse::{ParseOutput, ParseValue};
-use std::sync::OnceLock;
+use crate::cli::Cli;
 
-/// Raw usage spec committed at the repository root.
-///
-/// This file is the source of truth for the CLI surface: commands, flags,
-/// arguments, help text, and effects. It is embedded so the binary parses
-/// arguments against the exact spec that completions and docs are built from.
-const SPEC_KDL: &str = include_str!("../../biwa.usage.kdl");
-
-/// Returns the parsed usage spec with the current crate version applied.
-pub(super) fn usage_spec() -> &'static Spec {
-	static SPEC: OnceLock<Spec> = OnceLock::new();
-	SPEC.get_or_init(|| {
-		let mut spec: Spec = SPEC_KDL
-			.parse()
-			.expect("embedded usage spec must be valid KDL");
-		spec.version = Some(env!("CARGO_PKG_VERSION").to_owned());
-		spec
-	})
-}
-
-/// Generate a usage CLI spec.
+/// Generate usage command specifications.
 ///
 /// See <https://usage.jdx.dev> for more information.
-#[derive(Debug)]
+#[derive(usage_rs::Args, Debug)]
+#[usage(hide = true, effect = "read")]
 pub(super) struct Usage;
 
 impl Usage {
@@ -36,87 +16,27 @@ impl Usage {
 		reason = "usage subcommand doesn't return Err"
 	)]
 	pub(super) fn run(self) -> Result<()> {
-		println!("{}", usage_spec().to_string().trim());
+		println!("{}", Cli::to_kdl().trim());
 		Ok(())
-	}
-}
-
-/// Returns the parsed value bound to a flag, looked up by its spec name.
-fn flag_value_ref<'a>(output: &'a ParseOutput, name: &str) -> Option<&'a ParseValue> {
-	output
-		.flags
-		.iter()
-		.find_map(|(flag, value)| (flag.name == name).then_some(value))
-}
-
-/// Returns whether a boolean flag was given.
-pub(super) fn flag_given(output: &ParseOutput, name: &str) -> bool {
-	matches!(
-		flag_value_ref(output, name),
-		Some(&ParseValue::Bool(given)) if given
-	)
-}
-
-/// Returns how many times a count flag was given.
-pub(super) fn flag_count(output: &ParseOutput, name: &str) -> u8 {
-	match flag_value_ref(output, name) {
-		Some(ParseValue::MultiBool(occurrences)) => {
-			u8::try_from(occurrences.len()).unwrap_or(u8::MAX)
-		}
-		_ => 0,
-	}
-}
-
-/// Returns the value of a flag that takes a single argument.
-pub(super) fn flag_value(output: &ParseOutput, name: &str) -> Option<String> {
-	match flag_value_ref(output, name) {
-		Some(ParseValue::String(value)) => Some(value.clone()),
-		_ => None,
-	}
-}
-
-/// Returns the values of a flag that can be given multiple times.
-pub(super) fn flag_values(output: &ParseOutput, name: &str) -> Vec<String> {
-	match flag_value_ref(output, name) {
-		Some(ParseValue::MultiString(values)) => values.clone(),
-		_ => Vec::new(),
-	}
-}
-
-/// Returns the parsed value bound to a positional argument.
-fn arg_value_ref<'a>(output: &'a ParseOutput, name: &str) -> Option<&'a ParseValue> {
-	output
-		.args
-		.iter()
-		.find_map(|(arg, value)| (arg.name == name).then_some(value))
-}
-
-/// Returns the value of a single-valued positional argument.
-pub(super) fn arg_value(output: &ParseOutput, name: &str) -> Option<String> {
-	match arg_value_ref(output, name) {
-		Some(ParseValue::String(value)) => Some(value.clone()),
-		_ => None,
-	}
-}
-
-/// Returns the values of a variadic positional argument.
-pub(super) fn arg_values(output: &ParseOutput, name: &str) -> Vec<String> {
-	match arg_value_ref(output, name) {
-		Some(ParseValue::MultiString(values)) => values.clone(),
-		_ => Vec::new(),
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ::usage::SpecCommandEffect;
+	use ::usage::{Spec, SpecCommandEffect};
 	use pretty_assertions::assert_eq;
+
+	/// Parses the emitted spec the way external usage consumers do.
+	fn parsed_spec() -> Spec {
+		Cli::to_kdl()
+			.parse()
+			.expect("emitted usage spec must be valid KDL")
+	}
 
 	#[test]
 	fn usage_spec_generation() {
-		let spec = usage_spec();
-		let output = spec.to_string();
+		let output = Cli::to_kdl();
 		assert!(!output.is_empty());
 		// Should contain the biwa command
 		assert!(output.contains("biwa"));
@@ -125,7 +45,7 @@ mod tests {
 	#[test]
 	fn usage_spec_matches_committed_artifact() {
 		assert_eq!(
-			usage_spec().to_string().trim(),
+			Cli::to_kdl().trim(),
 			include_str!("../../biwa.usage.kdl").trim()
 		);
 	}
@@ -133,7 +53,7 @@ mod tests {
 	#[test]
 	fn usage_spec_version_tracks_the_crate() {
 		assert_eq!(
-			usage_spec().version.as_deref(),
+			parsed_spec().version.as_deref(),
 			Some(env!("CARGO_PKG_VERSION"))
 		);
 	}
@@ -142,9 +62,12 @@ mod tests {
 	fn usage_spec_declares_effects() {
 		use SpecCommandEffect::{Destructive, Read, Write};
 
-		let spec = usage_spec();
+		let spec = parsed_spec();
+		// usage-rs allows effects on commands and flags only, so the hidden
+		// implicit-run argument carries none: consumers treat the implicit
+		// `biwa <cmd>` form as "unknown", the conservative reading.
 		assert_eq!(spec.cmd.effect, None);
-		assert_eq!(spec.cmd.max_effect(), Some(Destructive));
+		assert_eq!(spec.cmd.max_effect(), None);
 
 		let activate = spec
 			.cmd

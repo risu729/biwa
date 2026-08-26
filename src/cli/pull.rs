@@ -4,24 +4,21 @@ use crate::cli::transfer::{TransferArgs, record_connection_use};
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::pull_project;
-use ::usage::parse::ParseOutput;
 use tracing::warn;
 
 /// Mirror remote project files into the local root.
-#[derive(Debug)]
+///
+/// The remote project is the source of truth. Selected local files and
+/// directories that are absent remotely are deleted.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "destructive")]
 pub(super) struct Pull {
 	/// Project transfer options.
+	#[usage(flatten)]
 	args: TransferArgs,
 }
 
 impl Pull {
-	/// Builds the pull command from a successful spec parse.
-	pub(super) fn from_parse(output: &ParseOutput) -> Self {
-		Self {
-			args: TransferArgs::from_parse(output),
-		}
-	}
-
 	/// Run the destructive pull logic.
 	pub async fn run(self, quiet: bool) -> Result<()> {
 		let config = Config::load()?;

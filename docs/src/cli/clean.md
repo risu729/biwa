@@ -5,14 +5,15 @@
 - **Aliases:** `c`
 - **Effect:** destructive — may delete or irreversibly overwrite
 
-Clean stale remote project directories
+Clean stale remote project directories.
 
 ## Arguments
-- **`[ACTION]`** — Optional clean action (`stop` stops the background cleanup daemon)
+- **`[ACTION]`** — Optional clean action (`stop` stops the background cleanup daemon).
 
   **Choices:** `stop`
 
 ## Flags
-- **`--all`** — Remove all this client's tracked remote directories
-- **`--purge`** — Remove ALL biwa directories under `remote_root` (including other clients)
-- **`--dry-run`** — Preview what would be removed without deleting
+- **`--all`** — Remove all this client's tracked remote directories.
+- **`--purge`** — Remove ALL biwa directories under `remote_root` (including other clients).
+- **`--dry-run`** — Preview what would be removed without deleting.
+- **`-h --help`** — Print help

@@ -5,21 +5,22 @@
 - **Aliases:** `r`
 - **Effect:** destructive — may delete or irreversibly overwrite
 
-Run commands on remote host
+Run commands on remote host.
 
 ## Arguments
-- **`<COMMAND>`** — The command to run
-- **`[COMMAND_ARGS]…`** — The arguments for the command
+- **`<COMMAND>`** — The command to run.
+- **`[COMMAND_ARGS]…`** — The arguments for the command.
 
 ## Flags
-- **`--skip-sync`** — Skip automatic synchronization before running the command (automatically selected if --remote-dir is used)
-- **`--sync`** — Push project files before running, even when sync.auto is disabled or --remote-dir is set
+- **`--skip-sync`** — Skip automatic synchronization before running the command (automatically selected if --remote-dir is used).
+- **`--sync`** — Push project files before running, even when sync.auto is disabled or --remote-dir is set.
 - **`--pull`** — Push before running, then mirror the remote project back after a successful command. May overwrite or delete local files.
 - **`--pull-always`** — Push before running, then mirror the remote project back after any confirmed exit status. May overwrite or delete local files.
-- **`--sync-root <SYNC_ROOT>`** — Local project root used for synchronization
-- **`--sync-cwd`** — Use the current working directory as the local project root instead of the nearest Git root
-- **`-d --remote-dir <REMOTE_DIR>`** — Override the remote project directory path. Bypasses the default `remote_root` + project name
-- **`-f --force`** — Transfer selected files even when content hashes match
-- **`-e --exclude <EXCLUDE>`** — Exclude files matching these paths or globs
-- **`-i --include <INCLUDE>`** — Only transfer files matching these paths or globs
-- **`--env <ENV_VARS>`** — Send environment variables to the remote process. Supports `NAME`, `NAME=value`, wildcard patterns like `NODE_*`, and exclusions like `!*PATH`
+- **`--sync-root <SYNC_ROOT>`** — Local project root used for synchronization.
+- **`--sync-cwd`** — Use the current working directory as the local project root instead of the nearest Git root.
+- **`-d --remote-dir <REMOTE_DIR>`** — Override the remote project directory path. Bypasses the default `remote_root` + project name.
+- **`-f --force`** — Transfer selected files even when content hashes match.
+- **`-e --exclude <EXCLUDE>`** — Exclude files matching these paths or globs.
+- **`-i --include <INCLUDE>`** — Only transfer files matching these paths or globs.
+- **`--env <ENV>`** — Send environment variables to the remote process. Supports `NAME`, `NAME=value`, wildcard patterns like `NODE_*`, and exclusions like `!*PATH`.
+- **`-h --help`** — Print help

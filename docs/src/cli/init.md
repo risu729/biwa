@@ -4,12 +4,13 @@
 - **Usage:** `biwa init [-f --force] [--format <FORMAT>]`
 - **Effect:** modifies state
 
-Initialize a biwa configuration file
+Initialize a biwa configuration file.
 
 ## Flags
-- **`-f --force`** — Force overwrite if file exists
+- **`-f --force`** — Force overwrite if file exists.
 
   **Effect:** destructive — may delete or irreversibly overwrite
-- **`--format <FORMAT>`** — Format to generate (toml, json, jsonc, json5, yaml, yml)
+- **`--format <FORMAT>`** — Format to generate (toml, json, jsonc, json5, yaml, yml).
 
   **Default:** `toml`
+- **`-h --help`** — Print help

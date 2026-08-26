@@ -2,8 +2,9 @@ use crate::Result;
 use crate::config::types::Config;
 use schemars::{generate::SchemaSettings, transform::RestrictFormats};
 
-/// Generate the configuration schema.
-#[derive(Debug)]
+/// Generate the JSON schema for the configuration.
+#[derive(usage_rs::Args, Debug)]
+#[usage(hide = true, effect = "read")]
 pub(super) struct Schema;
 
 impl Schema {

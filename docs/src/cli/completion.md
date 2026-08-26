@@ -4,9 +4,12 @@
 - **Usage:** `biwa completion <SHELL>`
 - **Effect:** read-only
 
-Generate shell completion scripts
+Generate shell completion scripts.
 
 ## Arguments
-- **`<SHELL>`** — Shell type to generate completions for
+- **`<SHELL>`** — Shell type to generate completions for.
 
   **Choices:** `bash`, `fish`, `zsh`
+
+## Flags
+- **`-h --help`** — Print help

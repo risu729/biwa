@@ -60,10 +60,7 @@ description = "Generate the configuration schema."
 
 ["render:usage"]
 run = [
-	# The spec is embedded into the binary with include_str!, so write to a
-	# temporary file first; redirecting into biwa.usage.kdl directly would
-	# truncate it before cargo rebuilds and embed an empty spec.
-	"cargo run --quiet -- usage > biwa.usage.kdl.tmp && mv biwa.usage.kdl.tmp biwa.usage.kdl",
+	"cargo run --quiet -- usage > biwa.usage.kdl",
 	"rm -rf docs/src/cli && mkdir -p docs/src/cli",
 	"usage generate markdown -m --out-dir docs/src/cli --url-prefix /cli --html-encode --file biwa.usage.kdl",
 ]

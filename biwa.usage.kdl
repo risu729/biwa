@@ -2,8 +2,24 @@ name biwa
 bin biwa
 version "1.0.0"
 about "CLI to execute commands on UNSW CSE servers from local"
-usage "Usage: biwa [OPTIONS] [COMMAND]"
-flag "-v --verbose" help="Set the verbosity level." var=#true global=#true count=#true {
+arg_required_else_help #true
+flagset transfer-args {
+    flag --sync-root help="Local project root used for synchronization." {
+        arg <SYNC_ROOT>
+    }
+    flag --sync-cwd help="Use the current working directory as the local project root instead of the nearest Git root."
+    flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name." {
+        arg <REMOTE_DIR>
+    }
+    flag "-f --force" help="Transfer selected files even when content hashes match."
+    flag "-e --exclude" help="Exclude files matching these paths or globs." var=#true {
+        arg <EXCLUDE>
+    }
+    flag "-i --include" help="Only transfer files matching these paths or globs." var=#true {
+        arg <INCLUDE>
+    }
+}
+flag "-v --verbose" help="Set the verbosity level." global=#true count=#true var=#true {
     long_help #"""
 Set the verbosity level.
 
@@ -14,110 +30,103 @@ By default, only warnings and errors are shown.
 -vvv: trace
 """#
 }
-flag "-q --quiet" help="Suppress biwa internal logs, only showing remote command output" global=#true
-flag "-s --silent" help="Suppress all output, including remote command stdout/stderr" global=#true
-arg "[RUN_COMMAND_ARGS]…" help="The arguments for the command to run on the remote host" required=#false double_dash=automatic var=#true hide=#true effect=destructive
-cmd activate disable_help_subcommand=#true help="Print shell activation code and manage direct command shims" effect=read {
-    flag --shell help="Print activation code for this shell" effect=write {
+flag "-q --quiet" help="Suppress biwa internal logs, only showing remote command output." global=#true
+flag "-s --silent" help="Suppress all output, including remote command stdout/stderr." global=#true
+flag "-h --help" help="Print help" action=help builtin=#true
+flag "-V --version" help="Print version" action=version builtin=#true
+arg "[RUN_COMMAND_ARGS]..." help="The arguments for the command to run on the remote host." hide=#true double_dash=automatic
+cmd activate help="Print shell activation code and manage direct command shims." effect=read {
+    flag --shell help="Print activation code for this shell." effect=write {
         arg <SHELL> {
-            choices bash zsh fish
+            choices {
+                choice bash help="Bash shell."
+                choice zsh help="Zsh shell."
+                choice fish help="Fish shell."
+            }
         }
     }
-    cmd install help="Reconcile configured direct command shims" effect=write {
-        flag "-f --force" help="Replace existing entries not already managed by biwa" effect=destructive
+    flag "-h --help" help="Print help" action=help builtin=#true
+    cmd install help="Reconcile configured direct command shims." effect=write {
+        flag "-f --force" help="Replace existing entries not already managed by biwa." effect=destructive
+        flag "-h --help" help="Print help" action=help builtin=#true
     }
-    cmd doctor help="Print diagnostic information for direct command activation" effect=read
+    cmd doctor help="Print diagnostic information for direct command activation." effect=read {
+        flag "-h --help" help="Print help" action=help builtin=#true
+    }
 }
-cmd run help="Run commands on remote host" effect=destructive {
+cmd run help="Run commands on remote host." effect=destructive {
     alias r
-    flag --skip-sync help="Skip automatic synchronization before running the command (automatically selected if --remote-dir is used)" {
-        conflicts "--sync" "--pull" "--pull-always"
+    flag --skip-sync help="Skip automatic synchronization before running the command (automatically selected if --remote-dir is used)." {
+        conflicts --sync --pull --pull-always
     }
-    flag --sync help="Push project files before running, even when sync.auto is disabled or --remote-dir is set" conflicts=--skip-sync
+    flag --sync help="Push project files before running, even when sync.auto is disabled or --remote-dir is set." conflicts=--skip-sync
     flag --pull help="Push before running, then mirror the remote project back after a successful command. May overwrite or delete local files." {
-        conflicts "--skip-sync" "--pull-always"
+        conflicts --skip-sync --pull-always
     }
     flag --pull-always help="Push before running, then mirror the remote project back after any confirmed exit status. May overwrite or delete local files." {
-        conflicts "--skip-sync" "--pull"
+        conflicts --skip-sync --pull
     }
-    flag --sync-root help="Local project root used for synchronization" {
-        arg <SYNC_ROOT>
+    use transfer-args
+    flag --env help="Send environment variables to the remote process. Supports `NAME`, `NAME=value`, wildcard patterns like `NODE_*`, and exclusions like `!*PATH`." var=#true {
+        arg <ENV>
     }
-    flag --sync-cwd help="Use the current working directory as the local project root instead of the nearest Git root"
-    flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
-        arg <REMOTE_DIR>
-    }
-    flag "-f --force" help="Transfer selected files even when content hashes match"
-    flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
-        arg <EXCLUDE>
-    }
-    flag "-i --include" help="Only transfer files matching these paths or globs" var=#true {
-        arg <INCLUDE>
-    }
-    flag --env help="Send environment variables to the remote process. Supports `NAME`, `NAME=value`, wildcard patterns like `NODE_*`, and exclusions like `!*PATH`" var=#true {
-        arg <ENV_VARS>
-    }
-    arg <COMMAND> help="The command to run"
-    arg "[COMMAND_ARGS]…" help="The arguments for the command" required=#false double_dash=automatic var=#true
+    flag "-h --help" help="Print help" action=help builtin=#true
+    arg <COMMAND> help="The command to run."
+    arg "[COMMAND_ARGS]..." help="The arguments for the command." double_dash=automatic
 }
-cmd sync help="Push local project files to the remote host" effect=destructive {
-    alias s push
-    flag --sync-root help="Local project root used for synchronization" {
-        arg <SYNC_ROOT>
-    }
-    flag --sync-cwd help="Use the current working directory as the local project root instead of the nearest Git root"
-    flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
-        arg <REMOTE_DIR>
-    }
-    flag "-f --force" help="Transfer selected files even when content hashes match"
-    flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
-        arg <EXCLUDE>
-    }
-    flag "-i --include" help="Only transfer files matching these paths or globs" var=#true {
-        arg <INCLUDE>
-    }
+cmd sync help="Push local project files to the remote host." effect=destructive {
+    alias s
+    alias push
+    use transfer-args
+    flag "-h --help" help="Print help" action=help builtin=#true
 }
-cmd pull help="Mirror remote project files into the local root" effect=destructive {
+cmd pull help="Mirror remote project files into the local root." effect=destructive {
     long_help #"""
 Mirror remote project files into the local root.
 
 The remote project is the source of truth. Selected local files and directories that are absent remotely are deleted.
 """#
-    flag --sync-root help="Local project root used for synchronization" {
-        arg <SYNC_ROOT>
-    }
-    flag --sync-cwd help="Use the current working directory as the local project root instead of the nearest Git root"
-    flag "-d --remote-dir" help="Override the remote project directory path. Bypasses the default `remote_root` + project name" {
-        arg <REMOTE_DIR>
-    }
-    flag "-f --force" help="Transfer selected files even when content hashes match"
-    flag "-e --exclude" help="Exclude files matching these paths or globs" var=#true {
-        arg <EXCLUDE>
-    }
-    flag "-i --include" help="Only transfer files matching these paths or globs" var=#true {
-        arg <INCLUDE>
-    }
+    use transfer-args
+    flag "-h --help" help="Print help" action=help builtin=#true
 }
-cmd clean help="Clean stale remote project directories" effect=destructive {
+cmd clean help="Clean stale remote project directories." effect=destructive {
     alias c
-    flag --all help="Remove all this client's tracked remote directories"
-    flag --purge help="Remove ALL biwa directories under `remote_root` (including other clients)"
-    flag --dry-run help="Preview what would be removed without deleting"
-    flag --auto help="Background auto-cleanup mode (used internally by the daemon)" hide=#true
-    arg "[ACTION]" help="Optional clean action (`stop` stops the background cleanup daemon)" required=#false {
-        choices stop
+    flag --all help="Remove all this client's tracked remote directories."
+    flag --purge help="Remove ALL biwa directories under `remote_root` (including other clients)."
+    flag --dry-run help="Preview what would be removed without deleting."
+    flag --auto help="Background auto-cleanup mode (used internally by the daemon)." hide=#true
+    flag "-h --help" help="Print help" action=help builtin=#true
+    arg "[ACTION]" help="Optional clean action (`stop` stops the background cleanup daemon)." {
+        choices {
+            choice stop help="Stop the running background cleanup daemon."
+        }
     }
 }
-cmd init help="Initialize a biwa configuration file" effect=write {
-    flag "-f --force" help="Force overwrite if file exists" effect=destructive
-    flag --format help="Format to generate (toml, json, jsonc, json5, yaml, yml)" default=toml {
+cmd init help="Initialize a biwa configuration file." effect=write {
+    flag "-f --force" help="Force overwrite if file exists." effect=destructive
+    flag --format help="Format to generate (toml, json, jsonc, json5, yaml, yml)." default=toml {
         arg <FORMAT>
     }
+    flag "-h --help" help="Print help" action=help builtin=#true
 }
-cmd schema hide=#true help="Generate the JSON schema for the configuration" effect=read
-cmd completion help="Generate shell completion scripts" effect=read {
-    arg <SHELL> help="Shell type to generate completions for" {
-        choices bash fish zsh
+cmd schema help="Generate the JSON schema for the configuration." hide=#true effect=read {
+    flag "-h --help" help="Print help" action=help builtin=#true
+}
+cmd completion help="Generate shell completion scripts." effect=read {
+    flag "-h --help" help="Print help" action=help builtin=#true
+    arg <SHELL> help="Shell type to generate completions for." {
+        choices {
+            choice bash help="Bash shell."
+            choice fish help="Fish shell."
+            choice zsh help="Zsh shell."
+        }
     }
 }
-cmd usage hide=#true help="Generate usage command specifications" effect=read
+cmd usage help="Generate usage command specifications." hide=#true effect=read {
+    long_help #"""
+Generate usage command specifications.
+
+See <https://usage.jdx.dev> for more information.
+"""#
+    flag "-h --help" help="Print help" action=help builtin=#true
+}

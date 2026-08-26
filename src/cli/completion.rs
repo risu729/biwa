@@ -1,71 +1,41 @@
 use crate::Result;
-use crate::cli::usage::arg_value;
-use ::usage::parse::ParseOutput;
-use color_eyre::eyre::{Context as _, bail, eyre};
-use std::io;
-use strum::EnumString;
+use crate::cli::Cli;
+use std::ffi::OsString;
+use usage_rs::complete;
 
-/// Generate shell completions.
-///
-/// Requires the `usage` CLI: <https://usage.jdx.dev>.
-#[derive(Debug)]
+/// Generate shell completion scripts.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "read")]
 pub(super) struct Completion {
 	/// Shell type to generate completions for.
+	#[usage(value_enum)]
 	shell: Shell,
 }
 
 impl Completion {
-	/// Builds the completion command from a successful spec parse.
-	pub(super) fn from_parse(output: &ParseOutput) -> Result<Self> {
-		let shell =
-			arg_value(output, "SHELL").ok_or_else(|| eyre!("Missing required arg: <SHELL>"))?;
-		Ok(Self {
-			shell: shell
-				.parse()
-				.wrap_err_with(|| format!("Unknown completion shell `{shell}`"))?,
-		})
-	}
-
 	/// Run the completion generation logic.
+	#[expect(
+		clippy::unnecessary_wraps,
+		reason = "completion subcommand doesn't return Err"
+	)]
 	pub(super) fn run(self) -> Result<()> {
-		let script = self.call_usage()?;
+		let script = Cli::completion_script(self.shell.into());
 		println!("{}", script.trim());
 		Ok(())
 	}
+}
 
-	/// Calls usage CLI to generate the shell completion script.
-	fn call_usage(&self) -> Result<String> {
-		let shell = self.shell.to_string();
-		let result = duct::cmd!(
-			"usage",
-			"generate",
-			"completion",
-			&shell,
-			"biwa",
-			"--usage-cmd",
-			"biwa usage"
-		)
-		.read();
-
-		match result {
-			Ok(output) => Ok(output),
-			Err(e) if e.kind() == io::ErrorKind::NotFound => {
-				bail!(
-					"`usage` CLI is required for shell completions but was not found.\n\
-					 Install it via mise: `mise use -g usage`\n\
-					 Or see: https://usage.jdx.dev/cli/"
-				);
-			}
-			Err(e) => {
-				bail!("Failed to execute `usage` command: {e}");
-			}
-		}
-	}
+/// Answers the hidden shell completion protocol from the compiled usage tables.
+///
+/// The generated completion scripts call `biwa __complete_word__ …`; this
+/// handles that protocol before anything else runs. `argv` excludes the
+/// program name.
+pub(super) fn completion_request(argv: &[OsString]) -> Option<String> {
+	Cli::completion_request(argv)
 }
 
 /// Supported shell types for completion.
-#[derive(Debug, Clone, Copy, EnumString, strum::Display)]
-#[strum(serialize_all = "snake_case")]
+#[derive(usage_rs::ValueEnum, Debug, Clone, Copy)]
 enum Shell {
 	/// Bash shell.
 	Bash,
@@ -75,6 +45,17 @@ enum Shell {
 	Zsh,
 }
 
+impl From<Shell> for complete::Shell {
+	#[inline]
+	fn from(shell: Shell) -> Self {
+		match shell {
+			Shell::Bash => Self::Bash,
+			Shell::Fish => Self::Fish,
+			Shell::Zsh => Self::Zsh,
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -82,19 +63,33 @@ mod tests {
 
 	#[test]
 	fn completion_parse_bash() {
-		let cli = Cli::parse_from(["biwa", "completion", "bash"]);
+		let cli = Cli::parse_unchecked(["biwa", "completion", "bash"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
 	}
 
 	#[test]
 	fn completion_parse_zsh() {
-		let cli = Cli::parse_from(["biwa", "completion", "zsh"]);
+		let cli = Cli::parse_unchecked(["biwa", "completion", "zsh"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
 	}
 
 	#[test]
 	fn completion_parse_fish() {
-		let cli = Cli::parse_from(["biwa", "completion", "fish"]);
+		let cli = Cli::parse_unchecked(["biwa", "completion", "fish"]);
 		assert!(matches!(cli.command, Some(Commands::Completion(_))));
+	}
+
+	#[test]
+	fn completion_scripts_are_self_contained() {
+		use usage_rs::complete;
+
+		for shell in [
+			complete::Shell::Bash,
+			complete::Shell::Fish,
+			complete::Shell::Zsh,
+		] {
+			let script = Cli::completion_script(shell);
+			assert!(script.contains("__complete_word__"), "script: {script}");
+		}
 	}
 }

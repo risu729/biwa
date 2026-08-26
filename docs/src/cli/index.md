@@ -15,8 +15,12 @@
   -v: info
   -vv: debug
   -vvv: trace
-- **`-q --quiet`** — Suppress biwa internal logs, only showing remote command output
-- **`-s --silent`** — Suppress all output, including remote command stdout/stderr
+- **`-q --quiet`** — Suppress biwa internal logs, only showing remote command output.
+- **`-s --silent`** — Suppress all output, including remote command stdout/stderr.
+
+## Flags
+- **`-h --help`** — Print help
+- **`-V --version`** — Print version
 
 ## Subcommands
 

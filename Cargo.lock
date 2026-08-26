@@ -187,6 +187,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "usage-lib",
+ "usage-rs",
 ]
 
 [[package]]
@@ -2670,15 +2671,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tera"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3e9db9fa0629187ae0a53f3278a99d35f74647f0259c633c9504af85bd0d506"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "thiserror"
 version = "2.0.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2955,6 +2947,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
+name = "usage-argv"
+version = "6.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7536697d46ee1e7f421a88037686f6d69c6c0ac1dc5e44187e6e14f32d863b13"
+
+[[package]]
+name = "usage-derive"
+version = "6.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d80310f6cef47a9240450460400097657813665d8799fb6790c71a5d7d9138aa"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.4",
+]
+
+[[package]]
 name = "usage-lib"
 version = "6.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2967,10 +2976,29 @@ dependencies = [
  "regex",
  "semver",
  "serde",
- "tera",
  "thiserror",
  "unicode-width",
  "winnow 1.0.4",
+]
+
+[[package]]
+name = "usage-rs"
+version = "6.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8a4449942edc8f1c0bb42b8fe102b3f9a63f0d0555d4564a3a1ef6ce1149e2d"
+dependencies = [
+ "usage-argv",
+ "usage-derive",
+ "usage-test",
+]
+
+[[package]]
+name = "usage-test"
+version = "6.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72d8ab5d4501b0d2eb46dd83879cf6ca37dd4534512dd457484a7d7c8da71cbc"
+dependencies = [
+ "usage-argv",
 ]
 
 [[package]]

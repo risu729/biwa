@@ -4,4 +4,7 @@
 - **Usage:** `biwa activate doctor`
 - **Effect:** read-only
 
-Print diagnostic information for direct command activation
+Print diagnostic information for direct command activation.
+
+## Flags
+- **`-h --help`** — Print help
