@@ -3,7 +3,6 @@ use crate::config::types::Config;
 use crate::ssh::sync::{Options, compute_project_remote_dir, normalize_remote_dir};
 use crate::ssh::target::ResolvedSshTarget;
 use crate::state;
-use clap::Args;
 use std::env;
 #[cfg(unix)]
 use std::fs::{Permissions, set_permissions};
@@ -15,30 +14,30 @@ use std::path::{Path, PathBuf, absolute};
 use tracing::warn;
 
 /// Direction-neutral project transfer arguments.
-#[derive(Args, Debug, Default, Clone)]
+#[derive(usage_rs::Args, Debug, Default, Clone)]
 pub(super) struct TransferArgs {
 	/// Local project root used for synchronization.
-	#[arg(long)]
+	#[usage(long)]
 	pub sync_root: Option<PathBuf>,
 
 	/// Use the current working directory as the local project root instead of the nearest Git root.
-	#[arg(long)]
+	#[usage(long)]
 	pub sync_cwd: bool,
 
 	/// Override the remote project directory path. Bypasses the default `remote_root` + project name.
-	#[arg(long, short = 'd')]
+	#[usage(long, short = 'd')]
 	pub remote_dir: Option<String>,
 
 	/// Transfer selected files even when content hashes match.
-	#[arg(long, short = 'f')]
+	#[usage(long, short = 'f')]
 	pub force: bool,
 
 	/// Exclude files matching these paths or globs.
-	#[arg(long, short = 'e')]
+	#[usage(long, short = 'e')]
 	pub exclude: Vec<String>,
 
 	/// Only transfer files matching these paths or globs.
-	#[arg(long, short = 'i')]
+	#[usage(long, short = 'i')]
 	pub include: Vec<String>,
 }
 

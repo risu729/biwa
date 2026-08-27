@@ -1,18 +1,12 @@
 use crate::Result;
-use crate::cli::{Cli, apply_command_effects};
-use clap::{Args, CommandFactory as _};
-use usage::{Spec, SpecCommand, SpecCommandEffect};
+use crate::cli::Cli;
 
-/// Generate a usage CLI spec.
+/// Generate usage command specifications.
 ///
 /// See <https://usage.jdx.dev> for more information.
-#[derive(Args, Debug)]
-#[command(hide = true)]
+#[derive(usage_rs::Args, Debug)]
+#[usage(hide = true, effect = "read")]
 pub(super) struct Usage;
-
-impl CommandEffects for Usage {
-	const EFFECT: SpecCommandEffect = SpecCommandEffect::Read;
-}
 
 impl Usage {
 	/// Run the usage spec generation logic.
@@ -22,79 +16,27 @@ impl Usage {
 		reason = "usage subcommand doesn't return Err"
 	)]
 	pub(super) fn run(self) -> Result<()> {
-		let spec = usage_spec();
-		println!("{}", spec.to_string().trim());
+		println!("{}", Cli::to_kdl().trim());
 		Ok(())
 	}
-}
-
-/// Builds the usage specification and annotates command side effects.
-fn usage_spec() -> Spec {
-	let cli = Cli::command();
-	let mut spec: Spec = cli.into();
-	apply_effects(&mut spec);
-	spec
-}
-
-/// Adds conservative effects to commands, flags, and arguments.
-fn apply_effects(spec: &mut Spec) {
-	set_arg_effect(
-		&mut spec.cmd,
-		"RUN_COMMAND_ARGS",
-		SpecCommandEffect::Destructive,
-	);
-	apply_command_effects(&mut spec.cmd);
-}
-
-/// Lets a CLI command declare its own usage effects.
-pub(super) trait CommandEffects {
-	/// The effect of invoking the command without effect-raising options.
-	const EFFECT: SpecCommandEffect;
-
-	/// Adds this command's effects to its Clap-generated usage command.
-	fn apply_effects(command: &mut SpecCommand) {
-		command.effect = Some(Self::EFFECT);
-	}
-}
-
-/// Applies a command type's declared effects to a named subcommand.
-pub(super) fn apply_subcommand_effects<T: CommandEffects>(parent: &mut SpecCommand, name: &str) {
-	let command = parent
-		.subcommands
-		.get_mut(name)
-		.expect("Clap-generated usage spec must contain annotated command");
-	T::apply_effects(command);
-}
-
-/// Sets the effect for a long flag on a command.
-pub(super) fn set_flag_effect(command: &mut SpecCommand, long: &str, effect: SpecCommandEffect) {
-	let flag = command
-		.flags
-		.iter_mut()
-		.find(|flag| flag.long.iter().any(|candidate| candidate == long))
-		.expect("Clap-generated usage spec must contain annotated flag");
-	flag.effect = Some(effect);
-}
-
-/// Sets the effect for a positional argument on a command.
-fn set_arg_effect(command: &mut SpecCommand, name: &str, effect: SpecCommandEffect) {
-	let arg = command
-		.args
-		.iter_mut()
-		.find(|arg| arg.name == name)
-		.expect("Clap-generated usage spec must contain annotated argument");
-	arg.effect = Some(effect);
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use ::usage::{Spec, SpecCommandEffect};
 	use pretty_assertions::assert_eq;
+
+	/// Parses the emitted spec the way external usage consumers do.
+	fn parsed_spec() -> Spec {
+		Cli::to_kdl()
+			.parse()
+			.expect("emitted usage spec must be valid KDL")
+	}
 
 	#[test]
 	fn usage_spec_generation() {
-		let spec = usage_spec();
-		let output = spec.to_string();
+		let output = Cli::to_kdl();
 		assert!(!output.is_empty());
 		// Should contain the biwa command
 		assert!(output.contains("biwa"));
@@ -102,11 +44,17 @@ mod tests {
 
 	#[test]
 	fn usage_spec_matches_committed_artifact() {
-		let spec = usage_spec();
-
 		assert_eq!(
-			spec.to_string().trim(),
+			Cli::to_kdl().trim(),
 			include_str!("../../biwa.usage.kdl").trim()
+		);
+	}
+
+	#[test]
+	fn usage_spec_version_tracks_the_crate() {
+		assert_eq!(
+			parsed_spec().version.as_deref(),
+			Some(env!("CARGO_PKG_VERSION"))
 		);
 	}
 
@@ -114,9 +62,15 @@ mod tests {
 	fn usage_spec_declares_effects() {
 		use SpecCommandEffect::{Destructive, Read, Write};
 
-		let spec = usage_spec();
+		let spec = parsed_spec();
+		// usage-rs allows effects on subcommands and flags only — the derive
+		// rejects one on the root command, and the spec format has nowhere to
+		// put one on the hidden implicit-run argument — so the implicit
+		// `biwa <cmd>` form (which runs arbitrary remote commands) is left
+		// effect-unknown for consumers. Spec consumers must not treat the
+		// missing effect as safe.
 		assert_eq!(spec.cmd.effect, None);
-		assert_eq!(spec.cmd.max_effect(), Some(Destructive));
+		assert_eq!(spec.cmd.max_effect(), None);
 
 		let activate = spec
 			.cmd

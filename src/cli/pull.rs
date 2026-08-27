@@ -1,23 +1,21 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
 use crate::cli::transfer::{TransferArgs, record_connection_use};
-use crate::cli::usage::CommandEffects;
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
 use crate::ssh::sync::pull_project;
-use clap::Args;
 use tracing::warn;
 
 /// Mirror remote project files into the local root.
-#[derive(Args, Debug)]
+///
+/// The remote project is the source of truth. Selected local files and
+/// directories that are absent remotely are deleted.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "destructive")]
 pub(super) struct Pull {
 	/// Project transfer options.
-	#[clap(flatten)]
+	#[usage(flatten)]
 	args: TransferArgs,
-}
-
-impl CommandEffects for Pull {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Destructive;
 }
 
 impl Pull {

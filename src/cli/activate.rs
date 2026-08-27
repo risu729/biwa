@@ -1,9 +1,7 @@
 use crate::Result;
 use crate::cli::run::validate_direct_options;
-use crate::cli::usage::{CommandEffects, apply_subcommand_effects, set_flag_effect};
 use crate::config::types::Config;
 use alloc::collections::BTreeSet;
-use clap::{Args, Subcommand, ValueEnum};
 use color_eyre::eyre::{WrapErr as _, bail};
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -14,37 +12,44 @@ use std::path::{Path, PathBuf};
 /// File recording the shim names created by biwa in a configured directory.
 const MANAGED_SHIMS_FILE: &str = ".biwa-managed-shims";
 
-/// Shell activation and direct command shim management.
-#[derive(Args, Debug)]
+/// Print shell activation code and manage direct command shims.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "read")]
 pub(super) struct Activate {
 	/// Print activation code for this shell.
-	#[arg(long, value_enum)]
+	#[usage(long, value_enum, effect = "write")]
 	shell: Option<ActivationShell>,
 
 	/// Activation command to run.
-	#[command(subcommand)]
+	#[usage(subcommand)]
 	command: Option<ActivateCommand>,
 }
 
 /// Supported activation commands.
-#[derive(Subcommand, Debug)]
+///
+/// A variant doc comment overrides the wrapped command struct's doc comment
+/// in generated help, so the summaries here must stay in sync with the
+/// structs' first lines.
+#[derive(usage_rs::Subcommands, Debug)]
 enum ActivateCommand {
 	/// Reconcile configured direct command shims.
 	Install(Install),
 	/// Print diagnostic information for direct command activation.
+	#[usage(effect = "read")]
 	Doctor,
 }
 
-/// Direct command shim installation options.
-#[derive(Args, Debug)]
+/// Reconcile configured direct command shims.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "write")]
 struct Install {
 	/// Replace existing entries not already managed by biwa.
-	#[arg(long, short)]
+	#[usage(long, short, effect = "destructive")]
 	force: bool,
 }
 
 /// Shells that can receive activation code.
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(usage_rs::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 enum ActivationShell {
 	/// Bash shell.
 	Bash,
@@ -107,30 +112,6 @@ impl Activate {
 	}
 }
 
-impl CommandEffects for Activate {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Read;
-
-	fn apply_effects(command: &mut ::usage::SpecCommand) {
-		command.effect = Some(Self::EFFECT);
-		set_flag_effect(command, "shell", ::usage::SpecCommandEffect::Write);
-		apply_subcommand_effects::<Install>(command, "install");
-		command
-			.subcommands
-			.get_mut("doctor")
-			.expect("Clap-generated usage spec must contain activate doctor")
-			.effect = Some(::usage::SpecCommandEffect::Read);
-	}
-}
-
-impl CommandEffects for Install {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Write;
-
-	fn apply_effects(command: &mut ::usage::SpecCommand) {
-		command.effect = Some(Self::EFFECT);
-		set_flag_effect(command, "force", ::usage::SpecCommandEffect::Destructive);
-	}
-}
-
 /// Expands a symlink invocation into the equivalent normal `biwa run` argv.
 pub(super) fn expand_direct_invocation(
 	args: impl IntoIterator<Item = OsString>,
@@ -165,6 +146,10 @@ fn expand_direct_invocation_with_config(
 	expanded.push(OsString::from("run"));
 	expanded.extend(options.iter().map(OsString::from));
 	expanded.push(OsString::from(format!("'{command}'")));
+	// The parser consumes the first `--` as its separator, so supply it here:
+	// every shim argument — including a `--` the user typed — is then
+	// forwarded to the remote command verbatim.
+	expanded.push(OsString::from("--"));
 	expanded.extend(args.into_iter().skip(1));
 	Ok(expanded)
 }
@@ -763,10 +748,36 @@ mod tests {
 				"--skip-sync",
 				"--remote-dir=~/dcc",
 				"'dcc'",
+				"--",
 				"-Wall",
 				"main.c",
 			]
 			.map(OsString::from)
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn direct_invocation_forwards_user_separator_verbatim() -> Result<()> {
+		let dir = tempdir()?;
+		let commands = BTreeMap::from([("dcc".to_owned(), Vec::new())]);
+		let config = direct_config(commands, dir.path().join("bin"));
+		let expanded = expand_direct_invocation_with_config(
+			vec![
+				OsString::from("/tmp/dcc"),
+				OsString::from("--"),
+				OsString::from("main.c"),
+			],
+			"dcc",
+			&config,
+		)?;
+
+		// The inserted `--` is the one the parser consumes as its separator;
+		// the user's own `--` follows it and reaches the remote argv (see
+		// `first_separator_is_consumed_and_second_is_forwarded` in run.rs).
+		assert_eq!(
+			expanded,
+			["biwa", "run", "'dcc'", "--", "--", "main.c"].map(OsString::from)
 		);
 		Ok(())
 	}
@@ -832,7 +843,7 @@ mod tests {
 			expand_direct_invocation_with_config(vec![OsString::from("/tmp/if")], "if", &config)?;
 		assert_eq!(
 			expanded,
-			["biwa", "run", "'if'"].map(OsString::from).to_vec()
+			["biwa", "run", "'if'", "--"].map(OsString::from).to_vec()
 		);
 		Ok(())
 	}

@@ -1,21 +1,20 @@
 use crate::Result;
-use crate::cli::usage::{CommandEffects, set_flag_effect};
 use crate::{config::format::ConfigFormat, config::types::Config};
-use clap::Args;
 use color_eyre::eyre::{bail, eyre};
 use serde_json::json;
 use std::fs;
 use std::path::Path;
 
-/// Initialize a new configuration file.
-#[derive(Args, Debug)]
+/// Initialize a biwa configuration file.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "write")]
 pub(super) struct Init {
 	/// Force overwrite if file exists.
-	#[arg(long, short)]
+	#[usage(long, short, effect = "destructive")]
 	force: bool,
 
 	/// Format to generate (toml, json, jsonc, json5, yaml, yml).
-	#[arg(long, default_value = "toml")]
+	#[usage(long, default = "toml")]
 	format: String,
 }
 
@@ -75,15 +74,6 @@ impl Init {
 		};
 
 		Ok((filename, content))
-	}
-}
-
-impl CommandEffects for Init {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Write;
-
-	fn apply_effects(command: &mut ::usage::SpecCommand) {
-		command.effect = Some(Self::EFFECT);
-		set_flag_effect(command, "force", ::usage::SpecCommandEffect::Destructive);
 	}
 }
 

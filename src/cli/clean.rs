@@ -1,6 +1,5 @@
 use crate::Result;
 use crate::cli::transfer::TransferArgs;
-use crate::cli::usage::CommandEffects;
 use crate::config::types::{AuthMode, Config};
 use crate::duration::HumanDuration;
 use crate::ssh::clean::{
@@ -20,7 +19,6 @@ use crate::state::{
 };
 use alloc::sync::Arc;
 use chrono::{DateTime, Utc};
-use clap::{Args, ValueEnum};
 use color_eyre::eyre::{Context as _, bail};
 use console::style;
 use core::time::Duration;
@@ -35,40 +33,36 @@ use tokio::task::JoinSet;
 use tracing::{debug, info, warn};
 
 /// Clean stale remote project directories.
-#[derive(Args, Debug)]
-#[command(visible_alias = "c")]
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "destructive")]
 #[expect(
 	clippy::struct_excessive_bools,
 	reason = "Each bool maps to an independent CLI flag with distinct semantics"
 )]
 pub(super) struct Clean {
 	/// Optional clean action (`stop` stops the background cleanup daemon).
-	#[arg(value_enum)]
+	#[usage(value_enum)]
 	action: Option<CleanAction>,
 
 	/// Remove all this client's tracked remote directories.
-	#[arg(long)]
+	#[usage(long)]
 	all: bool,
 
 	/// Remove ALL biwa directories under `remote_root` (including other clients).
-	#[arg(long)]
+	#[usage(long)]
 	purge: bool,
 
 	/// Preview what would be removed without deleting.
-	#[arg(long)]
+	#[usage(long)]
 	dry_run: bool,
 
 	/// Background auto-cleanup mode (used internally by the daemon).
-	#[arg(long, hide = true)]
+	#[usage(long, hide = true)]
 	auto: bool,
 }
 
-impl CommandEffects for Clean {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Destructive;
-}
-
 /// Optional action for `biwa clean`.
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(usage_rs::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 enum CleanAction {
 	/// Stop the running background cleanup daemon.
 	Stop,

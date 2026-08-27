@@ -1,17 +1,11 @@
 use crate::Result;
-use crate::cli::usage::CommandEffects;
 use crate::config::types::Config;
-use clap::Args;
 use schemars::{generate::SchemaSettings, transform::RestrictFormats};
 
-/// Generate the configuration schema.
-#[derive(Args, Debug)]
-#[command(hide = true)]
+/// Generate the JSON schema for the configuration.
+#[derive(usage_rs::Args, Debug)]
+#[usage(hide = true, effect = "read")]
 pub(super) struct Schema;
-
-impl CommandEffects for Schema {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Read;
-}
 
 impl Schema {
 	/// Run the schema generation logic.

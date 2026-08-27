@@ -1,7 +1,6 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
 use crate::cli::transfer::{TransferArgs, record_connection_use};
-use crate::cli::usage::CommandEffects;
 use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
 use crate::{
@@ -11,55 +10,53 @@ use crate::{
 		pull_project, push_project, snapshot_local_project,
 	},
 };
-use clap::{Args, Parser as _};
 use color_eyre::eyre::{Context as _, bail};
 use std::path::Path;
 use tracing::warn;
 
-/// Run a command on the CSE server.
-#[derive(Args, Debug)]
-#[clap(visible_alias = "r")]
+/// Run commands on remote host.
+#[derive(usage_rs::Args, Debug)]
+#[usage(effect = "destructive")]
 #[expect(
 	clippy::struct_excessive_bools,
-	reason = "Clap represents the four independent transfer flags as booleans"
+	reason = "The four independent transfer flags are represented as booleans"
 )]
 pub(super) struct Run {
 	/// Skip automatic synchronization before running the command (automatically selected if --remote-dir is used).
-	#[arg(long, conflicts_with_all = ["sync", "pull", "pull_always"])]
+	#[usage(long, conflicts = ["sync", "pull", "pull_always"])]
 	skip_sync: bool,
 
 	/// Push project files before running, even when sync.auto is disabled or --remote-dir is set.
-	#[arg(long, conflicts_with = "skip_sync")]
+	#[usage(long, conflicts = "skip_sync")]
 	sync: bool,
 
 	/// Push before running, then mirror the remote project back after a successful command. May overwrite or delete local files.
-	#[arg(long, conflicts_with_all = ["skip_sync", "pull_always"], verbatim_doc_comment)]
+	#[usage(long, conflicts = ["skip_sync", "pull_always"], verbatim_doc_comment)]
 	pull: bool,
 
 	/// Push before running, then mirror the remote project back after any confirmed exit status. May overwrite or delete local files.
-	#[arg(long, conflicts_with_all = ["skip_sync", "pull"], verbatim_doc_comment)]
+	#[usage(long, conflicts = ["skip_sync", "pull"], verbatim_doc_comment)]
 	pull_always: bool,
 
 	/// Project transfer options.
-	#[clap(flatten)]
+	#[usage(flatten)]
 	transfer_args: TransferArgs,
 
 	/// Send environment variables to the remote process.
 	/// Supports `NAME`, `NAME=value`, wildcard patterns like `NODE_*`, and exclusions like `!*PATH`.
-	#[arg(long = "env")]
+	#[usage(long = "env")]
 	env_vars: Vec<String>,
 
 	/// The command to run.
-	#[arg(required = true)]
+	// `automatic` stops flag interpretation once the command name binds, so
+	// everything after it is forwarded to the remote command instead of being
+	// captured by biwa's own flags — matching the implicit `biwa <cmd>` form.
+	#[usage(double_dash = "automatic")]
 	command: String,
 
 	/// The arguments for the command.
-	#[arg(allow_hyphen_values = true, trailing_var_arg = true)]
+	#[usage(double_dash = "automatic")]
 	command_args: Vec<String>,
-}
-
-impl CommandEffects for Run {
-	const EFFECT: ::usage::SpecCommandEffect = ::usage::SpecCommandEffect::Destructive;
 }
 
 /// File-transfer workflow surrounding a remote command.
@@ -117,7 +114,7 @@ pub(super) fn validate_direct_options(command: &str, options: &[String]) -> Resu
 		.into_iter()
 		.chain(options.iter().cloned())
 		.chain([command.to_owned()]);
-	let cli = super::Cli::try_parse_from(argv)
+	let cli = super::Cli::try_parse_args(argv)
 		.wrap_err_with(|| format!("Invalid direct.commands options for `{command}`"))?;
 
 	if cli.verbose != 0 || cli.quiet || cli.silent {
@@ -337,13 +334,12 @@ impl Run {
 mod tests {
 	use crate::cli::{Cli, Commands};
 	use crate::ssh::sync::Options;
-	use clap::Parser as _;
 	use pretty_assertions::{assert_eq, assert_matches};
 	use std::path::Path;
 
 	#[test]
 	fn run_command() {
-		let args = Cli::parse_from(["biwa", "run", "ls", "-la"]);
+		let args = Cli::parse_unchecked(["biwa", "run", "ls", "-la"]);
 		assert!(args.run_command_args.is_empty());
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(run.command, "ls");
@@ -356,7 +352,7 @@ mod tests {
 
 	#[test]
 	fn run_command_alias() {
-		let args = Cli::parse_from(["biwa", "r", "pwd"]);
+		let args = Cli::parse_unchecked(["biwa", "r", "pwd"]);
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(run.command, "pwd");
 			assert!(run.command_args.is_empty());
@@ -368,7 +364,7 @@ mod tests {
 
 	#[test]
 	fn run_supports_env_flag_forms() {
-		let args = Cli::parse_from([
+		let args = Cli::parse_unchecked([
 			"biwa", "run", "--env", "NODE_ENV", "--env", "DEBUG=1", "printenv",
 		]);
 		if let Some(Commands::Run(run)) = args.command {
@@ -388,7 +384,7 @@ mod tests {
 			reason = "unreachable is acceptable in test helpers"
 		)]
 		let parse_run = |args: &[&str]| -> super::Run {
-			let cli = Cli::parse_from(args);
+			let cli = Cli::parse_unchecked(args.iter().copied());
 			let Commands::Run(run) = cli.command.unwrap() else {
 				unreachable!();
 			};
@@ -437,7 +433,8 @@ mod tests {
 			["--skip-sync", "--pull-always"],
 			["--pull-always", "--skip-sync"],
 		] {
-			Cli::try_parse_from(["biwa", "run", flags[0], flags[1], "true"]).unwrap_err();
+			let _conflict_error =
+				Cli::try_parse_args(["biwa", "run", flags[0], flags[1], "true"]).unwrap_err();
 		}
 	}
 
@@ -449,7 +446,8 @@ mod tests {
 			["--pull", "--pull-always"],
 			["--pull-always", "--pull"],
 		] {
-			Cli::try_parse_from(["biwa", "run", flags[0], flags[1], "true"]).unwrap_err();
+			let _conflict_error =
+				Cli::try_parse_args(["biwa", "run", flags[0], flags[1], "true"]).unwrap_err();
 		}
 
 		let run = parse_run_command(&["biwa", "run", "--sync", "--pull", "true"]);
@@ -494,7 +492,7 @@ mod tests {
 				"--exclude=-excluded/**",
 			]
 		);
-		let parsed = Cli::try_parse_from(arguments).unwrap();
+		let parsed = Cli::try_parse_args(arguments).unwrap();
 		assert_matches!(parsed.command, Some(Commands::Pull(_)));
 	}
 
@@ -521,12 +519,46 @@ mod tests {
 		assert_eq!(run.command_args, vec!["--pull"]);
 	}
 
+	#[test]
+	fn unknown_flag_before_command_is_rejected() {
+		// A mistyped flag must error instead of silently becoming the remote
+		// command name.
+		let _unknown_flag_error =
+			Cli::try_parse_args(["biwa", "run", "--pul", "true"]).unwrap_err();
+		let _root_unknown_flag_error = Cli::try_parse_args(["biwa", "--typo", "ls"]).unwrap_err();
+	}
+
+	#[test]
+	fn flags_after_command_are_forwarded_verbatim() {
+		// Once the command name binds, biwa's own flags no longer apply:
+		// everything after it belongs to the remote command.
+		let run = parse_run_command(&["biwa", "run", "grep", "-e", "pattern", "file"]);
+		assert_eq!(run.command, "grep");
+		assert_eq!(run.command_args, vec!["-e", "pattern", "file"]);
+		assert!(run.transfer_args.exclude.is_empty());
+
+		let run = parse_run_command(&["biwa", "run", "sh", "--pull", "-c", "script"]);
+		assert!(!run.pull);
+		assert_eq!(run.command_args, vec!["--pull", "-c", "script"]);
+	}
+
+	#[test]
+	fn first_separator_is_consumed_and_second_is_forwarded() {
+		// usage semantics: the first `--` is always a separator, even after the
+		// trailing capture started; only a second `--` reaches the remote command.
+		let run = parse_run_command(&["biwa", "run", "sh", "-c", "script", "--", "path"]);
+		assert_eq!(run.command_args, vec!["-c", "script", "path"]);
+
+		let run = parse_run_command(&["biwa", "run", "sh", "-c", "script", "--", "--", "path"]);
+		assert_eq!(run.command_args, vec!["-c", "script", "--", "path"]);
+	}
+
 	#[expect(
 		clippy::unreachable,
 		reason = "unreachable is acceptable in test helpers"
 	)]
 	fn parse_run_command(args: &[&str]) -> super::Run {
-		let cli = Cli::parse_from(args);
+		let cli = Cli::parse_unchecked(args.iter().copied());
 		let Commands::Run(run) = cli.command.unwrap() else {
 			unreachable!();
 		};
