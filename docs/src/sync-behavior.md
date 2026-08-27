@@ -126,6 +126,23 @@ biwa run -d /tmp/my-project --pull make generated
 When used with `biwa sync` or `biwa pull`, `--remote-dir` replaces the automatically computed `remote_root + project_name` path.
 To prevent accidental data overwrites when executing standard commands across different remote paths, **using `-d` with `biwa run` automatically disables project synchronization (`--skip-sync`)**. Pass `--sync`, `--pull`, or `--pull-always` to opt into the corresponding transfer workflow.
 
+## Local hash cache
+
+Biwa compares SHA-256 content hashes to decide which files need transferring. To avoid re-reading every local file on every sync, biwa caches local file hashes between runs, keyed by each file's size and modification time. A cached hash is reused only when both match exactly; any other file — new, resized, or touched — is re-hashed from its content. Files modified within the last two seconds are never cached, so rapid successive edits cannot slip through coarse filesystem timestamps.
+
+Correctness rules:
+
+- The cache is scoped to the combination of SSH host, port, user, local sync root, and remote directory, so different projects and targets never share cached state.
+- A missing, corrupt, or incompatible cache file is ignored and the sync falls back to hashing everything. A bad cache never fails or corrupts a sync.
+- The cache is updated only after a fully successful sync. Files changed by a pull are dropped from the cache and re-hashed on the next run.
+- Remote state is never cached: every sync still fetches a fresh remote inventory, so out-of-band remote changes are always detected.
+
+The cache is stored under the `sync_cache` subdirectory of your [XDG state directory](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) by default; set `sync.sftp.cache.path` to override it. Disable caching entirely with `sync.sftp.cache.enabled = false` (or `BIWA_SYNC_SFTP_CACHE_ENABLED=false`).
+
+::: tip Suspect a stale cache?
+A cached hash can only go stale if a file's content changes while its size and modification time stay identical — rare in practice, but possible with tools that deliberately restore timestamps. Run `biwa sync --force` to re-hash everything, re-upload all files, and rebuild the cache from scratch.
+:::
+
 ## Remote directory cleanup
 
 Biwa stores active transfer targets before remote work begins so automatic cleanup cannot remove a directory that is in use, then refreshes the record after each successful `biwa sync`, `biwa pull`, and `biwa run` transfer. State is kept under your [XDG state directory](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) (for example `~/.local/state/biwa/connections.json` on Linux). A failed attempt can therefore leave its target recorded for later cleanup.

@@ -1,0 +1,432 @@
+use crate::Result;
+use crate::config::types::Config;
+use crate::ssh::target::ResolvedSshTarget;
+use alloc::collections::BTreeMap;
+use color_eyre::eyre::Context as _;
+use core::time::Duration;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest as _, Sha256};
+use std::fs;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+use std::process;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tracing::debug;
+
+/// Current on-disk sync cache format version.
+const CACHE_VERSION: u32 = 1;
+
+/// Subdirectory of the state directory holding sync cache files.
+const CACHE_DIR_NAME: &str = "sync_cache";
+
+/// Minimum age a local modification time must have before its hash is cached.
+///
+/// Filesystems may store modification times at a coarse granularity, so a file
+/// modified again shortly after being hashed could keep an identical
+/// fingerprint while its content changed. Skipping very recent files keeps the
+/// cache trustworthy at the cost of re-hashing them on the next run.
+const RACY_MTIME_WINDOW: Duration = Duration::from_secs(2);
+
+/// Size and modification time captured for one local file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileFingerprint {
+	/// File size in bytes.
+	pub size: u64,
+	/// Whole seconds of the modification time since the Unix epoch.
+	pub mtime_secs: u64,
+	/// Subsecond nanoseconds of the modification time.
+	pub mtime_nanos: u32,
+}
+
+impl FileFingerprint {
+	/// Captures a cache-stable fingerprint from local file metadata.
+	///
+	/// Returns `None` when the metadata cannot form a trustworthy fingerprint:
+	/// the modification time is unavailable, predates the Unix epoch, or is
+	/// recent enough that a same-fingerprint rewrite could go unnoticed.
+	#[must_use]
+	pub fn capture(metadata: &fs::Metadata) -> Option<Self> {
+		let mtime = metadata.modified().ok()?;
+		let since_epoch = mtime.duration_since(UNIX_EPOCH).ok()?;
+		let age = SystemTime::now().duration_since(mtime).ok()?;
+		if age < RACY_MTIME_WINDOW {
+			return None;
+		}
+		Some(Self {
+			size: metadata.len(),
+			mtime_secs: since_epoch.as_secs(),
+			mtime_nanos: since_epoch.subsec_nanos(),
+		})
+	}
+}
+
+/// One cached local file hash and the fingerprint it was computed for.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CachedFileState {
+	/// Fingerprint of the local file when its hash was computed.
+	#[serde(flatten)]
+	pub fingerprint: FileFingerprint,
+	/// SHA-256 hash of the file content.
+	pub hash: String,
+}
+
+/// Identity of one cache scope: SSH target plus both synchronization roots.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CacheKey {
+	/// Effective SSH hostname.
+	pub host: String,
+	/// Effective SSH port.
+	pub port: u16,
+	/// Effective SSH username.
+	pub user: String,
+	/// Absolute local sync root.
+	pub sync_root: PathBuf,
+	/// Resolved remote project directory.
+	pub remote_dir: String,
+}
+
+impl CacheKey {
+	/// Builds a cache key for a resolved SSH target and transfer roots.
+	#[must_use]
+	pub fn new(target: &ResolvedSshTarget, sync_root: &Path, remote_dir: &str) -> Self {
+		Self {
+			host: target.hostname.clone(),
+			port: target.port,
+			user: target.user.clone(),
+			sync_root: sync_root.to_path_buf(),
+			remote_dir: remote_dir.to_owned(),
+		}
+	}
+
+	/// Returns the cache file name for this key.
+	///
+	/// The name is a digest of every identity component so distinct targets,
+	/// local roots, and remote directories never share a cache file.
+	fn file_name(&self) -> String {
+		let mut hasher = Sha256::new();
+		for component in [
+			self.host.as_str(),
+			&self.port.to_string(),
+			self.user.as_str(),
+			&self.sync_root.to_string_lossy(),
+			self.remote_dir.as_str(),
+		] {
+			hasher.update(component.as_bytes());
+			hasher.update([0]);
+		}
+		format!("{}.json", hex::encode(hasher.finalize()))
+	}
+}
+
+/// Persisted sync cache contents for one cache key.
+#[derive(Debug, Serialize, Deserialize)]
+struct SyncCacheFile {
+	/// On-disk format version.
+	version: u32,
+	/// Effective SSH hostname the cache was written for.
+	host: String,
+	/// Effective SSH port the cache was written for.
+	port: u16,
+	/// Effective SSH username the cache was written for.
+	user: String,
+	/// Absolute local sync root the cache was written for.
+	sync_root: PathBuf,
+	/// Resolved remote project directory the cache was written for.
+	remote_dir: String,
+	/// Cached local file states keyed by path relative to the sync root.
+	files: BTreeMap<String, CachedFileState>,
+}
+
+/// Resolves the sync cache directory from configuration.
+///
+/// Priority: `sync.sftp.cache.path` > `<state dir>/sync_cache`.
+#[must_use]
+pub fn resolve_cache_dir(config: &Config) -> PathBuf {
+	config
+		.sync
+		.sftp
+		.cache
+		.path
+		.clone()
+		.unwrap_or_else(|| config.resolved_state_dir().join(CACHE_DIR_NAME))
+}
+
+/// Returns the cache file path for a key inside a cache directory.
+#[must_use]
+pub fn cache_file_path(cache_dir: &Path, key: &CacheKey) -> PathBuf {
+	cache_dir.join(key.file_name())
+}
+
+/// Loads cached file states for a key, tolerating any unusable cache.
+///
+/// Returns `None` when the cache file is missing, unreadable, unparsable, has
+/// an unexpected version, or was written for a different identity. Every
+/// fallback reason is logged at debug level; a bad cache never fails a sync.
+#[must_use]
+pub fn load_cache(cache_dir: &Path, key: &CacheKey) -> Option<BTreeMap<String, CachedFileState>> {
+	let path = cache_file_path(cache_dir, key);
+	let contents = match fs::read_to_string(&path) {
+		Ok(contents) => contents,
+		Err(error) if error.kind() == ErrorKind::NotFound => {
+			debug!(path = %path.display(), "No sync cache file; starting from a full scan");
+			return None;
+		}
+		Err(error) => {
+			debug!(path = %path.display(), %error, "Failed to read sync cache; falling back to a full scan");
+			return None;
+		}
+	};
+	let cache = match serde_json::from_str::<SyncCacheFile>(&contents) {
+		Ok(cache) => cache,
+		Err(error) => {
+			debug!(path = %path.display(), %error, "Failed to parse sync cache; falling back to a full scan");
+			return None;
+		}
+	};
+	if cache.version != CACHE_VERSION {
+		debug!(
+			path = %path.display(),
+			version = cache.version,
+			expected = CACHE_VERSION,
+			"Sync cache version mismatch; falling back to a full scan"
+		);
+		return None;
+	}
+	if cache.host != key.host
+		|| cache.port != key.port
+		|| cache.user != key.user
+		|| cache.sync_root != key.sync_root
+		|| cache.remote_dir != key.remote_dir
+	{
+		debug!(path = %path.display(), "Sync cache identity mismatch; falling back to a full scan");
+		return None;
+	}
+	debug!(path = %path.display(), entries = cache.files.len(), "Loaded sync cache");
+	Some(cache.files)
+}
+
+/// Saves cached file states for a key atomically.
+///
+/// The cache is written to a temporary file first and renamed into place so a
+/// concurrent reader never observes a partially written cache.
+pub fn save_cache(
+	cache_dir: &Path,
+	key: &CacheKey,
+	files: BTreeMap<String, CachedFileState>,
+) -> Result<()> {
+	let path = cache_file_path(cache_dir, key);
+	fs::create_dir_all(cache_dir).wrap_err_with(|| {
+		format!(
+			"Failed to create sync cache directory: {}",
+			cache_dir.display()
+		)
+	})?;
+	let cache = SyncCacheFile {
+		version: CACHE_VERSION,
+		host: key.host.clone(),
+		port: key.port,
+		user: key.user.clone(),
+		sync_root: key.sync_root.clone(),
+		remote_dir: key.remote_dir.clone(),
+		files,
+	};
+	let contents = serde_json::to_string(&cache).wrap_err("Failed to serialize sync cache")?;
+	let tmp_path = cache_dir.join(format!("{}.{}.tmp", key.file_name(), process::id()));
+	fs::write(&tmp_path, &contents)
+		.wrap_err_with(|| format!("Failed to write sync cache: {}", tmp_path.display()))?;
+	fs::rename(&tmp_path, &path).wrap_err_with(|| {
+		format!(
+			"Failed to rename sync cache file: {} -> {}",
+			tmp_path.display(),
+			path.display()
+		)
+	})?;
+	debug!(path = %path.display(), entries = cache.files.len(), "Saved sync cache");
+	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use core::time::Duration;
+	use pretty_assertions::{assert_eq, assert_ne};
+	use std::fs::File;
+	use tempfile::tempdir;
+
+	/// Builds a representative cache key for tests.
+	fn test_key() -> CacheKey {
+		CacheKey {
+			host: "cse.unsw.edu.au".to_owned(),
+			port: 22,
+			user: "z5555555".to_owned(),
+			sync_root: PathBuf::from("/home/user/project"),
+			remote_dir: "~/.cache/biwa/projects/project-abc".to_owned(),
+		}
+	}
+
+	/// Builds one cached file state with an arbitrary fingerprint.
+	fn cached_file(hash: &str) -> CachedFileState {
+		CachedFileState {
+			fingerprint: FileFingerprint {
+				size: 5,
+				mtime_secs: 1_700_000_000,
+				mtime_nanos: 123,
+			},
+			hash: hash.to_owned(),
+		}
+	}
+
+	#[test]
+	fn save_and_load_round_trips() {
+		let dir = tempdir().unwrap();
+		let key = test_key();
+		let files = BTreeMap::from([("src/main.rs".to_owned(), cached_file("abc123"))]);
+
+		save_cache(dir.path(), &key, files.clone()).unwrap();
+
+		assert_eq!(load_cache(dir.path(), &key), Some(files));
+	}
+
+	#[test]
+	fn save_leaves_no_temporary_files() {
+		let dir = tempdir().unwrap();
+		let key = test_key();
+
+		save_cache(dir.path(), &key, BTreeMap::new()).unwrap();
+
+		let names = fs::read_dir(dir.path())
+			.unwrap()
+			.map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+			.collect::<Vec<_>>();
+		assert_eq!(names, vec![key.file_name()]);
+	}
+
+	#[test]
+	fn cache_files_are_scoped_by_every_identity_component() {
+		let base = test_key();
+		let variants = [
+			CacheKey {
+				host: "other.example.org".to_owned(),
+				..base.clone()
+			},
+			CacheKey {
+				port: 2222,
+				..base.clone()
+			},
+			CacheKey {
+				user: "z1111111".to_owned(),
+				..base.clone()
+			},
+			CacheKey {
+				sync_root: PathBuf::from("/home/user/other"),
+				..base.clone()
+			},
+			CacheKey {
+				remote_dir: "~/.cache/biwa/projects/project-def".to_owned(),
+				..base.clone()
+			},
+		];
+
+		for variant in variants {
+			assert_ne!(variant.file_name(), base.file_name(), "{variant:?}");
+		}
+	}
+
+	#[test]
+	fn load_returns_none_for_missing_cache() {
+		let dir = tempdir().unwrap();
+
+		assert_eq!(load_cache(dir.path(), &test_key()), None);
+	}
+
+	#[test]
+	fn load_rejects_corrupt_cache() {
+		let dir = tempdir().unwrap();
+		let key = test_key();
+		fs::write(cache_file_path(dir.path(), &key), "{not json").unwrap();
+
+		assert_eq!(load_cache(dir.path(), &key), None);
+	}
+
+	#[test]
+	fn load_rejects_version_mismatch() {
+		let dir = tempdir().unwrap();
+		let key = test_key();
+		save_cache(
+			dir.path(),
+			&key,
+			BTreeMap::from([("file.txt".to_owned(), cached_file("abc"))]),
+		)
+		.unwrap();
+		let path = cache_file_path(dir.path(), &key);
+		let mut value =
+			serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&path).unwrap()).unwrap();
+		value
+			.as_object_mut()
+			.unwrap()
+			.insert("version".to_owned(), serde_json::json!(999));
+		fs::write(&path, serde_json::to_string(&value).unwrap()).unwrap();
+
+		assert_eq!(load_cache(dir.path(), &key), None);
+	}
+
+	#[test]
+	fn load_rejects_identity_mismatch() {
+		let dir = tempdir().unwrap();
+		let original = test_key();
+		let other = CacheKey {
+			remote_dir: "~/.cache/biwa/projects/project-def".to_owned(),
+			..original.clone()
+		};
+		save_cache(
+			dir.path(),
+			&original,
+			BTreeMap::from([("file.txt".to_owned(), cached_file("abc"))]),
+		)
+		.unwrap();
+		// Simulate a cache written for a different identity at this key's path.
+		fs::copy(
+			cache_file_path(dir.path(), &original),
+			cache_file_path(dir.path(), &other),
+		)
+		.unwrap();
+
+		assert_eq!(load_cache(dir.path(), &other), None);
+	}
+
+	#[test]
+	fn fingerprint_capture_skips_recently_modified_files() {
+		let dir = tempdir().unwrap();
+		let path = dir.path().join("fresh.txt");
+		fs::write(&path, "content").unwrap();
+
+		assert_eq!(
+			FileFingerprint::capture(&fs::symlink_metadata(&path).unwrap()),
+			None
+		);
+	}
+
+	#[test]
+	fn fingerprint_capture_returns_stable_fingerprint() {
+		let dir = tempdir().unwrap();
+		let path = dir.path().join("old.txt");
+		fs::write(&path, "content").unwrap();
+		let mtime = SystemTime::now()
+			.checked_sub(Duration::from_secs(60))
+			.unwrap();
+		File::options()
+			.append(true)
+			.open(&path)
+			.unwrap()
+			.set_modified(mtime)
+			.unwrap();
+
+		let metadata = fs::symlink_metadata(&path).unwrap();
+		let fingerprint = FileFingerprint::capture(&metadata).unwrap();
+
+		assert_eq!(fingerprint.size, u64::try_from("content".len()).unwrap());
+		let expected = mtime.duration_since(UNIX_EPOCH).unwrap();
+		assert_eq!(fingerprint.mtime_secs, expected.as_secs());
+		assert_eq!(fingerprint.mtime_nanos, expected.subsec_nanos());
+	}
+}

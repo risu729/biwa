@@ -143,6 +143,15 @@ Some SSH environments (notably UNSW CSE, which uses OpenSSH on networked filesys
 It is strongly recommended to use a relative path starting with `~` for your `remote_root`. Using an absolute path (e.g., `/home/user/cache`) can lead to unexpected directory structures and permissions issues on the remote server. Biwa will emit a warning if an absolute path is detected.
 :::
 
+#### `[sync.sftp.cache]` — Sync Cache Settings
+
+| Key       | Type    | Default            | Description                                                                  |
+| --------- | ------- | ------------------ | ---------------------------------------------------------------------------- |
+| `enabled` | boolean | `true`             | Reuse cached local file hashes when size and modification time are unchanged |
+| `path`    | string? | State subdirectory | Directory to store sync cache files in                                       |
+
+The sync cache speeds up repeated syncs by skipping re-hashing of local files whose size and modification time have not changed. See [Local hash cache](/sync-behavior#local-hash-cache) for how invalidation works and when to reset it.
+
 ### `[clean]` — Remote Directory Cleanup Settings
 
 | Key                | Type    | Default | Description                                                                |

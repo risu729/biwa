@@ -484,7 +484,11 @@ mod tests {
 		    "engine": "sftp",
 		    "sftp": {
 		      "max_files_to_sync": 100,
-		      "permissions": "recreate"
+		      "permissions": "recreate",
+		      "cache": {
+		        "enabled": true,
+		        "path": null
+		      }
 		    }
 		  },
 		  "env": {

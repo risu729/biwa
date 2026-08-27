@@ -44,6 +44,10 @@ expression: content
     ],
     "remote_root": "~/.cache/biwa/projects",
     "sftp": {
+      "cache": {
+        "enabled": true,
+        "path": null
+      },
       "max_files_to_sync": 100,
       "permissions": "recreate"
     },

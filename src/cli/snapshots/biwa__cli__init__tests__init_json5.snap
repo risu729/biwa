@@ -127,6 +127,23 @@ expression: content
       //
       // Default value: "recreate"
       //permissions: "recreate",
+
+      // Local sync state cache settings.
+      cache: {
+        // Reuse cached local file hashes when size and modification time are unchanged.
+        //
+        // Can also be specified via environment variable `BIWA_SYNC_SFTP_CACHE_ENABLED`.
+        //
+        // Default value: true
+        //enabled: true,
+
+        // Directory to store sync cache files in.
+        //
+        // If unset, biwa uses the `sync_cache` subdirectory of the state directory.
+        //
+        // Can also be specified via environment variable `BIWA_SYNC_SFTP_CACHE_PATH`.
+        //path: ,
+      },
     },
   },
 
