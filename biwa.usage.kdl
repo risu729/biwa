@@ -2,6 +2,7 @@ name biwa
 bin biwa
 version "1.0.0"
 about "CLI to execute commands on UNSW CSE servers from local"
+unknown_flags error
 arg_required_else_help #true
 flagset transfer-args {
     flag --sync-root help="Local project root used for synchronization." {
@@ -71,7 +72,7 @@ cmd run help="Run commands on remote host." effect=destructive {
         arg <ENV>
     }
     flag "-h --help" help="Print help" action=help builtin=#true
-    arg <COMMAND> help="The command to run."
+    arg <COMMAND> help="The command to run." double_dash=automatic
     arg "[COMMAND_ARGS]..." help="The arguments for the command." double_dash=automatic
 }
 cmd sync help="Push local project files to the remote host." effect=destructive {

@@ -27,14 +27,16 @@ pub(super) struct Activate {
 
 /// Supported activation commands.
 ///
-/// Help text comes from each command struct's doc comment; variant doc
-/// comments here are for code readers only and must not diverge.
+/// A variant doc comment overrides the wrapped command struct's doc comment
+/// in generated help, so the summaries here must stay in sync with the
+/// structs' first lines.
 #[derive(usage_rs::Subcommands, Debug)]
 enum ActivateCommand {
 	/// Reconcile configured direct command shims.
 	Install(Install),
 	/// Print diagnostic information for direct command activation.
-	Doctor(Doctor),
+	#[usage(effect = "read")]
+	Doctor,
 }
 
 /// Reconcile configured direct command shims.
@@ -45,11 +47,6 @@ struct Install {
 	#[usage(long, short, effect = "destructive")]
 	force: bool,
 }
-
-/// Print diagnostic information for direct command activation.
-#[derive(usage_rs::Args, Debug)]
-#[usage(effect = "read")]
-struct Doctor;
 
 /// Shells that can receive activation code.
 #[derive(usage_rs::ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,7 +92,7 @@ impl Activate {
 				print_install_report(&report);
 				did_work = true;
 			}
-			Some(ActivateCommand::Doctor(_)) => {
+			Some(ActivateCommand::Doctor) => {
 				print_doctor(&config)?;
 				did_work = true;
 			}
@@ -149,6 +146,10 @@ fn expand_direct_invocation_with_config(
 	expanded.push(OsString::from("run"));
 	expanded.extend(options.iter().map(OsString::from));
 	expanded.push(OsString::from(format!("'{command}'")));
+	// The parser consumes the first `--` as its separator, so supply it here:
+	// every shim argument — including a `--` the user typed — is then
+	// forwarded to the remote command verbatim.
+	expanded.push(OsString::from("--"));
 	expanded.extend(args.into_iter().skip(1));
 	Ok(expanded)
 }
@@ -747,10 +748,36 @@ mod tests {
 				"--skip-sync",
 				"--remote-dir=~/dcc",
 				"'dcc'",
+				"--",
 				"-Wall",
 				"main.c",
 			]
 			.map(OsString::from)
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn direct_invocation_forwards_user_separator_verbatim() -> Result<()> {
+		let dir = tempdir()?;
+		let commands = BTreeMap::from([("dcc".to_owned(), Vec::new())]);
+		let config = direct_config(commands, dir.path().join("bin"));
+		let expanded = expand_direct_invocation_with_config(
+			vec![
+				OsString::from("/tmp/dcc"),
+				OsString::from("--"),
+				OsString::from("main.c"),
+			],
+			"dcc",
+			&config,
+		)?;
+
+		// The inserted `--` is the one the parser consumes as its separator;
+		// the user's own `--` follows it and reaches the remote argv (see
+		// `first_separator_is_consumed_and_second_is_forwarded` in run.rs).
+		assert_eq!(
+			expanded,
+			["biwa", "run", "'dcc'", "--", "--", "main.c"].map(OsString::from)
 		);
 		Ok(())
 	}
@@ -816,7 +843,7 @@ mod tests {
 			expand_direct_invocation_with_config(vec![OsString::from("/tmp/if")], "if", &config)?;
 		assert_eq!(
 			expanded,
-			["biwa", "run", "'if'"].map(OsString::from).to_vec()
+			["biwa", "run", "'if'", "--"].map(OsString::from).to_vec()
 		);
 		Ok(())
 	}

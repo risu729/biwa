@@ -48,6 +48,10 @@ pub(super) struct Run {
 	env_vars: Vec<String>,
 
 	/// The command to run.
+	// `automatic` stops flag interpretation once the command name binds, so
+	// everything after it is forwarded to the remote command instead of being
+	// captured by biwa's own flags — matching the implicit `biwa <cmd>` form.
+	#[usage(double_dash = "automatic")]
 	command: String,
 
 	/// The arguments for the command.
@@ -513,6 +517,29 @@ mod tests {
 		let run = parse_run_command(&["biwa", "run", "--", "echo", "--pull"]);
 		assert!(!run.pull);
 		assert_eq!(run.command_args, vec!["--pull"]);
+	}
+
+	#[test]
+	fn unknown_flag_before_command_is_rejected() {
+		// A mistyped flag must error instead of silently becoming the remote
+		// command name.
+		let _unknown_flag_error =
+			Cli::try_parse_args(["biwa", "run", "--pul", "true"]).unwrap_err();
+		let _root_unknown_flag_error = Cli::try_parse_args(["biwa", "--typo", "ls"]).unwrap_err();
+	}
+
+	#[test]
+	fn flags_after_command_are_forwarded_verbatim() {
+		// Once the command name binds, biwa's own flags no longer apply:
+		// everything after it belongs to the remote command.
+		let run = parse_run_command(&["biwa", "run", "grep", "-e", "pattern", "file"]);
+		assert_eq!(run.command, "grep");
+		assert_eq!(run.command_args, vec!["-e", "pattern", "file"]);
+		assert!(run.transfer_args.exclude.is_empty());
+
+		let run = parse_run_command(&["biwa", "run", "sh", "--pull", "-c", "script"]);
+		assert!(!run.pull);
+		assert_eq!(run.command_args, vec!["--pull", "-c", "script"]);
 	}
 
 	#[test]

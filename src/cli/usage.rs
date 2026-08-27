@@ -63,9 +63,12 @@ mod tests {
 		use SpecCommandEffect::{Destructive, Read, Write};
 
 		let spec = parsed_spec();
-		// usage-rs allows effects on commands and flags only, so the hidden
-		// implicit-run argument carries none: consumers treat the implicit
-		// `biwa <cmd>` form as "unknown", the conservative reading.
+		// usage-rs allows effects on subcommands and flags only — the derive
+		// rejects one on the root command, and the spec format has nowhere to
+		// put one on the hidden implicit-run argument — so the implicit
+		// `biwa <cmd>` form (which runs arbitrary remote commands) is left
+		// effect-unknown for consumers. Spec consumers must not treat the
+		// missing effect as safe.
 		assert_eq!(spec.cmd.effect, None);
 		assert_eq!(spec.cmd.max_effect(), None);
 

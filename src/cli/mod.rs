@@ -10,7 +10,7 @@ use tracing::Level;
 use tracing_subscriber::{
 	filter::Targets, fmt, layer::SubscriberExt as _, registry, util::SubscriberInitExt as _,
 };
-use usage_rs::help;
+use usage_rs::embedded::{Exit, Outcome};
 
 /// Shell activation and direct command shims.
 mod activate;
@@ -41,7 +41,11 @@ mod usage;
 	version,
 	about,
 	arg_required_else_help = true,
-	completion = true
+	completion = true,
+	// Reject mistyped flags instead of forwarding them as the remote command;
+	// forwarding positions (`run_command_args`, run's `command_args`) stop
+	// flag interpretation before this check applies.
+	unknown_flags = "error"
 )]
 struct Cli {
 	/// The command to run on the remote host.
@@ -77,8 +81,9 @@ struct Cli {
 
 /// Supported subcommands for the biwa CLI.
 ///
-/// Help text comes from each command struct's doc comment; variant doc
-/// comments here are for code readers only and must not diverge.
+/// A variant doc comment overrides the wrapped command struct's doc comment
+/// in generated help, so the summaries here must stay in sync with the
+/// structs' first lines.
 #[derive(usage_rs::Subcommands, Debug)]
 enum Commands {
 	/// Print shell activation code and manage direct command shims.
@@ -128,67 +133,33 @@ impl Cli {
 	}
 }
 
-/// Answers a built-in request or renders a parse failure, then exits.
+/// Prints a usage control-protocol response, then exits.
 ///
-/// Help and version requests go to stdout and exit 0; everything else is a
-/// usage failure that goes to stderr and exits 2, following CLI conventions.
+/// Covers spec and completion requests, help and version (stdout, exit 0),
+/// and parse failures including `arg_required_else_help` (stderr, exit 2) —
+/// the routing and styling decisions come from `usage_rs` itself.
 #[expect(
 	clippy::exit,
 	reason = "argument parsing is the process entry; built-ins and failures exit directly"
 )]
-#[expect(
-	clippy::wildcard_enum_match_arm,
-	reason = "usage_rs::Error is non-exhaustive; every other variant is a parse failure"
-)]
-fn usage_error(argv: &[&OsStr], error: usage_rs::Error<'_, '_>) -> ! {
-	let spec = Cli::spec();
-	match error {
-		usage_rs::Error::Help { cmd, long } => {
-			if let Some(page) = help::render(spec, cmd, long) {
-				print!("{page}");
-			}
-			process::exit(0)
-		}
-		usage_rs::Error::HelpAll { cmd } => {
-			if let Some(page) = help::render_all(spec, cmd) {
-				print!("{page}");
-			}
-			process::exit(0)
-		}
-		usage_rs::Error::MissingArgsHelp { cmd } => {
-			if let Some(page) = help::render(spec, cmd, false) {
-				eprint!("{page}");
-			}
-			process::exit(2)
-		}
-		usage_rs::Error::Version { long } => {
-			let version = if long {
-				spec.long_version.or(spec.version)
-			} else {
-				spec.version
-			}
-			.unwrap_or_default();
-			println!("{} {version}", spec.name);
-			process::exit(0)
-		}
-		failure => {
-			eprint!("{}", usage_rs::render_failure(spec, argv, &failure));
-			process::exit(2)
-		}
+fn respond_and_exit(exit: &Exit) -> ! {
+	if exit.stderr {
+		eprint!("{}", exit.text);
+	} else {
+		print!("{}", exit.text);
 	}
+	process::exit(exit.code)
 }
 
 /// Main entry point for the CLI. Parses arguments and routes to the appropriate command.
 pub async fn run() -> Result<()> {
 	let args = activate::expand_direct_invocation(env::args_os())?;
-	// Answer the hidden shell completion protocol before anything else runs.
-	if let Some(answer) = completion::completion_request(args.get(1..).unwrap_or_default()) {
-		print!("{answer}");
-		return Ok(());
-	}
-	let arg_refs: Vec<&OsStr> = args.iter().map(OsString::as_os_str).collect();
-	let cli = Cli::parse_from_argv(&arg_refs)
-		.unwrap_or_else(|error| usage_error(arg_refs.get(1..).unwrap_or_default(), error));
+	// `embedded_outcome` answers the hidden spec/completion protocols and
+	// renders help, version, and parse failures before any command runs.
+	let cli = match Cli::embedded_outcome(args.get(1..).unwrap_or_default()) {
+		Outcome::Parsed(cli) => cli,
+		Outcome::Exit(exit) => respond_and_exit(&exit),
+	};
 	let output_mode = OutputMode::resolve(&cli);
 	init_logging(cli.verbose, output_mode);
 

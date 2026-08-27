@@ -1,6 +1,5 @@
 use crate::Result;
 use crate::cli::Cli;
-use std::ffi::OsString;
 use usage_rs::complete;
 
 /// Generate shell completion scripts.
@@ -23,15 +22,6 @@ impl Completion {
 		println!("{}", script.trim());
 		Ok(())
 	}
-}
-
-/// Answers the hidden shell completion protocol from the compiled usage tables.
-///
-/// The generated completion scripts call `biwa __complete_word__ …`; this
-/// handles that protocol before anything else runs. `argv` excludes the
-/// program name.
-pub(super) fn completion_request(argv: &[OsString]) -> Option<String> {
-	Cli::completion_request(argv)
 }
 
 /// Supported shell types for completion.
