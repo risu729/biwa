@@ -128,7 +128,7 @@ To prevent accidental data overwrites when executing standard commands across di
 
 ## Local hash cache
 
-Biwa compares SHA-256 content hashes to decide which files need transferring. To avoid re-reading every local file on every sync, biwa caches local file hashes between runs, keyed by each file's size and modification time. A cached hash is reused only when both match exactly; any other file — new, resized, or touched — is re-hashed from its content. Files modified within the last two seconds are never cached, so rapid successive edits cannot slip through coarse filesystem timestamps.
+Biwa compares SHA-256 content hashes to decide which files need transferring. To avoid re-reading every local file on every sync, biwa caches local file hashes between runs, keyed by each file's size and modification time — plus its change time (ctime) and inode on Unix, which the kernel bumps on every write, so timestamp-restoring tools or clock-skewed network filesystems cannot smuggle changed content past the cache. A cached hash is reused only when the whole fingerprint matches exactly; any other file — new, resized, or touched — is re-hashed from its content. Files modified within the last two seconds are never cached, so rapid successive edits cannot slip through coarse filesystem timestamps.
 
 Correctness rules:
 
@@ -140,7 +140,7 @@ Correctness rules:
 The cache is stored under the `sync_cache` subdirectory of your [XDG state directory](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) by default; set `sync.sftp.cache.path` to override it. Disable caching entirely with `sync.sftp.cache.enabled = false` (or `BIWA_SYNC_SFTP_CACHE_ENABLED=false`).
 
 ::: tip Suspect a stale cache?
-A cached hash can only go stale if a file's content changes while its size and modification time stay identical — rare in practice, but possible with tools that deliberately restore timestamps. Run `biwa sync --force` to re-hash everything, re-upload all files, and rebuild the cache from scratch.
+A cached hash can only go stale if a file's content changes while its entire metadata fingerprint — size, modification time, change time, and inode — stays identical, which no ordinary write can achieve. If you still suspect stale state, run `biwa sync --force` to re-hash everything, re-upload all files, and rebuild the cache from scratch.
 :::
 
 ## Remote directory cleanup

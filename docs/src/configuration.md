@@ -143,7 +143,7 @@ Some SSH environments (notably UNSW CSE, which uses OpenSSH on networked filesys
 It is strongly recommended to use a relative path starting with `~` for your `remote_root`. Using an absolute path (e.g., `/home/user/cache`) can lead to unexpected directory structures and permissions issues on the remote server. Biwa will emit a warning if an absolute path is detected.
 :::
 
-#### `[sync.sftp.cache]` — Sync Cache Settings
+##### `[sync.sftp.cache]` — Sync Cache Settings
 
 | Key       | Type    | Default            | Description                                                                  |
 | --------- | ------- | ------------------ | ---------------------------------------------------------------------------- |

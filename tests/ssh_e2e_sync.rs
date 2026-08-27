@@ -2505,3 +2505,24 @@ fn e2e_sync_cache_reuses_local_hashes() -> Result<()> {
 	assert!(stderr.contains("0 uploaded"), "stderr: {stderr}");
 	Ok(())
 }
+
+#[test]
+fn e2e_sync_cache_disabled_writes_no_cache() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let cache_dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("hello.txt"), "world")?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.env("BIWA_SYNC_SFTP_CACHE_PATH", cache_dir.path())
+		.env("BIWA_SYNC_SFTP_CACHE_ENABLED", "false")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+	assert!(fs::read_dir(cache_dir.path())?.next().is_none());
+	Ok(())
+}

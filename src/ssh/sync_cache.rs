@@ -27,15 +27,43 @@ const CACHE_DIR_NAME: &str = "sync_cache";
 /// cache trustworthy at the cost of re-hashing them on the next run.
 const RACY_MTIME_WINDOW: Duration = Duration::from_secs(2);
 
-/// Size and modification time captured for one local file.
+/// Metadata identity captured for one local file.
+///
+/// Besides size and modification time, the fingerprint includes the file's
+/// change time and inode on Unix. User-space writes cannot avoid bumping the
+/// kernel-stamped ctime, so timestamp-restoring tools or a clock-skewed
+/// network filesystem cannot smuggle changed content past the fingerprint.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileFingerprint {
+pub(super) struct FileFingerprint {
 	/// File size in bytes.
 	pub size: u64,
 	/// Whole seconds of the modification time since the Unix epoch.
 	pub mtime_secs: u64,
 	/// Subsecond nanoseconds of the modification time.
 	pub mtime_nanos: u32,
+	/// Whole seconds of the change time since the Unix epoch; zero on non-Unix.
+	pub ctime_secs: i64,
+	/// Subsecond nanoseconds of the change time; zero on non-Unix.
+	pub ctime_nanos: u32,
+	/// Inode number of the file; zero on non-Unix.
+	pub inode: u64,
+}
+
+/// Returns the change time and inode used to harden fingerprints on Unix.
+#[cfg(unix)]
+fn change_identity(metadata: &fs::Metadata) -> Option<(i64, u32, u64)> {
+	use std::os::unix::fs::MetadataExt as _;
+	Some((
+		metadata.ctime(),
+		u32::try_from(metadata.ctime_nsec()).ok()?,
+		metadata.ino(),
+	))
+}
+
+/// Returns a neutral change identity on platforms without ctime and inodes.
+#[cfg(not(unix))]
+fn change_identity(_metadata: &fs::Metadata) -> Option<(i64, u32, u64)> {
+	Some((0, 0, 0))
 }
 
 impl FileFingerprint {
@@ -45,24 +73,28 @@ impl FileFingerprint {
 	/// the modification time is unavailable, predates the Unix epoch, or is
 	/// recent enough that a same-fingerprint rewrite could go unnoticed.
 	#[must_use]
-	pub fn capture(metadata: &fs::Metadata) -> Option<Self> {
+	pub(super) fn capture(metadata: &fs::Metadata) -> Option<Self> {
 		let mtime = metadata.modified().ok()?;
 		let since_epoch = mtime.duration_since(UNIX_EPOCH).ok()?;
 		let age = SystemTime::now().duration_since(mtime).ok()?;
 		if age < RACY_MTIME_WINDOW {
 			return None;
 		}
+		let (ctime_secs, ctime_nanos, inode) = change_identity(metadata)?;
 		Some(Self {
 			size: metadata.len(),
 			mtime_secs: since_epoch.as_secs(),
 			mtime_nanos: since_epoch.subsec_nanos(),
+			ctime_secs,
+			ctime_nanos,
+			inode,
 		})
 	}
 }
 
 /// One cached local file hash and the fingerprint it was computed for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CachedFileState {
+pub(super) struct CachedFileState {
 	/// Fingerprint of the local file when its hash was computed.
 	#[serde(flatten)]
 	pub fingerprint: FileFingerprint,
@@ -72,7 +104,7 @@ pub struct CachedFileState {
 
 /// Identity of one cache scope: SSH target plus both synchronization roots.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CacheKey {
+pub(super) struct CacheKey {
 	/// Effective SSH hostname.
 	pub host: String,
 	/// Effective SSH port.
@@ -88,7 +120,7 @@ pub struct CacheKey {
 impl CacheKey {
 	/// Builds a cache key for a resolved SSH target and transfer roots.
 	#[must_use]
-	pub fn new(target: &ResolvedSshTarget, sync_root: &Path, remote_dir: &str) -> Self {
+	pub(super) fn new(target: &ResolvedSshTarget, sync_root: &Path, remote_dir: &str) -> Self {
 		Self {
 			host: target.hostname.clone(),
 			port: target.port,
@@ -141,7 +173,7 @@ struct SyncCacheFile {
 ///
 /// Priority: `sync.sftp.cache.path` > `<state dir>/sync_cache`.
 #[must_use]
-pub fn resolve_cache_dir(config: &Config) -> PathBuf {
+pub(super) fn resolve_cache_dir(config: &Config) -> PathBuf {
 	config
 		.sync
 		.sftp
@@ -153,7 +185,7 @@ pub fn resolve_cache_dir(config: &Config) -> PathBuf {
 
 /// Returns the cache file path for a key inside a cache directory.
 #[must_use]
-pub fn cache_file_path(cache_dir: &Path, key: &CacheKey) -> PathBuf {
+pub(super) fn cache_file_path(cache_dir: &Path, key: &CacheKey) -> PathBuf {
 	cache_dir.join(key.file_name())
 }
 
@@ -163,7 +195,10 @@ pub fn cache_file_path(cache_dir: &Path, key: &CacheKey) -> PathBuf {
 /// an unexpected version, or was written for a different identity. Every
 /// fallback reason is logged at debug level; a bad cache never fails a sync.
 #[must_use]
-pub fn load_cache(cache_dir: &Path, key: &CacheKey) -> Option<BTreeMap<String, CachedFileState>> {
+pub(super) fn load_cache(
+	cache_dir: &Path,
+	key: &CacheKey,
+) -> Option<BTreeMap<String, CachedFileState>> {
 	let path = cache_file_path(cache_dir, key);
 	let contents = match fs::read_to_string(&path) {
 		Ok(contents) => contents,
@@ -205,11 +240,44 @@ pub fn load_cache(cache_dir: &Path, key: &CacheKey) -> Option<BTreeMap<String, C
 	Some(cache.files)
 }
 
+/// Minimum age before an orphaned temporary cache file is swept.
+///
+/// A live save holds its temporary file only for milliseconds, so anything
+/// this old was abandoned by a crashed process.
+const STALE_TMP_MAX_AGE: Duration = Duration::from_secs(3600);
+
+/// Removes orphaned temporary files left behind by crashed saves, best-effort.
+///
+/// Only temporary files older than [`STALE_TMP_MAX_AGE`] are removed so a
+/// concurrent save's in-flight temporary file is never deleted.
+fn sweep_stale_tmp_files(cache_dir: &Path) {
+	let Ok(entries) = fs::read_dir(cache_dir) else {
+		return;
+	};
+	for entry in entries.flatten() {
+		let path = entry.path();
+		if path.extension().is_none_or(|extension| extension != "tmp") {
+			continue;
+		}
+		let is_stale = entry
+			.metadata()
+			.and_then(|metadata| metadata.modified())
+			.is_ok_and(|mtime| {
+				SystemTime::now()
+					.duration_since(mtime)
+					.is_ok_and(|age| age >= STALE_TMP_MAX_AGE)
+			});
+		if is_stale && fs::remove_file(&path).is_ok() {
+			debug!(path = %path.display(), "Removed stale temporary sync cache file");
+		}
+	}
+}
+
 /// Saves cached file states for a key atomically.
 ///
 /// The cache is written to a temporary file first and renamed into place so a
 /// concurrent reader never observes a partially written cache.
-pub fn save_cache(
+pub(super) fn save_cache(
 	cache_dir: &Path,
 	key: &CacheKey,
 	files: BTreeMap<String, CachedFileState>,
@@ -221,6 +289,7 @@ pub fn save_cache(
 			cache_dir.display()
 		)
 	})?;
+	sweep_stale_tmp_files(cache_dir);
 	let cache = SyncCacheFile {
 		version: CACHE_VERSION,
 		host: key.host.clone(),
@@ -271,6 +340,9 @@ mod tests {
 				size: 5,
 				mtime_secs: 1_700_000_000,
 				mtime_nanos: 123,
+				ctime_secs: 1_700_000_000,
+				ctime_nanos: 456,
+				inode: 42,
 			},
 			hash: hash.to_owned(),
 		}
@@ -428,5 +500,36 @@ mod tests {
 		let expected = mtime.duration_since(UNIX_EPOCH).unwrap();
 		assert_eq!(fingerprint.mtime_secs, expected.as_secs());
 		assert_eq!(fingerprint.mtime_nanos, expected.subsec_nanos());
+		#[cfg(unix)]
+		{
+			use std::os::unix::fs::MetadataExt as _;
+			assert_eq!(fingerprint.inode, metadata.ino());
+			assert_eq!(fingerprint.ctime_secs, metadata.ctime());
+		}
+	}
+
+	#[test]
+	fn save_sweeps_only_stale_temporary_files() {
+		let dir = tempdir().unwrap();
+		let stale_tmp = dir.path().join("orphaned.json.123.tmp");
+		fs::write(&stale_tmp, "{}").unwrap();
+		let stale_mtime = SystemTime::now()
+			.checked_sub(Duration::from_secs(7200))
+			.unwrap();
+		File::options()
+			.append(true)
+			.open(&stale_tmp)
+			.unwrap()
+			.set_modified(stale_mtime)
+			.unwrap();
+		let fresh_tmp = dir.path().join("in-flight.json.456.tmp");
+		fs::write(&fresh_tmp, "{}").unwrap();
+
+		let key = test_key();
+		save_cache(dir.path(), &key, BTreeMap::new()).unwrap();
+
+		assert!(!stale_tmp.exists());
+		assert!(fresh_tmp.exists());
+		assert!(cache_file_path(dir.path(), &key).exists());
 	}
 }

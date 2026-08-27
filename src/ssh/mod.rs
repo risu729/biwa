@@ -10,7 +10,7 @@ pub mod exec;
 /// SSH file synchronization.
 pub mod sync;
 /// Local sync state caching for incremental synchronization.
-pub mod sync_cache;
+mod sync_cache;
 /// Helpers shared by SSH synchronization modules.
 mod sync_paths;
 /// Effective SSH target resolution from Biwa and OpenSSH configuration.

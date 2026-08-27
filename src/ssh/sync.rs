@@ -2863,6 +2863,11 @@ fn resolve_cache_context(
 ///
 /// Entries for paths the operation itself mutated are dropped so they are
 /// re-hashed on the next run. A failed cache write never fails the sync.
+///
+/// The stored map is replaced wholesale with this scan's entries rather than
+/// merged with the previous cache. That keeps invalidation structural —
+/// entries for deleted, excluded, or type-changed paths simply vanish — at the
+/// cost of re-hashing unscanned files after a narrowly filtered sync.
 fn persist_scan_cache(
 	cache_context: Option<(PathBuf, CacheKey)>,
 	scan_cache: LocalScanCache,
@@ -3527,6 +3532,53 @@ mod tests {
 		assert_eq!(state.files.first().unwrap().hash, hash_file(&path).unwrap());
 		assert_eq!(scan_cache.hits, 0);
 		assert!(scan_cache.entries.is_empty());
+	}
+
+	/// Builds one scan cache entry with an arbitrary fingerprint.
+	fn scan_cache_entry(hash: &str) -> CachedFileState {
+		CachedFileState {
+			fingerprint: FileFingerprint {
+				size: 5,
+				mtime_secs: 1_700_000_000,
+				mtime_nanos: 123,
+				ctime_secs: 1_700_000_000,
+				ctime_nanos: 456,
+				inode: 42,
+			},
+			hash: hash.to_owned(),
+		}
+	}
+
+	#[test]
+	fn persist_scan_cache_drops_touched_paths() {
+		let dir = tempdir().unwrap();
+		let key = CacheKey {
+			host: "cse.unsw.edu.au".to_owned(),
+			port: 22,
+			user: "z5555555".to_owned(),
+			sync_root: PathBuf::from("/home/user/project"),
+			remote_dir: "~/.cache/biwa/projects/project-abc".to_owned(),
+		};
+		let scan_cache = LocalScanCache {
+			entries: BTreeMap::from([
+				("kept.txt".to_owned(), scan_cache_entry("kept-hash")),
+				("pulled.txt".to_owned(), scan_cache_entry("stale-hash")),
+				("deleted.txt".to_owned(), scan_cache_entry("gone-hash")),
+			]),
+			hits: 0,
+		};
+
+		persist_scan_cache(
+			Some((dir.path().to_path_buf(), key.clone())),
+			scan_cache,
+			&["pulled.txt".to_owned(), "deleted.txt".to_owned()],
+		);
+
+		let saved = sync_cache::load_cache(dir.path(), &key).unwrap();
+		assert_eq!(
+			saved.keys().cloned().collect::<Vec<_>>(),
+			vec!["kept.txt".to_owned()]
+		);
 	}
 
 	#[test]
