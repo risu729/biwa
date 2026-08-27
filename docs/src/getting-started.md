@@ -114,7 +114,7 @@ printf 'Hello from stdin\n' | biwa run --skip-sync cat
 ::: tip Current Limitation
 `biwa run` forwards both redirected stdin and interactive terminal stdin. When your local stdin is a TTY, biwa also requests a remote PTY so simple interactive commands work without waiting for local EOF.
 
-Interactive support is still partial, though: biwa does not currently provide full terminal emulation such as raw mode, window resize propagation, or signal forwarding like `Ctrl-C`. For complex full-screen or highly interactive programs, use `ssh` directly for the most reliable behavior.
+Interactive support is still partial, though: biwa forwards local `Ctrl-C` interrupts to the remote command, but it does not yet provide full terminal emulation such as raw mode or window resize propagation. For complex full-screen or highly interactive programs, use `ssh` directly for the most reliable behavior.
 :::
 
 ## Log Output
