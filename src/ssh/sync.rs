@@ -542,10 +542,11 @@ fn collect_local_state(
 
 /// Collects local files and directories, reusing cached hashes when possible.
 ///
-/// A cached hash is reused only when the file's size and modification time
-/// exactly match the cached fingerprint; every other file is hashed from its
-/// content. The returned scan cache holds fingerprinted results eligible for
-/// persistence after a successful synchronization.
+/// A cached hash is reused only when the file's metadata fingerprint — size,
+/// modification time, and on Unix change time and inode — exactly matches the
+/// cached one; every other file is hashed from its content. The returned scan
+/// cache holds fingerprinted results eligible for persistence after a
+/// successful synchronization.
 fn collect_local_state_cached(
 	root: &Path,
 	config_exclude: &[String],

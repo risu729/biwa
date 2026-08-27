@@ -450,7 +450,7 @@
       "type": "object",
       "properties": {
         "enabled": {
-          "description": "Reuse cached local file hashes when size and modification time are unchanged.",
+          "description": "Reuse cached local file hashes while a file's metadata fingerprint is unchanged.\n\nThe fingerprint covers size and modification time, plus change time and\ninode on Unix.",
           "type": "boolean",
           "default": true
         },

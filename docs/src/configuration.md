@@ -145,10 +145,10 @@ It is strongly recommended to use a relative path starting with `~` for your `re
 
 ##### `[sync.sftp.cache]` — Sync Cache Settings
 
-| Key       | Type    | Default            | Description                                                                  |
-| --------- | ------- | ------------------ | ---------------------------------------------------------------------------- |
-| `enabled` | boolean | `true`             | Reuse cached local file hashes when size and modification time are unchanged |
-| `path`    | string? | State subdirectory | Directory to store sync cache files in                                       |
+| Key       | Type    | Default            | Description                                                                     |
+| --------- | ------- | ------------------ | ------------------------------------------------------------------------------- |
+| `enabled` | boolean | `true`             | Reuse cached local file hashes while a file's metadata fingerprint is unchanged |
+| `path`    | string? | State subdirectory | Directory to store sync cache files in                                          |
 
 The sync cache speeds up repeated syncs by skipping re-hashing of local files whose size and modification time have not changed. See [Local hash cache](/sync-behavior#local-hash-cache) for how invalidation works and when to reset it.
 

@@ -185,7 +185,7 @@ pub(super) fn resolve_cache_dir(config: &Config) -> PathBuf {
 
 /// Returns the cache file path for a key inside a cache directory.
 #[must_use]
-pub(super) fn cache_file_path(cache_dir: &Path, key: &CacheKey) -> PathBuf {
+fn cache_file_path(cache_dir: &Path, key: &CacheKey) -> PathBuf {
 	cache_dir.join(key.file_name())
 }
 
@@ -246,17 +246,40 @@ pub(super) fn load_cache(
 /// this old was abandoned by a crashed process.
 const STALE_TMP_MAX_AGE: Duration = Duration::from_secs(3600);
 
-/// Removes orphaned temporary files left behind by crashed saves, best-effort.
+/// Returns whether a file name has the exact shape of biwa's temporary cache files.
 ///
-/// Only temporary files older than [`STALE_TMP_MAX_AGE`] are removed so a
-/// concurrent save's in-flight temporary file is never deleted.
+/// Temporary cache files are named `<64 hex digest>.json.<pid>.tmp`. Sweeping
+/// only this shape guarantees files written by other tools are never removed,
+/// even when `sync.sftp.cache.path` points at a shared directory.
+fn is_cache_tmp_file_name(name: &str) -> bool {
+	let Some(rest) = name.strip_suffix(".tmp") else {
+		return false;
+	};
+	let Some((digest, pid)) = rest.split_once(".json.") else {
+		return false;
+	};
+	digest.len() == 64
+		&& digest.chars().all(|char| char.is_ascii_hexdigit())
+		&& !pid.is_empty()
+		&& pid.chars().all(|char| char.is_ascii_digit())
+}
+
+/// Removes orphaned temporary cache files left behind by crashed saves, best-effort.
+///
+/// Only files matching biwa's temporary cache file naming and older than
+/// [`STALE_TMP_MAX_AGE`] are removed, so a concurrent save's in-flight
+/// temporary file and foreign files in a shared directory are never deleted.
 fn sweep_stale_tmp_files(cache_dir: &Path) {
 	let Ok(entries) = fs::read_dir(cache_dir) else {
 		return;
 	};
 	for entry in entries.flatten() {
 		let path = entry.path();
-		if path.extension().is_none_or(|extension| extension != "tmp") {
+		if !entry
+			.file_name()
+			.to_str()
+			.is_some_and(is_cache_tmp_file_name)
+		{
 			continue;
 		}
 		let is_stale = entry
@@ -509,27 +532,37 @@ mod tests {
 	}
 
 	#[test]
-	fn save_sweeps_only_stale_temporary_files() {
+	fn save_sweeps_only_stale_biwa_temporary_files() {
 		let dir = tempdir().unwrap();
-		let stale_tmp = dir.path().join("orphaned.json.123.tmp");
+		let digest = "0".repeat(64);
+		let backdate = |path: &Path| {
+			let stale_mtime = SystemTime::now()
+				.checked_sub(Duration::from_secs(7200))
+				.unwrap();
+			File::options()
+				.append(true)
+				.open(path)
+				.unwrap()
+				.set_modified(stale_mtime)
+				.unwrap();
+		};
+		let stale_tmp = dir.path().join(format!("{digest}.json.123.tmp"));
 		fs::write(&stale_tmp, "{}").unwrap();
-		let stale_mtime = SystemTime::now()
-			.checked_sub(Duration::from_secs(7200))
-			.unwrap();
-		File::options()
-			.append(true)
-			.open(&stale_tmp)
-			.unwrap()
-			.set_modified(stale_mtime)
-			.unwrap();
-		let fresh_tmp = dir.path().join("in-flight.json.456.tmp");
+		backdate(&stale_tmp);
+		let fresh_tmp = dir.path().join(format!("{digest}.json.456.tmp"));
 		fs::write(&fresh_tmp, "{}").unwrap();
+		let foreign_tmp = dir.path().join("other-tool.tmp");
+		fs::write(&foreign_tmp, "{}").unwrap();
+		backdate(&foreign_tmp);
 
 		let key = test_key();
 		save_cache(dir.path(), &key, BTreeMap::new()).unwrap();
 
+		// Only biwa-shaped, hour-old temporary files are removed: a concurrent
+		// save's fresh file and another tool's file both survive.
 		assert!(!stale_tmp.exists());
 		assert!(fresh_tmp.exists());
+		assert!(foreign_tmp.exists());
 		assert!(cache_file_path(dir.path(), &key).exists());
 	}
 }

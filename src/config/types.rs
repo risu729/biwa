@@ -346,7 +346,10 @@ pub enum SftpPermissions {
 /// Local sync state cache settings for the SFTP engine.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncSftpCacheConfig {
-	/// Reuse cached local file hashes when size and modification time are unchanged.
+	/// Reuse cached local file hashes while a file's metadata fingerprint is unchanged.
+	///
+	/// The fingerprint covers size and modification time, plus change time and
+	/// inode on Unix.
 	#[config(default = true, env = "BIWA_SYNC_SFTP_CACHE_ENABLED")]
 	#[schemars(default = "crate::config::types::schema_defaults::bool_true")]
 	pub enabled: bool,

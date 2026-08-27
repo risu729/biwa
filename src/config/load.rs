@@ -198,6 +198,7 @@ impl Config {
 		resolve(&mut partial.ssh.known_hosts);
 		resolve(&mut partial.state_dir);
 		resolve(&mut partial.direct.bin_dir);
+		resolve(&mut partial.sync.sftp.cache.path);
 
 		if let Some(exclude_list) = &mut partial.sync.exclude {
 			let root = canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
@@ -1272,6 +1273,31 @@ user = "user"
 		let _cleanup = EnvCleanup::remove("BIWA_STATE_DIR");
 		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
 		assert_eq!(config.resolved_state_dir(), dir.path().join("state/dir"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn sync_cache_path_resolves_relative_to_config_root() -> Result<()> {
+		let dir = tempdir()?;
+		let config_path = dir.path().join("biwa.toml");
+		fs::write(
+			&config_path,
+			r#"
+[ssh]
+host = "host"
+user = "user"
+
+[sync.sftp.cache]
+path = "cache/dir"
+"#,
+		)?;
+
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		assert_eq!(
+			config.sync.sftp.cache.path,
+			Some(dir.path().join("cache/dir"))
+		);
 		Ok(())
 	}
 
