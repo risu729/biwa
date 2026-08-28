@@ -2943,9 +2943,9 @@ dependencies = [
 
 [[package]]
 name = "usage-lib"
-version = "6.4.1"
+version = "6.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a624e2e9814bbf7a9165c98e207dcfcf6d71512d4ccd42212f46cf7b87f4a47"
+checksum = "481034836180d71c726704fe40a505e66be45891d73542b5bb976096a2f9d2c5"
 dependencies = [
  "indexmap",
  "itertools",
