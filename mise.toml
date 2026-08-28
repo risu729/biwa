@@ -2,7 +2,7 @@
 rust = { version = "1.98.0", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.20.2"
 "github:xd009642/tarpaulin" = "0.37.2"
-usage = "6.4.1"
+usage = "6.5.0"
 hk = "1.56.1"
 actionlint = "1.7.12"
 # used in actionlint
