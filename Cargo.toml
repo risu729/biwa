@@ -69,7 +69,7 @@ rstest = "=0.26.1"
 serial_test = "=4.0.1"
 tempfile = "=3.27.0"
 # Used to validate the emitted usage spec the way external consumers parse it.
-usage-lib = { version = "=6.5.0", default-features = false }
+usage-lib = { version = "=6.6.0", default-features = false }
 
 [lints.clippy]
 # We prefer disabling rules than enabling them
