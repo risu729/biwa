@@ -1,6 +1,6 @@
 services:
   ssh-server:
-    image: lscr.io/linuxserver/openssh-server@sha256:96b9a4d3b5106746d08d43a6911650d4d21f7d5c7f2ac9660e792bdb5e63157c
+    image: lscr.io/linuxserver/openssh-server@sha256:ec7af01dd539b201b56d6c3f0a4c2c9ca2a7736512920bc5e6e1d22989265b52
     ports:
       - "${BIWA_TEST_SSH_PORT:-2222}:2222"
     environment:
