@@ -56,7 +56,7 @@ usage_rs = {
 # TODO: Restore the inline dependency after Renovate supports TOML 1.1.
 # https://github.com/renovatebot/renovate/discussions/44345
 [dependencies.russh]
-version = "=0.63.1"
+version = "=0.63.2"
 default-features = false
 features = ["flate2", "ring", "rsa"]
 
