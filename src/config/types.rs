@@ -343,6 +343,29 @@ pub enum SftpPermissions {
 	Setstat,
 }
 
+/// Local sync state cache settings for the SFTP engine.
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SyncSftpCacheConfig {
+	/// Reuse cached local file hashes while a file's metadata fingerprint is unchanged.
+	///
+	/// The fingerprint covers size and modification time, plus change time and
+	/// inode on Unix.
+	#[config(default = true, env = "BIWA_SYNC_SFTP_CACHE_ENABLED")]
+	#[schemars(default = "crate::config::types::schema_defaults::bool_true")]
+	pub enabled: bool,
+	/// Directory to store sync cache files in.
+	///
+	/// If unset, biwa uses the `sync_cache` subdirectory of the state directory.
+	#[config(env = "BIWA_SYNC_SFTP_CACHE_PATH")]
+	pub path: Option<PathBuf>,
+}
+
+impl Default for SyncSftpCacheConfig {
+	fn default() -> Self {
+		Config::default().sync.sftp.cache
+	}
+}
+
 /// SFTP synchronization engine settings.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncSftpConfig {
@@ -354,6 +377,10 @@ pub struct SyncSftpConfig {
 	#[config(default = "recreate", env = "BIWA_SYNC_SFTP_PERMISSIONS")]
 	#[schemars(default)]
 	pub permissions: SftpPermissions,
+	/// Local sync state cache settings.
+	#[config(nested)]
+	#[schemars(default)]
+	pub cache: SyncSftpCacheConfig,
 }
 
 impl Default for SyncSftpConfig {

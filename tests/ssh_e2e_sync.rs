@@ -10,12 +10,14 @@
 
 use color_eyre::eyre::eyre;
 use common::{Result, ssh_port};
+use core::time::Duration;
 #[cfg(unix)]
 use nix::sys::signal::Signal;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
+use std::time::SystemTime;
 use std::{fs, path::Path};
 
 mod common;
@@ -2429,5 +2431,98 @@ fn e2e_sync_hidden_file() -> Result<()> {
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	assert!(output.status.success(), "stderr: {stderr}");
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+	Ok(())
+}
+
+/// Runs `biwa sync` with the sync cache stored in an explicit directory.
+fn run_cached_sync(project_dir: &Path, cache_dir: &Path, args: &[&str]) -> Result<String> {
+	let mut full_args = vec!["sync"];
+	full_args.extend_from_slice(args);
+	let output = biwa_cmd_tilde(&full_args, project_dir)
+		.env("BIWA_SYNC_SFTP_CACHE_PATH", cache_dir)
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+	if !output.status.success() {
+		return Err(eyre!("sync failed: {stderr}"));
+	}
+	Ok(stderr)
+}
+
+/// Moves a file's modification time into the past so its hash is cacheable.
+fn backdate_mtime(path: &Path) -> Result<()> {
+	let file = fs::File::options().append(true).open(path)?;
+	let mtime = SystemTime::now()
+		.checked_sub(Duration::from_secs(60))
+		.ok_or_else(|| eyre!("failed to compute past mtime"))?;
+	file.set_modified(mtime)?;
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_cache_reuses_local_hashes() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let cache_dir = tempfile::tempdir()?;
+	let file_path = dir.path().join("hello.txt");
+	fs::write(&file_path, "world")?;
+	backdate_mtime(&file_path)?;
+
+	// First sync uploads the file and writes a cache file.
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &[])?;
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+	let cache_files = fs::read_dir(cache_dir.path())?
+		.map(|entry| Ok(entry?.path()))
+		.collect::<Result<Vec<_>>>()?;
+	let [cache_file] = cache_files.as_slice() else {
+		return Err(eyre!("expected exactly one cache file: {cache_files:?}"));
+	};
+	assert!(fs::read_to_string(cache_file)?.contains("hello.txt"));
+
+	// Second sync reuses the cache and uploads nothing.
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &[])?;
+	assert!(stderr.contains("0 uploaded"), "stderr: {stderr}");
+	assert!(stderr.contains("1 unchanged"), "stderr: {stderr}");
+
+	// Poison the cached hash. The unchanged file now looks modified, proving
+	// the cached hash is consulted instead of re-hashing the content.
+	let mut value: serde_json::Value = serde_json::from_str(&fs::read_to_string(cache_file)?)?;
+	value
+		.get_mut("files")
+		.and_then(|files| files.get_mut("hello.txt"))
+		.and_then(|entry| entry.as_object_mut())
+		.ok_or_else(|| eyre!("missing cached hello.txt entry"))?
+		.insert("hash".to_owned(), serde_json::json!("0".repeat(64)));
+	fs::write(cache_file, serde_json::to_string(&value)?)?;
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &[])?;
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+
+	// --force bypasses and rebuilds the cache with correct hashes.
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &["--force"])?;
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &[])?;
+	assert!(stderr.contains("0 uploaded"), "stderr: {stderr}");
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_cache_disabled_writes_no_cache() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let cache_dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("hello.txt"), "world")?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.env("BIWA_SYNC_SFTP_CACHE_PATH", cache_dir.path())
+		.env("BIWA_SYNC_SFTP_CACHE_ENABLED", "false")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+	assert!(fs::read_dir(cache_dir.path())?.next().is_none());
 	Ok(())
 }

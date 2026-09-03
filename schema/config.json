@@ -73,6 +73,10 @@
         ],
         "remote_root": "~/.cache/biwa/projects",
         "sftp": {
+          "cache": {
+            "enabled": true,
+            "path": null
+          },
           "max_files_to_sync": 100,
           "permissions": "recreate"
         },
@@ -409,6 +413,10 @@
           "description": "SFTP engine specific configuration.",
           "$ref": "#/$defs/SyncSftpConfig",
           "default": {
+            "cache": {
+              "enabled": true,
+              "path": null
+            },
             "max_files_to_sync": 100,
             "permissions": "recreate"
           }
@@ -437,10 +445,36 @@
         }
       ]
     },
+    "SyncSftpCacheConfig": {
+      "description": "Local sync state cache settings for the SFTP engine.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "description": "Reuse cached local file hashes while a file's metadata fingerprint is unchanged.\n\nThe fingerprint covers size and modification time, plus change time and\ninode on Unix.",
+          "type": "boolean",
+          "default": true
+        },
+        "path": {
+          "description": "Directory to store sync cache files in.\n\nIf unset, biwa uses the `sync_cache` subdirectory of the state directory.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "SyncSftpConfig": {
       "description": "SFTP synchronization engine settings.",
       "type": "object",
       "properties": {
+        "cache": {
+          "description": "Local sync state cache settings.",
+          "$ref": "#/$defs/SyncSftpCacheConfig",
+          "default": {
+            "enabled": true,
+            "path": null
+          }
+        },
         "max_files_to_sync": {
           "description": "Abort synchronization if the number of files to sync exceeds this limit.",
           "type": "integer",

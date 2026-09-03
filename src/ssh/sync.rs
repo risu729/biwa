@@ -1,9 +1,11 @@
+use super::sync_cache::{self, CacheKey, CachedFileState, FileFingerprint};
 #[cfg(test)]
 use super::sync_paths::{MAX_REMOTE_MKDIR_COMMAND_LEN, compute_remote_path};
 use super::sync_paths::{build_mkdir_commands, collect_leaf_directories, resolve_sftp_path};
 use crate::Result;
 use crate::config::types::{Config, SftpPermissions, SyncEngine};
 use crate::ssh::client::Client;
+use crate::ssh::target::ResolvedSshTarget;
 use crate::ui::create_spinner;
 use alloc::collections::BTreeMap;
 use color_eyre::eyre::{Context as _, ContextCompat as _, bail, eyre};
@@ -100,6 +102,15 @@ pub(super) struct LocalFile {
 	pub path: PathBuf,
 	/// The SHA-256 hash of the file content.
 	pub hash: String,
+}
+
+/// Cache-relevant results of one local state scan.
+#[derive(Debug, Default)]
+struct LocalScanCache {
+	/// Cacheable file states keyed by path relative to the sync root.
+	entries: BTreeMap<String, CachedFileState>,
+	/// Number of files whose hash was reused from the sync cache.
+	hits: usize,
 }
 
 /// The local sync state collected from the project root.
@@ -520,11 +531,28 @@ fn should_sync_path(
 }
 
 /// Collects local files and directories from the project root, respecting ignore rules.
+#[cfg(test)]
 fn collect_local_state(
 	root: &Path,
 	config_exclude: &[String],
 	options: &Options,
 ) -> Result<LocalState> {
+	collect_local_state_cached(root, config_exclude, options, None).map(|(state, _)| state)
+}
+
+/// Collects local files and directories, reusing cached hashes when possible.
+///
+/// A cached hash is reused only when the file's metadata fingerprint — size,
+/// modification time, and on Unix change time and inode — exactly matches the
+/// cached one; every other file is hashed from its content. The returned scan
+/// cache holds fingerprinted results eligible for persistence after a
+/// successful synchronization.
+fn collect_local_state_cached(
+	root: &Path,
+	config_exclude: &[String],
+	options: &Options,
+	cached_files: Option<&BTreeMap<String, CachedFileState>>,
+) -> Result<(LocalState, LocalScanCache)> {
 	let mut builder = WalkBuilder::new(root);
 	builder.standard_filters(true); // .gitignore, .ignore, etc.
 	builder.add_custom_ignore_filename(".biwaignore");
@@ -534,12 +562,13 @@ fn collect_local_state(
 	let (exclude_globs, include_globs) = build_sync_globsets(config_exclude, options)?;
 
 	let mut state = LocalState::default();
+	let mut scan_cache = LocalScanCache::default();
 	for entry in builder.build() {
 		let entry = entry?;
 		let path = entry.path();
-		let file_type = fs::symlink_metadata(path)
-			.wrap_err_with(|| format!("Failed to read metadata for {}", path.display()))?
-			.file_type();
+		let metadata = fs::symlink_metadata(path)
+			.wrap_err_with(|| format!("Failed to read metadata for {}", path.display()))?;
+		let file_type = metadata.file_type();
 		let is_dir = file_type.is_dir();
 		let is_symlink = file_type.is_symlink();
 		let Some(relative) = should_sync_path(
@@ -560,9 +589,33 @@ fn collect_local_state(
 		}
 
 		if !is_dir && path.is_file() {
+			let relative_str = relative.to_string_lossy().into_owned();
+			let fingerprint = FileFingerprint::capture(&metadata);
+			let cached_hash = fingerprint.and_then(|fingerprint| {
+				cached_files?
+					.get(&relative_str)
+					.filter(|cached| cached.fingerprint == fingerprint)
+					.map(|cached| cached.hash.clone())
+			});
+			let hash = match cached_hash {
+				Some(hash) => {
+					scan_cache.hits = scan_cache.hits.saturating_add(1);
+					hash
+				}
+				None => hash_file(path)?,
+			};
+			if let Some(fingerprint) = fingerprint {
+				scan_cache.entries.insert(
+					relative_str,
+					CachedFileState {
+						fingerprint,
+						hash: hash.clone(),
+					},
+				);
+			}
 			state.files.push(LocalFile {
 				path: relative,
-				hash: hash_file(path)?,
+				hash,
 			});
 			continue;
 		}
@@ -574,7 +627,7 @@ fn collect_local_state(
 		}
 	}
 
-	Ok(state)
+	Ok((state, scan_cache))
 }
 
 /// Returns local permission bits used to detect and preserve round-trip changes.
@@ -685,7 +738,7 @@ pub async fn snapshot_local_project(
 	config: &Config,
 	options: &Options,
 ) -> Result<LocalSnapshot> {
-	let state = collect_local_state_async(project_root, config, options).await?;
+	let (state, _) = collect_local_state_async(project_root, config, options, None).await?;
 	snapshot_from_local_state(project_root, &state)
 }
 
@@ -2729,13 +2782,16 @@ async fn execute_push_sync(
 }
 
 /// Plans and applies pull synchronization.
+///
+/// Returns the local paths the pull mutated (downloads and deletions), so
+/// callers can invalidate stale sync cache entries for them.
 async fn execute_pull_sync(
 	context: &SyncExecution<'_>,
 	local_state: &LocalState,
 	remote_state: RemoteState,
 	baseline: Option<&LocalSnapshot>,
 	stats: &mut Stats,
-) -> Result<()> {
+) -> Result<Vec<String>> {
 	let remote_state = filter_remote_state_for_pull(
 		remote_state,
 		context.project_root,
@@ -2770,7 +2826,64 @@ async fn execute_pull_sync(
 		"Calculated pull synchronization actions"
 	);
 
-	apply_pull_actions(context, actions, &remote_state, baseline, stats).await
+	let touched_paths = actions
+		.downloads
+		.iter()
+		.map(|download| download.path.clone())
+		.chain(actions.file_deletions.iter().cloned())
+		.collect::<Vec<_>>();
+	apply_pull_actions(context, actions, &remote_state, baseline, stats).await?;
+	Ok(touched_paths)
+}
+
+/// Resolves the sync cache directory and key when the cache is enabled.
+///
+/// Returns `None` when the cache is disabled or the SSH target cannot be
+/// resolved; either way synchronization proceeds without a cache.
+fn resolve_cache_context(
+	config: &Config,
+	project_root: &Path,
+	remote_dir: &str,
+) -> Option<(PathBuf, CacheKey)> {
+	if !config.sync.sftp.cache.enabled {
+		return None;
+	}
+	match ResolvedSshTarget::resolve(&config.ssh) {
+		Ok(target) => Some((
+			sync_cache::resolve_cache_dir(config),
+			CacheKey::new(&target, project_root, remote_dir),
+		)),
+		Err(error) => {
+			warn!(%error, "Failed to resolve SSH target for the sync cache; skipping cache");
+			None
+		}
+	}
+}
+
+/// Persists scan results to the sync cache after a fully successful sync.
+///
+/// Entries for paths the operation itself mutated are dropped so they are
+/// re-hashed on the next run. A failed cache write never fails the sync.
+///
+/// The stored map is replaced wholesale with this scan's entries rather than
+/// merged with the previous cache. That keeps invalidation structural —
+/// entries for deleted, excluded, or type-changed paths simply vanish — at the
+/// cost of re-hashing unscanned files after a narrowly filtered sync.
+fn persist_scan_cache(
+	cache_context: Option<(PathBuf, CacheKey)>,
+	scan_cache: LocalScanCache,
+	touched_paths: &[String],
+) {
+	let Some((cache_dir, key)) = cache_context else {
+		return;
+	};
+	let mut entries = scan_cache.entries;
+	for path in touched_paths {
+		entries.remove(path);
+	}
+	if let Err(error) = sync_cache::save_cache(&cache_dir, &key, entries) {
+		warn!(%error, "Failed to save sync cache");
+	}
 }
 
 /// Collects local synchronization state without blocking the async runtime.
@@ -2778,13 +2891,16 @@ async fn collect_local_state_async(
 	project_root: &Path,
 	config: &Config,
 	options: &Options,
-) -> Result<LocalState> {
+	cached_files: Option<BTreeMap<String, CachedFileState>>,
+) -> Result<(LocalState, LocalScanCache)> {
 	let project_root = project_root.to_path_buf();
 	let exclude = config.sync.exclude.clone();
 	let options = options.clone();
-	spawn_blocking(move || collect_local_state(&project_root, &exclude, &options))
-		.await
-		.wrap_err("Failed to join blocking task")?
+	spawn_blocking(move || {
+		collect_local_state_cached(&project_root, &exclude, &options, cached_files.as_ref())
+	})
+	.await
+	.wrap_err("Failed to join blocking task")?
 }
 
 /// Fully resolved inputs shared by push and pull entrypoints.
@@ -2848,6 +2964,16 @@ async fn sync_project(
 		Some(create_spinner(message.to_owned()))
 	};
 
+	let cache_context = resolve_cache_context(config, project_root, remote_dir);
+	let cached_files = if options.force {
+		// --force recomputes all local state; the rebuilt cache is saved after success.
+		None
+	} else {
+		cache_context
+			.as_ref()
+			.and_then(|(cache_dir, key)| sync_cache::load_cache(cache_dir, key))
+	};
+
 	let fetch = fetch_remote_state(client, config, remote_dir, direction == Direction::Push);
 	let remote_state = if let Some(interrupts) = pull_interrupts.as_ref() {
 		complete_pull_phase(interrupts, "remote inventory", fetch).await?
@@ -2865,8 +2991,8 @@ async fn sync_project(
 		ensure_local_pull_root(project_root).await?;
 	}
 
-	let collect = collect_local_state_async(project_root, config, options);
-	let local_state = if let Some(interrupts) = pull_interrupts.as_ref() {
+	let collect = collect_local_state_async(project_root, config, options, cached_files);
+	let (local_state, scan_cache) = if let Some(interrupts) = pull_interrupts.as_ref() {
 		complete_pull_phase(interrupts, "local inventory", collect).await?
 	} else {
 		collect.await?
@@ -2875,6 +3001,7 @@ async fn sync_project(
 		local_directories = local_state.directories.len(),
 		local_files = local_state.files.len(),
 		local_symlinks = local_state.symlinks.len(),
+		cache_hits = scan_cache.hits,
 		"Collected local sync state"
 	);
 	if direction == Direction::Push {
@@ -2882,7 +3009,7 @@ async fn sync_project(
 	}
 
 	let mut stats = Stats::default();
-	{
+	let touched_paths = {
 		let execution = SyncExecution {
 			client,
 			config,
@@ -2895,13 +3022,15 @@ async fn sync_project(
 		match direction {
 			Direction::Push => {
 				execute_push_sync(&execution, &local_state, &remote_state, &mut stats).await?;
+				// Push never mutates local files, so every scanned entry stays valid.
+				Vec::new()
 			}
 			Direction::Pull => {
 				execute_pull_sync(&execution, &local_state, remote_state, baseline, &mut stats)
-					.await?;
+					.await?
 			}
 		}
-	}
+	};
 	// A successful pull commit is the cancellation boundary: reporting an interrupt
 	// after backups are removed would falsely describe durable local changes as failed.
 	drop(pull_interrupts);
@@ -2910,6 +3039,8 @@ async fn sync_project(
 		s.finish_and_clear();
 	}
 	info!("Sync completed: {:?}", stats);
+
+	persist_scan_cache(cache_context, scan_cache, &touched_paths);
 	if !quiet {
 		match direction {
 			Direction::Push => {
@@ -3072,8 +3203,10 @@ fn parse_remote_state(output: &str) -> Result<RemoteState> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use core::time::Duration;
 	use pretty_assertions::{assert_eq, assert_ne};
 	use std::fs;
+	use std::time::SystemTime;
 	use tempfile::tempdir;
 
 	/// Builds a download plan entry for planner assertions.
@@ -3310,6 +3443,143 @@ mod tests {
 		assert!(state.symlinks.contains("file-link.txt"));
 		assert!(file_paths.contains(&"real-file.txt".to_owned()));
 		assert!(!file_paths.contains(&"file-link.txt".to_owned()));
+	}
+
+	/// Moves a file's modification time far enough into the past to be cacheable.
+	fn backdate_mtime(path: &Path) {
+		let file = File::options().append(true).open(path).unwrap();
+		let mtime = SystemTime::now()
+			.checked_sub(Duration::from_secs(60))
+			.unwrap();
+		file.set_modified(mtime).unwrap();
+	}
+
+	/// Captures the cacheable fingerprint of a local file.
+	fn capture_fingerprint(path: &Path) -> FileFingerprint {
+		FileFingerprint::capture(&fs::symlink_metadata(path).unwrap()).unwrap()
+	}
+
+	#[test]
+	fn collect_local_state_cached_reuses_hash_for_matching_fingerprint() {
+		let dir = tempdir().unwrap();
+		let path = dir.path().join("cached.txt");
+		fs::write(&path, "content").unwrap();
+		backdate_mtime(&path);
+		let fingerprint = capture_fingerprint(&path);
+		let cached = BTreeMap::from([(
+			"cached.txt".to_owned(),
+			CachedFileState {
+				fingerprint,
+				hash: "cached-hash".to_owned(),
+			},
+		)]);
+
+		let (state, scan_cache) =
+			collect_local_state_cached(dir.path(), &[], &Options::default(), Some(&cached))
+				.unwrap();
+
+		// The poisoned hash proves the file was not re-read from disk.
+		assert_eq!(state.files.first().unwrap().hash, "cached-hash");
+		assert_eq!(scan_cache.hits, 1);
+		assert_eq!(
+			scan_cache.entries.get("cached.txt").unwrap().hash,
+			"cached-hash"
+		);
+	}
+
+	#[test]
+	fn collect_local_state_cached_rehashes_on_fingerprint_mismatch() {
+		let dir = tempdir().unwrap();
+		let path = dir.path().join("changed.txt");
+		fs::write(&path, "content").unwrap();
+		backdate_mtime(&path);
+		let fingerprint = capture_fingerprint(&path);
+		let mismatched_fingerprint = FileFingerprint {
+			size: fingerprint.size.saturating_add(1),
+			..fingerprint
+		};
+		let cached = BTreeMap::from([(
+			"changed.txt".to_owned(),
+			CachedFileState {
+				fingerprint: mismatched_fingerprint,
+				hash: "stale-hash".to_owned(),
+			},
+		)]);
+
+		let (state, scan_cache) =
+			collect_local_state_cached(dir.path(), &[], &Options::default(), Some(&cached))
+				.unwrap();
+
+		let expected_hash = hash_file(&path).unwrap();
+		assert_eq!(state.files.first().unwrap().hash, expected_hash);
+		assert_eq!(scan_cache.hits, 0);
+		assert_eq!(
+			scan_cache.entries.get("changed.txt").unwrap().hash,
+			expected_hash
+		);
+	}
+
+	#[test]
+	fn collect_local_state_cached_skips_caching_recently_modified_files() {
+		let dir = tempdir().unwrap();
+		let path = dir.path().join("fresh.txt");
+		fs::write(&path, "content").unwrap();
+
+		let (state, scan_cache) =
+			collect_local_state_cached(dir.path(), &[], &Options::default(), None).unwrap();
+
+		// A just-written file is hashed but excluded from the persisted cache
+		// because its fingerprint could be rewritten without changing.
+		assert_eq!(state.files.first().unwrap().hash, hash_file(&path).unwrap());
+		assert_eq!(scan_cache.hits, 0);
+		assert!(scan_cache.entries.is_empty());
+	}
+
+	/// Builds one scan cache entry with an arbitrary fingerprint.
+	fn scan_cache_entry(hash: &str) -> CachedFileState {
+		CachedFileState {
+			fingerprint: FileFingerprint {
+				size: 5,
+				mtime_secs: 1_700_000_000,
+				mtime_nanos: 123,
+				ctime_secs: 1_700_000_000,
+				ctime_nanos: 456,
+				inode: 42,
+			},
+			hash: hash.to_owned(),
+		}
+	}
+
+	#[test]
+	fn persist_scan_cache_drops_touched_paths() {
+		let dir = tempdir().unwrap();
+		let key = CacheKey {
+			host: "cse.unsw.edu.au".to_owned(),
+			port: 22,
+			user: "z5555555".to_owned(),
+			sync_root: PathBuf::from("/home/user/project"),
+			remote_dir: "~/.cache/biwa/projects/project-abc".to_owned(),
+		};
+		let scan_cache = LocalScanCache {
+			entries: BTreeMap::from([
+				("kept.txt".to_owned(), scan_cache_entry("kept-hash")),
+				("pulled.txt".to_owned(), scan_cache_entry("stale-hash")),
+				("deleted.txt".to_owned(), scan_cache_entry("gone-hash")),
+			]),
+			hits: 0,
+		};
+
+		persist_scan_cache(
+			Some((dir.path().to_path_buf(), key.clone())),
+			scan_cache,
+			&["pulled.txt".to_owned(), "deleted.txt".to_owned()],
+		);
+
+		let saved = sync_cache::load_cache(dir.path(), &key).unwrap();
+		assert_eq!(
+			saved.keys().cloned().collect::<Vec<_>>(),
+			vec!["kept.txt".to_owned()]
+		);
 	}
 
 	#[test]

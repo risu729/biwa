@@ -128,6 +128,25 @@ sync:
     # Default value: recreate
     #permissions: recreate
 
+    # Local sync state cache settings.
+    cache:
+      # Reuse cached local file hashes while a file's metadata fingerprint is unchanged.
+      #
+      # The fingerprint covers size and modification time, plus change time and
+      # inode on Unix.
+      #
+      # Can also be specified via environment variable `BIWA_SYNC_SFTP_CACHE_ENABLED`.
+      #
+      # Default value: true
+      #enabled: true
+
+      # Directory to store sync cache files in.
+      #
+      # If unset, biwa uses the `sync_cache` subdirectory of the state directory.
+      #
+      # Can also be specified via environment variable `BIWA_SYNC_SFTP_CACHE_PATH`.
+      #path:
+
 # Environment variables configuration.
 env:
   # Environment variables to send to the remote process.
