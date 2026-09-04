@@ -136,12 +136,16 @@ Local hashes are keyed by each file's size and modification time — plus its ch
 
 ### Remote hashes
 
-The remote inventory always lists every remote directory, symlink, and file with its size and modification time. When a cached hash exists for a remote file whose size and modification time are unchanged, that hash is reused; every other remote file is hashed by a second, targeted `sha256sum` run over just those paths. A sync of an unchanged project therefore hashes nothing remotely, and a sync after a few edits hashes only the files that moved.
+The remote inventory always lists every remote directory, symlink, and file with its size, modification time, and change time. When a cached hash exists for a remote file whose whole fingerprint is unchanged, that hash is reused; every other remote file is hashed by a second, targeted `sha256sum` run over just those paths. A sync of an unchanged project therefore hashes nothing remotely, and a sync after a few edits hashes only the files that moved.
 
-Remote fingerprints are weaker than local ones — a portable inventory cannot read a remote ctime or inode — so two extra rules apply:
+As on the local side, the change time is what makes a rewrite unmissable: no remote process can write a file without the kernel stamping a new ctime, so a tool that restores modification times still cannot hide its edit from the fingerprint.
 
-- Remote files whose modification time is within two seconds of the remote clock are never cached.
-- Once a day, biwa ignores the cached remote hashes and hashes the whole remote directory again. This catches content that changed without moving the size or modification time (for example a tool that restores timestamps). Set `sync.sftp.cache.auto_revalidate = false` to trust cached remote hashes until their fingerprint changes.
+Remote fingerprints are nonetheless weaker than local ones — there is no inode component, and the timestamps are whatever the remote filesystem reports — so two extra rules apply:
+
+- Remote files whose modification or change time is within two seconds of the remote clock are never cached, so a rewrite landing on the same filesystem timestamp tick cannot slip through. On a networked filesystem the inventory's clock is the login node's rather than the file server's, which makes this window a safety margin rather than a guarantee; the change time above is the actual defence.
+- Once a day, biwa ignores the cached remote hashes and hashes the whole remote directory again, bounding how long any drift that did slip through can persist. Set `sync.sftp.cache.auto_revalidate = false` to trust cached remote hashes until their fingerprint changes.
+
+A remote file whose metadata cannot serve as a cache key — a timestamp before 1970, for instance — is never cached and is simply hashed on every run. It still syncs exactly as it would without the cache.
 
 ### Correctness rules
 

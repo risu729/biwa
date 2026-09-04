@@ -824,7 +824,11 @@ struct RemoteInventory {
 	/// The remote symlinks that currently exist.
 	symlinks: HashSet<String>,
 	/// Remote file metadata keyed by path relative to the remote directory.
-	metadata: BTreeMap<String, RemoteFingerprint>,
+	///
+	/// A `None` fingerprint marks a file whose metadata cannot serve as a cache
+	/// key — a pre-epoch timestamp, for instance. The path stays listed so the
+	/// file is still part of the remote state; only its hash is never cached.
+	metadata: BTreeMap<String, Option<RemoteFingerprint>>,
 	/// Remote file hashes keyed by path relative to the remote directory.
 	hashes: HashMap<String, String>,
 }
@@ -897,7 +901,7 @@ fn build_remote_state_script(
 		 printf '%s\\0' {quoted_symlink_marker} && \
 		 find . -iname .git -prune -o -type l -print0 && \
 		 printf '%s\\0' {quoted_meta_marker} && \
-		 find . -iname .git -prune -o -type f -printf '%s %T@ %p\\0' && \
+		 find . -iname .git -prune -o -type f -printf '%s %T@ %C@ %p\\0' && \
 		 printf '%s\\0' {quoted_marker}{hash_files}",
 		config.ssh.umask
 	)
@@ -910,17 +914,22 @@ fn build_remote_state_script(
 /// invocations. Returns `None` when the command would grow past
 /// [`MAX_REMOTE_HASH_COMMAND_LEN`].
 fn build_remote_hash_command(remote_dir: &str, paths: &[String]) -> Option<String> {
+	/// Pipeline appended once every path has been added.
+	const HASH_COMMAND_SUFFIX: &str = " | xargs -0 sha256sum -z --";
+
 	let mut command = format!("cd -- {} && printf '%s\\0'", shell_quote_path(remote_dir));
 	for path in paths {
 		// The `./` prefix keeps a path that starts with `-` from looking like an
 		// option, and matches the paths the inventory itself reports.
 		command.push(' ');
 		command.push_str(&shell_words::quote(&format!("./{path}")));
-		if command.len() > MAX_REMOTE_HASH_COMMAND_LEN {
+		// The suffix is counted here so the finished command, not the partial
+		// one, is what the bound applies to.
+		if command.len().saturating_add(HASH_COMMAND_SUFFIX.len()) > MAX_REMOTE_HASH_COMMAND_LEN {
 			return None;
 		}
 	}
-	command.push_str(" | xargs -0 sha256sum -z --");
+	command.push_str(HASH_COMMAND_SUFFIX);
 	Some(command)
 }
 
@@ -962,6 +971,22 @@ async fn run_remote_inventory(
 	parse_remote_inventory(&output)
 }
 
+/// Returns whether a cached entry matches an inventoried file's metadata.
+///
+/// A file without a usable fingerprint never matches, so it is always hashed
+/// again rather than resolved from the cache.
+fn cached_remote_hash<'cache>(
+	cached: Option<&'cache BTreeMap<String, CachedRemoteState>>,
+	path: &str,
+	fingerprint: Option<&RemoteFingerprint>,
+) -> Option<&'cache str> {
+	let fingerprint = fingerprint?;
+	cached?
+		.get(path)
+		.filter(|entry| &entry.fingerprint == fingerprint)
+		.map(|entry| entry.hash.as_str())
+}
+
 /// Returns the inventoried paths whose content hash is still unknown.
 fn pending_hash_paths(
 	inventory: &RemoteInventory,
@@ -972,11 +997,7 @@ fn pending_hash_paths(
 		.iter()
 		.filter(|(path, fingerprint)| {
 			!inventory.hashes.contains_key(*path)
-				&& !cached.is_some_and(|cached| {
-					cached
-						.get(*path)
-						.is_some_and(|entry| &entry.fingerprint == *fingerprint)
-				})
+				&& cached_remote_hash(cached, path, fingerprint.as_ref()).is_none()
 		})
 		.map(|(path, _)| path.clone())
 		.collect()
@@ -1053,12 +1074,9 @@ fn build_remote_state(
 		let hash = if let Some(hash) = hashes.remove(&path) {
 			scan.hashed = scan.hashed.saturating_add(1);
 			hash
-		} else if let Some(entry) = cached
-			.and_then(|cached| cached.get(&path))
-			.filter(|entry| entry.fingerprint == fingerprint)
-		{
+		} else if let Some(hash) = cached_remote_hash(cached, &path, fingerprint.as_ref()) {
 			scan.hits = scan.hits.saturating_add(1);
-			entry.hash.clone()
+			hash.to_owned()
 		} else {
 			debug!(
 				path,
@@ -1066,7 +1084,7 @@ fn build_remote_state(
 			);
 			continue;
 		};
-		if fingerprint.is_settled(clock) {
+		if let Some(fingerprint) = fingerprint.filter(|fingerprint| fingerprint.is_settled(clock)) {
 			scan.entries.insert(
 				path.clone(),
 				CachedRemoteState {
@@ -3587,16 +3605,25 @@ fn parse_remote_inventory(output: &str) -> Result<RemoteInventory> {
 				inventory.symlinks.insert(parse_inventory_path(record)?);
 			}
 			RemoteInventorySection::FileMetadata => {
-				let (size, rest) = record
-					.split_once(' ')
-					.wrap_err("Malformed remote file metadata record")?;
-				let (mtime, raw_path) = rest
-					.split_once(' ')
-					.wrap_err("Malformed remote file metadata record")?;
-				inventory.metadata.insert(
-					parse_inventory_path(raw_path)?,
-					RemoteFingerprint::parse(size, mtime)?,
-				);
+				let malformed = || format!("Malformed remote file metadata record: {record:?}");
+				let (size, rest) = record.split_once(' ').wrap_err_with(malformed)?;
+				let (mtime, rest) = rest.split_once(' ').wrap_err_with(malformed)?;
+				let (ctime, raw_path) = rest.split_once(' ').wrap_err_with(malformed)?;
+				let path = parse_inventory_path(raw_path)?;
+				// Metadata that cannot key a cache entry is kept as an unusable
+				// fingerprint rather than rejected: the file is still part of the
+				// remote state, it is simply hashed on every run.
+				let fingerprint = RemoteFingerprint::parse(size, mtime, ctime);
+				if fingerprint.is_none() {
+					debug!(
+						path,
+						size,
+						mtime,
+						ctime,
+						"Remote file metadata cannot key a cached hash; the file will always be re-hashed"
+					);
+				}
+				inventory.metadata.insert(path, fingerprint);
 			}
 			RemoteInventorySection::Files => {
 				let (path, hash) = parse_remote_hash_record(record)?;
@@ -4051,9 +4078,9 @@ mod tests {
 		assert!(saved.remote_hashed_at > Some(1_700_000_000));
 	}
 
-	/// Builds a remote fingerprint with a settled modification time.
+	/// Builds a remote fingerprint with settled timestamps.
 	fn remote_fingerprint(size: u64) -> RemoteFingerprint {
-		RemoteFingerprint::parse(&size.to_string(), "1700000000.5").unwrap()
+		RemoteFingerprint::parse(&size.to_string(), "1700000000.5", "1700000000.5").unwrap()
 	}
 
 	/// Builds one remote scan cache entry with a settled fingerprint.
@@ -4115,7 +4142,7 @@ mod tests {
 		let output = remote_inventory_output(
 			&["./empty", "./nested/child"],
 			&["./link"],
-			&["12 1700000000.5 ./nested/file\nname.txt"],
+			&["12 1700000000.5 1700000000.5 ./nested/file\nname.txt"],
 			&[&format!("{hash}  ./nested/file\nname.txt")],
 		);
 
@@ -4125,7 +4152,7 @@ mod tests {
 		assert!(inventory.directories.contains("empty"));
 		assert!(inventory.directories.contains("nested/child"));
 		assert!(inventory.symlinks.contains("link"));
-		// Paths may contain spaces and newlines, so only the first two fields
+		// Paths may contain spaces and newlines, so only the first three fields
 		// of a metadata record are split off.
 		assert_eq!(
 			inventory
@@ -4133,7 +4160,7 @@ mod tests {
 				.get("nested/file\nname.txt")
 				.unwrap()
 				.clone(),
-			remote_fingerprint(12)
+			Some(remote_fingerprint(12))
 		);
 		assert_eq!(
 			inventory.hashes.get("nested/file\nname.txt").unwrap(),
@@ -4157,12 +4184,56 @@ mod tests {
 				.contains("Malformed remote file metadata"),
 			"error: {metadata_error}"
 		);
+		// The offending record is named so the failure is actionable.
+		assert!(
+			metadata_error.to_string().contains("./file.txt"),
+			"error: {metadata_error}"
+		);
 		let incomplete_error = parse_remote_inventory(REMOTE_DIRECTORY_MARKER).unwrap_err();
 		assert!(
 			incomplete_error
 				.to_string()
 				.contains("missing section marker"),
 			"error: {incomplete_error}"
+		);
+	}
+
+	#[test]
+	fn parse_remote_inventory_degrades_unusable_metadata_instead_of_failing() {
+		let hash = "a".repeat(64);
+		// GNU find prints a leading sign for a pre-epoch modification time. Such
+		// a file must still appear in the remote state.
+		let output = remote_inventory_output(
+			&[],
+			&[],
+			&["3 -315576000.0000000000 1700000000.5 ./old.txt"],
+			&[&format!("{hash}  ./old.txt")],
+		);
+
+		let inventory = parse_remote_inventory(&output).unwrap();
+
+		assert_eq!(inventory.metadata.get("old.txt").unwrap().clone(), None);
+
+		// It syncs normally and is simply never cached, so it is hashed again on
+		// every run instead of silently looking remotely deleted.
+		let (state, scan) = build_remote_state(inventory, None, InventoryMode::Full);
+		assert_eq!(state.file_hashes.get("old.txt").unwrap(), &hash);
+		assert!(scan.entries.is_empty());
+	}
+
+	#[test]
+	fn pending_hash_paths_includes_files_without_a_usable_fingerprint() {
+		let inventory = RemoteInventory {
+			clock: TEST_REMOTE_CLOCK,
+			metadata: BTreeMap::from([("old.txt".to_owned(), None)]),
+			..RemoteInventory::default()
+		};
+		let cached = BTreeMap::from([("old.txt".to_owned(), remote_scan_cache_entry("cached"))]);
+
+		// A cached entry can never be matched without a fingerprint to compare.
+		assert_eq!(
+			pending_hash_paths(&inventory, Some(&cached)),
+			vec!["old.txt".to_owned()]
 		);
 	}
 
@@ -4202,7 +4273,7 @@ mod tests {
 			build_remote_state_script(&config, "~/project", true, InventoryMode::Incremental);
 
 		// Metadata is still listed, but nothing is hashed remotely.
-		assert!(script.contains("-printf '%s %T@ %p\\0'"));
+		assert!(script.contains("-printf '%s %T@ %C@ %p\\0'"));
 		assert!(!script.contains("sha256sum"));
 		assert!(script.contains(REMOTE_FILE_MARKER));
 		// The metadata listing must precede the hash marker so a file rewritten
@@ -4231,6 +4302,17 @@ mod tests {
 			.map(|index| format!("file-{index}.txt"))
 			.collect::<Vec<_>>();
 		assert_eq!(build_remote_hash_command("~/project", &many), None);
+
+		// The bound covers the finished command, suffix included.
+		let mut longest = Vec::new();
+		while let Some(command) = build_remote_hash_command("~/project", &longest) {
+			assert!(
+				command.len() <= MAX_REMOTE_HASH_COMMAND_LEN,
+				"command length {}",
+				command.len()
+			);
+			longest.push(format!("file-{}.txt", longest.len()));
+		}
 	}
 
 	#[test]
@@ -4239,10 +4321,10 @@ mod tests {
 		let inventory = RemoteInventory {
 			clock: TEST_REMOTE_CLOCK,
 			metadata: BTreeMap::from([
-				("cached.txt".to_owned(), remote_fingerprint(5)),
-				("changed.txt".to_owned(), remote_fingerprint(9)),
-				("new.txt".to_owned(), remote_fingerprint(5)),
-				("hashed.txt".to_owned(), remote_fingerprint(5)),
+				("cached.txt".to_owned(), Some(remote_fingerprint(5))),
+				("changed.txt".to_owned(), Some(remote_fingerprint(9))),
+				("new.txt".to_owned(), Some(remote_fingerprint(5))),
+				("hashed.txt".to_owned(), Some(remote_fingerprint(5))),
 			]),
 			hashes: HashMap::from([("hashed.txt".to_owned(), hash)]),
 			..RemoteInventory::default()
@@ -4275,8 +4357,8 @@ mod tests {
 			directories: HashSet::from(["nested".to_owned()]),
 			symlinks: HashSet::from(["link".to_owned()]),
 			metadata: BTreeMap::from([
-				("cached.txt".to_owned(), remote_fingerprint(5)),
-				("hashed.txt".to_owned(), remote_fingerprint(9)),
+				("cached.txt".to_owned(), Some(remote_fingerprint(5))),
+				("hashed.txt".to_owned(), Some(remote_fingerprint(9))),
 			]),
 			hashes: HashMap::from([("hashed.txt".to_owned(), hash.clone())]),
 		};
@@ -4304,7 +4386,7 @@ mod tests {
 		let hash = "a".repeat(64);
 		let inventory = RemoteInventory {
 			clock: TEST_REMOTE_CLOCK,
-			metadata: BTreeMap::from([("drifted.txt".to_owned(), remote_fingerprint(9))]),
+			metadata: BTreeMap::from([("drifted.txt".to_owned(), Some(remote_fingerprint(9)))]),
 			hashes: HashMap::from([("drifted.txt".to_owned(), hash.clone())]),
 			..RemoteInventory::default()
 		};
@@ -4325,10 +4407,11 @@ mod tests {
 	#[test]
 	fn build_remote_state_skips_caching_recently_modified_remote_files() {
 		let hash = "a".repeat(64);
-		let fingerprint = RemoteFingerprint::parse("5", &TEST_REMOTE_CLOCK.to_string()).unwrap();
+		let clock = TEST_REMOTE_CLOCK.to_string();
+		let fingerprint = RemoteFingerprint::parse("5", &clock, &clock).unwrap();
 		let inventory = RemoteInventory {
 			clock: TEST_REMOTE_CLOCK,
-			metadata: BTreeMap::from([("fresh.txt".to_owned(), fingerprint)]),
+			metadata: BTreeMap::from([("fresh.txt".to_owned(), Some(fingerprint))]),
 			hashes: HashMap::from([("fresh.txt".to_owned(), hash.clone())]),
 			..RemoteInventory::default()
 		};
@@ -4347,7 +4430,7 @@ mod tests {
 		let hash = "a".repeat(64);
 		let inventory = RemoteInventory {
 			clock: TEST_REMOTE_CLOCK,
-			metadata: BTreeMap::from([("vanished.txt".to_owned(), remote_fingerprint(5))]),
+			metadata: BTreeMap::from([("vanished.txt".to_owned(), Some(remote_fingerprint(5)))]),
 			// A file created after the metadata pass has a hash but no fingerprint.
 			hashes: HashMap::from([("appeared.txt".to_owned(), hash.clone())]),
 			..RemoteInventory::default()

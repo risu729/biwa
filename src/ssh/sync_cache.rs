@@ -2,7 +2,7 @@ use crate::Result;
 use crate::config::types::Config;
 use crate::ssh::target::ResolvedSshTarget;
 use alloc::collections::BTreeMap;
-use color_eyre::eyre::{Context as _, bail};
+use color_eyre::eyre::Context as _;
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -15,8 +15,11 @@ use tracing::debug;
 
 /// Current on-disk sync cache format version.
 ///
-/// Version 2 added the remote inventory cache; version 1 files are ignored.
-const CACHE_VERSION: u32 = 2;
+/// Version 2 added the remote inventory cache and version 3 added the remote
+/// change time to it. Older files are ignored rather than migrated: the only
+/// cost is one full scan, and an explicit version mismatch reports the reason
+/// far more clearly than a deserialization failure would.
+const CACHE_VERSION: u32 = 3;
 
 /// Subdirectory of the state directory holding sync cache files.
 const CACHE_DIR_NAME: &str = "sync_cache";
@@ -34,9 +37,11 @@ const RACY_MTIME_WINDOW_SECS: u64 = 2;
 
 /// Maximum age of a full remote hash pass before automatic revalidation runs.
 ///
-/// Remote fingerprints cover only size and modification time, so content that
-/// changed without moving either would stay hidden forever. Re-hashing the
-/// whole remote directory once a day bounds how long such drift can persist.
+/// Remote fingerprints have no inode component and rely on timestamps reported
+/// by the remote filesystem, so a rewrite is only guaranteed to be visible when
+/// the filesystem stamps change times faithfully. Re-hashing the whole remote
+/// directory once a day bounds how long any drift that slipped through can
+/// persist.
 const REMOTE_REVALIDATE_INTERVAL: Duration = Duration::from_hours(24);
 
 /// Metadata identity captured for one local file.
@@ -116,12 +121,13 @@ pub(super) struct CachedFileState {
 
 /// Metadata identity captured for one remote file.
 ///
-/// Unlike local fingerprints, only the size and modification time are
-/// available: the remote inventory is produced by a portable shell script, and
-/// no remote change time or inode is collected. A cached remote hash is
-/// therefore never more trustworthy than the remote modification time, which is
-/// why [`is_settled`](Self::is_settled) refuses to cache freshly touched files
-/// and why periodic revalidation re-hashes the whole remote directory.
+/// Like local fingerprints, this covers size, modification time, and change
+/// time. User-space writes cannot avoid bumping the kernel-stamped ctime, so a
+/// timestamp-restoring tool cannot smuggle changed content past the
+/// fingerprint. It is still weaker than the local one — there is no inode
+/// component, and the timestamps are whatever the remote filesystem reports —
+/// which is why [`is_settled`](Self::is_settled) refuses to cache freshly
+/// touched files and why periodic revalidation re-hashes everything.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct RemoteFingerprint {
 	/// File size in bytes as printed by the remote inventory.
@@ -131,57 +137,79 @@ pub(super) struct RemoteFingerprint {
 	/// Kept as the raw `seconds[.fraction]` text so the comparison never
 	/// depends on parsing or re-formatting a floating point timestamp.
 	pub mtime: String,
+	/// Change time token exactly as printed by the remote inventory.
+	pub ctime: String,
+}
+
+/// Returns whether a remote inventory timestamp token is a usable cache key.
+///
+/// The remote inventory prints timestamps as `seconds[.fraction]`. GNU `find`
+/// prints a leading `-` for times before the Unix epoch, which the comparison
+/// against the remote clock cannot reason about, so such tokens are rejected
+/// and the file is simply never cached.
+fn is_timestamp_token(token: &str) -> bool {
+	let is_digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+	match token.split_once('.') {
+		// A fractional part must be present in full when the separator is.
+		Some((seconds, fraction)) => is_digits(seconds) && is_digits(fraction),
+		None => is_digits(token),
+	}
 }
 
 impl RemoteFingerprint {
 	/// Builds a fingerprint from one remote inventory metadata record.
 	///
-	/// Both tokens are validated so a malformed or hostile inventory cannot
-	/// store arbitrary text as a cache key.
-	pub(super) fn parse(size: &str, mtime: &str) -> Result<Self> {
-		let Ok(size) = size.parse::<u64>() else {
-			bail!("Malformed size in remote inventory metadata");
-		};
-		let is_digits =
-			|text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
-		let valid = match mtime.split_once('.') {
-			// A fractional part must be present in full when the separator is.
-			Some((seconds, fraction)) => is_digits(seconds) && is_digits(fraction),
-			None => is_digits(mtime),
-		};
-		if !valid {
-			bail!("Malformed modification time in remote inventory metadata");
+	/// Returns `None` when any token cannot serve as a cache key, which callers
+	/// treat as "always re-hash this file" rather than as an error. A pre-epoch
+	/// timestamp or an out-of-range size is unusual but perfectly valid on the
+	/// remote side, so it must never fail a sync.
+	#[must_use]
+	pub(super) fn parse(size: &str, mtime: &str, ctime: &str) -> Option<Self> {
+		if !is_timestamp_token(mtime) || !is_timestamp_token(ctime) {
+			return None;
 		}
-		Ok(Self {
-			size,
+		Some(Self {
+			size: size.parse::<u64>().ok()?,
 			mtime: mtime.to_owned(),
+			ctime: ctime.to_owned(),
 		})
 	}
 
-	/// Returns the whole-second part of the modification time.
+	/// Returns the whole-second part of a validated timestamp token.
 	///
 	/// A value that does not fit in an [`i64`] is reported as the maximum, which
 	/// makes [`is_settled`](Self::is_settled) reject it.
-	fn mtime_secs(&self) -> i64 {
-		self.mtime
+	fn timestamp_secs(token: &str) -> i64 {
+		token
 			.split_once('.')
-			.map_or(self.mtime.as_str(), |(seconds, _)| seconds)
+			.map_or(token, |(seconds, _)| seconds)
 			.parse::<i64>()
 			.unwrap_or(i64::MAX)
 	}
 
-	/// Returns whether the modification time is old enough to key a cached hash.
+	/// Returns whether both timestamps are old enough to key a cached hash.
 	///
-	/// Remote filesystems may store modification times coarsely, so a file
-	/// rewritten moments after the inventory ran could keep an identical
-	/// fingerprint while its content changed. Timestamps at or ahead of the
-	/// remote clock are rejected for the same reason.
+	/// Remote filesystems may stamp times coarsely, so a file rewritten moments
+	/// after the inventory ran could land on the same tick and keep an identical
+	/// fingerprint while its content changed.
+	///
+	/// The comparison uses the clock of the host that ran the inventory, which
+	/// on a networked filesystem is not the host that stamped the timestamps.
+	/// The window is therefore a heuristic, not a guarantee: a file server
+	/// running ahead of the login node makes biwa cache less than it could,
+	/// while one running behind can let the window pass early. The change time
+	/// component of the fingerprint, not this window, is what actually makes a
+	/// rewrite visible.
 	pub(super) fn is_settled(&self, remote_clock_secs: i64) -> bool {
-		let Some(age) = remote_clock_secs.checked_sub(self.mtime_secs()) else {
-			return false;
-		};
-		// A negative age means the timestamp is ahead of the remote clock.
-		u64::try_from(age).is_ok_and(|age| age >= RACY_MTIME_WINDOW_SECS)
+		[self.mtime.as_str(), self.ctime.as_str()]
+			.into_iter()
+			.all(|token| {
+				let Some(age) = remote_clock_secs.checked_sub(Self::timestamp_secs(token)) else {
+					return false;
+				};
+				// A negative age means the timestamp is ahead of the remote clock.
+				u64::try_from(age).is_ok_and(|age| age >= RACY_MTIME_WINDOW_SECS)
+			})
 	}
 }
 
@@ -523,6 +551,7 @@ mod tests {
 			fingerprint: RemoteFingerprint {
 				size: 5,
 				mtime: "1700000000.1234567890".to_owned(),
+				ctime: "1700000000.1234567890".to_owned(),
 			},
 			hash: hash.to_owned(),
 		}
@@ -726,70 +755,90 @@ mod tests {
 	}
 
 	#[test]
-	fn load_rejects_a_version_one_cache() {
+	fn load_rejects_older_cache_versions() {
 		let dir = tempdir().unwrap();
 		let key = test_key();
-		// Version 1 files predate the remote inventory cache and must be ignored
-		// rather than parsed with missing remote state.
-		fs::write(
-			cache_file_path(dir.path(), &key),
-			serde_json::json!({
-				"version": 1,
-				"host": key.host,
-				"port": key.port,
-				"user": key.user,
-				"sync_root": key.sync_root,
-				"remote_dir": key.remote_dir,
-				"files": {},
-			})
-			.to_string(),
-		)
-		.unwrap();
+		for version in [1, 2] {
+			// Older files predate parts of the remote inventory cache and must be
+			// ignored rather than parsed with missing remote state.
+			fs::write(
+				cache_file_path(dir.path(), &key),
+				serde_json::json!({
+					"version": version,
+					"host": key.host,
+					"port": key.port,
+					"user": key.user,
+					"sync_root": key.sync_root,
+					"remote_dir": key.remote_dir,
+					"files": {},
+					"remote_files": {},
+					"remote_hashed_at": 1_700_000_000_u64,
+				})
+				.to_string(),
+			)
+			.unwrap();
 
-		assert_eq!(load_cache(dir.path(), &key), None);
+			assert_eq!(load_cache(dir.path(), &key), None, "version {version}");
+		}
 	}
 
 	#[test]
 	fn remote_fingerprint_parses_inventory_metadata() {
-		let fingerprint = RemoteFingerprint::parse("1234", "1700000000.1234567890").unwrap();
+		let fingerprint =
+			RemoteFingerprint::parse("1234", "1700000000.1234567890", "1700000001.5").unwrap();
 
 		assert_eq!(fingerprint.size, 1234);
 		assert_eq!(fingerprint.mtime, "1700000000.1234567890");
-		assert_eq!(fingerprint.mtime_secs(), 1_700_000_000);
-		// A timestamp without a fractional part stays usable.
+		assert_eq!(fingerprint.ctime, "1700000001.5");
 		assert_eq!(
-			RemoteFingerprint::parse("0", "1700000000")
-				.unwrap()
-				.mtime_secs(),
+			RemoteFingerprint::timestamp_secs(&fingerprint.mtime),
+			1_700_000_000
+		);
+		// A timestamp without a fractional part stays usable.
+		let whole = RemoteFingerprint::parse("0", "1700000000", "1700000000").unwrap();
+		assert_eq!(
+			RemoteFingerprint::timestamp_secs(&whole.mtime),
 			1_700_000_000
 		);
 	}
 
 	#[test]
-	fn remote_fingerprint_rejects_malformed_metadata() {
-		for (size, mtime) in [
-			("-1", "1700000000.0"),
-			("1e3", "1700000000.0"),
-			("10", "now"),
-			("10", "1700000000."),
-			("10", ".5"),
-			("10", "1700000000.5x"),
+	fn remote_fingerprint_rejects_unusable_metadata() {
+		for (size, mtime, ctime) in [
+			("-1", "1700000000.0", "1700000000.0"),
+			("1e3", "1700000000.0", "1700000000.0"),
+			("10", "now", "1700000000.0"),
+			("10", "1700000000.", "1700000000.0"),
+			("10", ".5", "1700000000.0"),
+			("10", "1700000000.5x", "1700000000.0"),
+			("10", "1700000000.0", "not-a-time"),
+			// GNU find prints pre-epoch timestamps with a leading sign. Such a
+			// file is perfectly valid remotely, so it must degrade to "never
+			// cached" instead of failing the sync.
+			("10", "-315576000.0000000000", "1700000000.0"),
+			("10", "1700000000.0", "-315576000.0000000000"),
 		] {
-			assert!(
-				RemoteFingerprint::parse(size, mtime).is_err(),
-				"accepted {size} {mtime}"
+			assert_eq!(
+				RemoteFingerprint::parse(size, mtime, ctime),
+				None,
+				"accepted {size} {mtime} {ctime}"
 			);
 		}
 	}
 
 	#[test]
 	fn remote_fingerprint_is_settled_only_outside_the_racy_window() {
-		let fingerprint = RemoteFingerprint::parse("10", "1700000000.5").unwrap();
+		let fingerprint = RemoteFingerprint::parse("10", "1700000000.5", "1700000000.5").unwrap();
 
 		assert!(fingerprint.is_settled(1_700_000_002));
 		assert!(!fingerprint.is_settled(1_700_000_001));
-		// A modification time ahead of the remote clock is never trusted.
+		// A timestamp ahead of the remote clock is never trusted.
 		assert!(!fingerprint.is_settled(1_699_999_000));
+		// A settled modification time does not excuse a fresh change time: a
+		// rewrite that restored the mtime still bumps the ctime.
+		let restored = RemoteFingerprint::parse("10", "1700000000.5", "1700000002.5").unwrap();
+		assert!(!restored.is_settled(1_700_000_003));
+		assert!(restored.is_settled(1_700_000_005));
 	}
 
 	#[test]
