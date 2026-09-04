@@ -74,6 +74,7 @@
         "remote_root": "~/.cache/biwa/projects",
         "sftp": {
           "cache": {
+            "auto_revalidate": true,
             "enabled": true,
             "path": null
           },
@@ -414,6 +415,7 @@
           "$ref": "#/$defs/SyncSftpConfig",
           "default": {
             "cache": {
+              "auto_revalidate": true,
               "enabled": true,
               "path": null
             },
@@ -446,11 +448,16 @@
       ]
     },
     "SyncSftpCacheConfig": {
-      "description": "Local sync state cache settings for the SFTP engine.",
+      "description": "Sync state cache settings for the SFTP engine.",
       "type": "object",
       "properties": {
+        "auto_revalidate": {
+          "description": "Periodically re-hash every remote file instead of trusting cached remote hashes.\n\nRemote fingerprints cannot detect content that changed without moving the\nsize or modification time, so biwa re-hashes the whole remote directory\nonce a day. Disabling this trusts cached remote hashes until their\nfingerprint changes.",
+          "type": "boolean",
+          "default": true
+        },
         "enabled": {
-          "description": "Reuse cached local file hashes while a file's metadata fingerprint is unchanged.\n\nThe fingerprint covers size and modification time, plus change time and\ninode on Unix.",
+          "description": "Reuse cached local and remote file hashes while a file's metadata fingerprint is unchanged.\n\nThe local fingerprint covers size and modification time, plus change time\nand inode on Unix. The remote fingerprint covers size and modification\ntime only.",
           "type": "boolean",
           "default": true
         },
@@ -468,9 +475,10 @@
       "type": "object",
       "properties": {
         "cache": {
-          "description": "Local sync state cache settings.",
+          "description": "Sync state cache settings.",
           "$ref": "#/$defs/SyncSftpCacheConfig",
           "default": {
+            "auto_revalidate": true,
             "enabled": true,
             "path": null
           }

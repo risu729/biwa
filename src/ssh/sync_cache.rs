@@ -2,7 +2,7 @@ use crate::Result;
 use crate::config::types::Config;
 use crate::ssh::target::ResolvedSshTarget;
 use alloc::collections::BTreeMap;
-use color_eyre::eyre::Context as _;
+use color_eyre::eyre::{Context as _, bail};
 use core::time::Duration;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -14,7 +14,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::debug;
 
 /// Current on-disk sync cache format version.
-const CACHE_VERSION: u32 = 1;
+///
+/// Version 2 added the remote inventory cache; version 1 files are ignored.
+const CACHE_VERSION: u32 = 2;
 
 /// Subdirectory of the state directory holding sync cache files.
 const CACHE_DIR_NAME: &str = "sync_cache";
@@ -25,7 +27,17 @@ const CACHE_DIR_NAME: &str = "sync_cache";
 /// modified again shortly after being hashed could keep an identical
 /// fingerprint while its content changed. Skipping very recent files keeps the
 /// cache trustworthy at the cost of re-hashing them on the next run.
-const RACY_MTIME_WINDOW: Duration = Duration::from_secs(2);
+const RACY_MTIME_WINDOW: Duration = Duration::from_secs(RACY_MTIME_WINDOW_SECS);
+
+/// [`RACY_MTIME_WINDOW`] in whole seconds, for remote timestamp comparisons.
+const RACY_MTIME_WINDOW_SECS: u64 = 2;
+
+/// Maximum age of a full remote hash pass before automatic revalidation runs.
+///
+/// Remote fingerprints cover only size and modification time, so content that
+/// changed without moving either would stay hidden forever. Re-hashing the
+/// whole remote directory once a day bounds how long such drift can persist.
+const REMOTE_REVALIDATE_INTERVAL: Duration = Duration::from_hours(24);
 
 /// Metadata identity captured for one local file.
 ///
@@ -102,6 +114,98 @@ pub(super) struct CachedFileState {
 	pub hash: String,
 }
 
+/// Metadata identity captured for one remote file.
+///
+/// Unlike local fingerprints, only the size and modification time are
+/// available: the remote inventory is produced by a portable shell script, and
+/// no remote change time or inode is collected. A cached remote hash is
+/// therefore never more trustworthy than the remote modification time, which is
+/// why [`is_settled`](Self::is_settled) refuses to cache freshly touched files
+/// and why periodic revalidation re-hashes the whole remote directory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct RemoteFingerprint {
+	/// File size in bytes as printed by the remote inventory.
+	pub size: u64,
+	/// Modification time token exactly as printed by the remote inventory.
+	///
+	/// Kept as the raw `seconds[.fraction]` text so the comparison never
+	/// depends on parsing or re-formatting a floating point timestamp.
+	pub mtime: String,
+}
+
+impl RemoteFingerprint {
+	/// Builds a fingerprint from one remote inventory metadata record.
+	///
+	/// Both tokens are validated so a malformed or hostile inventory cannot
+	/// store arbitrary text as a cache key.
+	pub(super) fn parse(size: &str, mtime: &str) -> Result<Self> {
+		let Ok(size) = size.parse::<u64>() else {
+			bail!("Malformed size in remote inventory metadata");
+		};
+		let is_digits =
+			|text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+		let valid = match mtime.split_once('.') {
+			// A fractional part must be present in full when the separator is.
+			Some((seconds, fraction)) => is_digits(seconds) && is_digits(fraction),
+			None => is_digits(mtime),
+		};
+		if !valid {
+			bail!("Malformed modification time in remote inventory metadata");
+		}
+		Ok(Self {
+			size,
+			mtime: mtime.to_owned(),
+		})
+	}
+
+	/// Returns the whole-second part of the modification time.
+	///
+	/// A value that does not fit in an [`i64`] is reported as the maximum, which
+	/// makes [`is_settled`](Self::is_settled) reject it.
+	fn mtime_secs(&self) -> i64 {
+		self.mtime
+			.split_once('.')
+			.map_or(self.mtime.as_str(), |(seconds, _)| seconds)
+			.parse::<i64>()
+			.unwrap_or(i64::MAX)
+	}
+
+	/// Returns whether the modification time is old enough to key a cached hash.
+	///
+	/// Remote filesystems may store modification times coarsely, so a file
+	/// rewritten moments after the inventory ran could keep an identical
+	/// fingerprint while its content changed. Timestamps at or ahead of the
+	/// remote clock are rejected for the same reason.
+	pub(super) fn is_settled(&self, remote_clock_secs: i64) -> bool {
+		let Some(age) = remote_clock_secs.checked_sub(self.mtime_secs()) else {
+			return false;
+		};
+		// A negative age means the timestamp is ahead of the remote clock.
+		u64::try_from(age).is_ok_and(|age| age >= RACY_MTIME_WINDOW_SECS)
+	}
+}
+
+/// One cached remote file hash and the fingerprint it was observed with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct CachedRemoteState {
+	/// Fingerprint of the remote file when its hash was observed.
+	#[serde(flatten)]
+	pub fingerprint: RemoteFingerprint,
+	/// SHA-256 hash of the remote file content.
+	pub hash: String,
+}
+
+/// Cached synchronization state for one cache key.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(super) struct SyncCacheData {
+	/// Cached local file states keyed by path relative to the sync root.
+	pub local_files: BTreeMap<String, CachedFileState>,
+	/// Cached remote file states keyed by path relative to the remote directory.
+	pub remote_files: BTreeMap<String, CachedRemoteState>,
+	/// Unix seconds of the last full remote hash pass, if one was ever recorded.
+	pub remote_hashed_at: Option<u64>,
+}
+
 /// Identity of one cache scope: SSH target plus both synchronization roots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CacheKey {
@@ -167,6 +271,38 @@ struct SyncCacheFile {
 	remote_dir: String,
 	/// Cached local file states keyed by path relative to the sync root.
 	files: BTreeMap<String, CachedFileState>,
+	/// Cached remote file states keyed by path relative to the remote directory.
+	remote_files: BTreeMap<String, CachedRemoteState>,
+	/// Unix seconds of the last full remote hash pass.
+	remote_hashed_at: Option<u64>,
+}
+
+/// Returns the current Unix time in whole seconds.
+///
+/// Returns `None` when the system clock predates the Unix epoch, which callers
+/// treat as a reason to revalidate rather than to trust cached remote hashes.
+#[must_use]
+pub(super) fn unix_now() -> Option<u64> {
+	SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.ok()
+		.map(|since_epoch| since_epoch.as_secs())
+}
+
+/// Returns whether the remote hash cache is due for a full revalidation pass.
+///
+/// Revalidation is due when no full pass was ever recorded, when either
+/// timestamp is unusable, when the clock moved backwards, or when the last pass
+/// is older than [`REMOTE_REVALIDATE_INTERVAL`].
+#[must_use]
+pub(super) const fn remote_revalidation_due(last_full_hash: Option<u64>, now: Option<u64>) -> bool {
+	let (Some(last_full_hash), Some(now)) = (last_full_hash, now) else {
+		return true;
+	};
+	let Some(age) = now.checked_sub(last_full_hash) else {
+		return true;
+	};
+	age >= REMOTE_REVALIDATE_INTERVAL.as_secs()
 }
 
 /// Resolves the sync cache directory from configuration.
@@ -195,10 +331,7 @@ fn cache_file_path(cache_dir: &Path, key: &CacheKey) -> PathBuf {
 /// an unexpected version, or was written for a different identity. Every
 /// fallback reason is logged at debug level; a bad cache never fails a sync.
 #[must_use]
-pub(super) fn load_cache(
-	cache_dir: &Path,
-	key: &CacheKey,
-) -> Option<BTreeMap<String, CachedFileState>> {
+pub(super) fn load_cache(cache_dir: &Path, key: &CacheKey) -> Option<SyncCacheData> {
 	let path = cache_file_path(cache_dir, key);
 	let contents = match fs::read_to_string(&path) {
 		Ok(contents) => contents,
@@ -236,8 +369,18 @@ pub(super) fn load_cache(
 		debug!(path = %path.display(), "Sync cache identity mismatch; falling back to a full scan");
 		return None;
 	}
-	debug!(path = %path.display(), entries = cache.files.len(), "Loaded sync cache");
-	Some(cache.files)
+	debug!(
+		path = %path.display(),
+		local_entries = cache.files.len(),
+		remote_entries = cache.remote_files.len(),
+		remote_hashed_at = cache.remote_hashed_at,
+		"Loaded sync cache"
+	);
+	Some(SyncCacheData {
+		local_files: cache.files,
+		remote_files: cache.remote_files,
+		remote_hashed_at: cache.remote_hashed_at,
+	})
 }
 
 /// Minimum age before an orphaned temporary cache file is swept.
@@ -300,11 +443,7 @@ fn sweep_stale_tmp_files(cache_dir: &Path) {
 ///
 /// The cache is written to a temporary file first and renamed into place so a
 /// concurrent reader never observes a partially written cache.
-pub(super) fn save_cache(
-	cache_dir: &Path,
-	key: &CacheKey,
-	files: BTreeMap<String, CachedFileState>,
-) -> Result<()> {
+pub(super) fn save_cache(cache_dir: &Path, key: &CacheKey, data: SyncCacheData) -> Result<()> {
 	let path = cache_file_path(cache_dir, key);
 	fs::create_dir_all(cache_dir).wrap_err_with(|| {
 		format!(
@@ -320,7 +459,9 @@ pub(super) fn save_cache(
 		user: key.user.clone(),
 		sync_root: key.sync_root.clone(),
 		remote_dir: key.remote_dir.clone(),
-		files,
+		files: data.local_files,
+		remote_files: data.remote_files,
+		remote_hashed_at: data.remote_hashed_at,
 	};
 	let contents = serde_json::to_string(&cache).wrap_err("Failed to serialize sync cache")?;
 	let tmp_path = cache_dir.join(format!("{}.{}.tmp", key.file_name(), process::id()));
@@ -333,7 +474,12 @@ pub(super) fn save_cache(
 			path.display()
 		)
 	})?;
-	debug!(path = %path.display(), entries = cache.files.len(), "Saved sync cache");
+	debug!(
+		path = %path.display(),
+		local_entries = cache.files.len(),
+		remote_entries = cache.remote_files.len(),
+		"Saved sync cache"
+	);
 	Ok(())
 }
 
@@ -371,15 +517,38 @@ mod tests {
 		}
 	}
 
+	/// Builds one cached remote file state with an arbitrary fingerprint.
+	fn cached_remote_file(hash: &str) -> CachedRemoteState {
+		CachedRemoteState {
+			fingerprint: RemoteFingerprint {
+				size: 5,
+				mtime: "1700000000.1234567890".to_owned(),
+			},
+			hash: hash.to_owned(),
+		}
+	}
+
+	/// Builds cache data holding one local and one remote entry.
+	fn test_data() -> SyncCacheData {
+		SyncCacheData {
+			local_files: BTreeMap::from([("src/main.rs".to_owned(), cached_file("abc123"))]),
+			remote_files: BTreeMap::from([(
+				"src/main.rs".to_owned(),
+				cached_remote_file("def456"),
+			)]),
+			remote_hashed_at: Some(1_700_000_000),
+		}
+	}
+
 	#[test]
 	fn save_and_load_round_trips() {
 		let dir = tempdir().unwrap();
 		let key = test_key();
-		let files = BTreeMap::from([("src/main.rs".to_owned(), cached_file("abc123"))]);
+		let data = test_data();
 
-		save_cache(dir.path(), &key, files.clone()).unwrap();
+		save_cache(dir.path(), &key, data.clone()).unwrap();
 
-		assert_eq!(load_cache(dir.path(), &key), Some(files));
+		assert_eq!(load_cache(dir.path(), &key), Some(data));
 	}
 
 	#[test]
@@ -387,7 +556,7 @@ mod tests {
 		let dir = tempdir().unwrap();
 		let key = test_key();
 
-		save_cache(dir.path(), &key, BTreeMap::new()).unwrap();
+		save_cache(dir.path(), &key, SyncCacheData::default()).unwrap();
 
 		let names = fs::read_dir(dir.path())
 			.unwrap()
@@ -447,12 +616,7 @@ mod tests {
 	fn load_rejects_version_mismatch() {
 		let dir = tempdir().unwrap();
 		let key = test_key();
-		save_cache(
-			dir.path(),
-			&key,
-			BTreeMap::from([("file.txt".to_owned(), cached_file("abc"))]),
-		)
-		.unwrap();
+		save_cache(dir.path(), &key, test_data()).unwrap();
 		let path = cache_file_path(dir.path(), &key);
 		let mut value =
 			serde_json::from_str::<serde_json::Value>(&fs::read_to_string(&path).unwrap()).unwrap();
@@ -473,12 +637,7 @@ mod tests {
 			remote_dir: "~/.cache/biwa/projects/project-def".to_owned(),
 			..original.clone()
 		};
-		save_cache(
-			dir.path(),
-			&original,
-			BTreeMap::from([("file.txt".to_owned(), cached_file("abc"))]),
-		)
-		.unwrap();
+		save_cache(dir.path(), &original, test_data()).unwrap();
 		// Simulate a cache written for a different identity at this key's path.
 		fs::copy(
 			cache_file_path(dir.path(), &original),
@@ -556,7 +715,7 @@ mod tests {
 		backdate(&foreign_tmp);
 
 		let key = test_key();
-		save_cache(dir.path(), &key, BTreeMap::new()).unwrap();
+		save_cache(dir.path(), &key, SyncCacheData::default()).unwrap();
 
 		// Only biwa-shaped, hour-old temporary files are removed: a concurrent
 		// save's fresh file and another tool's file both survive.
@@ -564,5 +723,91 @@ mod tests {
 		assert!(fresh_tmp.exists());
 		assert!(foreign_tmp.exists());
 		assert!(cache_file_path(dir.path(), &key).exists());
+	}
+
+	#[test]
+	fn load_rejects_a_version_one_cache() {
+		let dir = tempdir().unwrap();
+		let key = test_key();
+		// Version 1 files predate the remote inventory cache and must be ignored
+		// rather than parsed with missing remote state.
+		fs::write(
+			cache_file_path(dir.path(), &key),
+			serde_json::json!({
+				"version": 1,
+				"host": key.host,
+				"port": key.port,
+				"user": key.user,
+				"sync_root": key.sync_root,
+				"remote_dir": key.remote_dir,
+				"files": {},
+			})
+			.to_string(),
+		)
+		.unwrap();
+
+		assert_eq!(load_cache(dir.path(), &key), None);
+	}
+
+	#[test]
+	fn remote_fingerprint_parses_inventory_metadata() {
+		let fingerprint = RemoteFingerprint::parse("1234", "1700000000.1234567890").unwrap();
+
+		assert_eq!(fingerprint.size, 1234);
+		assert_eq!(fingerprint.mtime, "1700000000.1234567890");
+		assert_eq!(fingerprint.mtime_secs(), 1_700_000_000);
+		// A timestamp without a fractional part stays usable.
+		assert_eq!(
+			RemoteFingerprint::parse("0", "1700000000")
+				.unwrap()
+				.mtime_secs(),
+			1_700_000_000
+		);
+	}
+
+	#[test]
+	fn remote_fingerprint_rejects_malformed_metadata() {
+		for (size, mtime) in [
+			("-1", "1700000000.0"),
+			("1e3", "1700000000.0"),
+			("10", "now"),
+			("10", "1700000000."),
+			("10", ".5"),
+			("10", "1700000000.5x"),
+		] {
+			assert!(
+				RemoteFingerprint::parse(size, mtime).is_err(),
+				"accepted {size} {mtime}"
+			);
+		}
+	}
+
+	#[test]
+	fn remote_fingerprint_is_settled_only_outside_the_racy_window() {
+		let fingerprint = RemoteFingerprint::parse("10", "1700000000.5").unwrap();
+
+		assert!(fingerprint.is_settled(1_700_000_002));
+		assert!(!fingerprint.is_settled(1_700_000_001));
+		// A modification time ahead of the remote clock is never trusted.
+		assert!(!fingerprint.is_settled(1_699_999_000));
+	}
+
+	#[test]
+	fn remote_revalidation_is_due_without_a_recorded_pass_or_after_the_interval() {
+		let interval = REMOTE_REVALIDATE_INTERVAL.as_secs();
+		let now = 1_700_000_000;
+
+		assert!(remote_revalidation_due(None, Some(now)));
+		assert!(remote_revalidation_due(Some(now), None));
+		assert!(remote_revalidation_due(
+			Some(now.saturating_sub(interval)),
+			Some(now)
+		));
+		// A clock that moved backwards is treated as unusable.
+		assert!(remote_revalidation_due(Some(now), Some(now - 1)));
+		assert!(!remote_revalidation_due(
+			Some(now.saturating_sub(interval - 1)),
+			Some(now)
+		));
 	}
 }

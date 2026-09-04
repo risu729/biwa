@@ -1,4 +1,7 @@
-use super::sync_cache::{self, CacheKey, CachedFileState, FileFingerprint};
+use super::sync_cache::{
+	self, CacheKey, CachedFileState, CachedRemoteState, FileFingerprint, RemoteFingerprint,
+	SyncCacheData,
+};
 #[cfg(test)]
 use super::sync_paths::{MAX_REMOTE_MKDIR_COMMAND_LEN, compute_remote_path};
 use super::sync_paths::{build_mkdir_commands, collect_leaf_directories, resolve_sftp_path};
@@ -40,12 +43,22 @@ use tracing::{debug, info, warn};
 
 /// Separator emitted by the remote sync-state script before file hash lines.
 const REMOTE_FILE_MARKER: &str = "__BIWA_FILE_HASHES__";
+/// Separator emitted by the remote sync-state script before file metadata lines.
+const REMOTE_FILE_META_MARKER: &str = "__BIWA_FILE_META__";
 /// Separator emitted by the remote sync-state script before symlink lines.
 const REMOTE_SYMLINK_MARKER: &str = "__BIWA_SYMLINKS__";
 /// Separator emitted by the remote sync-state script before directory paths.
 const REMOTE_DIRECTORY_MARKER: &str = "__BIWA_DIRECTORIES__";
+/// Separator emitted by the remote sync-state script before the remote clock.
+const REMOTE_CLOCK_MARKER: &str = "__BIWA_CLOCK__";
 /// Reserved top-level prefix for private local pull transactions.
 const LOCAL_PULL_STAGE_PREFIX: &str = ".biwa-pull-stage-";
+/// Conservative upper bound for a targeted remote hashing command.
+///
+/// The paths are passed to a shell `printf` rather than to `execve`, but a very
+/// long command still risks the remote shell's input limits, and past this size
+/// re-hashing the whole remote directory in one pass is cheaper anyway.
+const MAX_REMOTE_HASH_COMMAND_LEN: usize = 0x4000;
 
 /// Computes the remote directory path for a given project.
 ///
@@ -766,7 +779,9 @@ pub async fn ensure_remote_matches_local_snapshot(
 		&mut expected.directories,
 	);
 
-	let actual = fetch_remote_state(client, config, remote_dir, false).await?;
+	// Verification passes never consult the remote cache: they exist to prove
+	// the remote content itself, so every file is hashed again.
+	let (actual, _) = fetch_remote_state(client, config, remote_dir, false, None).await?;
 	if actual != expected {
 		bail!(
 			"Remote project does not exactly match the completed push; refusing to run a round-trip command"
@@ -790,12 +805,66 @@ fn collect_parent_directories_into<'a>(
 	}
 }
 
-/// Builds the remote shell script that emits directory, symlink, and file hash state.
-fn build_remote_state_script(config: &Config, remote_dir: &str, create_remote_dir: bool) -> String {
+/// How much remote file state one inventory run collects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InventoryMode {
+	/// Hash every remote file, completing a full revalidation pass.
+	Full,
+	/// Collect metadata only and hash just the files the cache cannot explain.
+	Incremental,
+}
+
+/// One remote inventory exactly as the remote script reported it.
+#[derive(Debug, Default)]
+struct RemoteInventory {
+	/// Remote clock in Unix seconds captured before the directory was scanned.
+	clock: i64,
+	/// The remote directories that currently exist.
+	directories: HashSet<String>,
+	/// The remote symlinks that currently exist.
+	symlinks: HashSet<String>,
+	/// Remote file metadata keyed by path relative to the remote directory.
+	metadata: BTreeMap<String, RemoteFingerprint>,
+	/// Remote file hashes keyed by path relative to the remote directory.
+	hashes: HashMap<String, String>,
+}
+
+/// Cache-relevant results of one remote inventory run.
+#[derive(Debug, Default)]
+struct RemoteScanCache {
+	/// Cacheable remote file states keyed by path relative to the remote directory.
+	entries: BTreeMap<String, CachedRemoteState>,
+	/// Number of remote files whose hash was reused from the sync cache.
+	hits: usize,
+	/// Number of remote files hashed by the remote server during this run.
+	hashed: usize,
+	/// Whether this run hashed every remote file.
+	full_hash: bool,
+}
+
+/// Builds the remote shell script that emits directory, symlink, and file state.
+///
+/// The metadata listing always precedes the hash listing so a file rewritten
+/// between the two is recorded with its older fingerprint and its newer hash.
+/// The next run then sees a fingerprint mismatch and re-hashes it, which is the
+/// safe direction; the reverse order could hide the change behind a fingerprint
+/// that matches a stale hash.
+fn build_remote_state_script(
+	config: &Config,
+	remote_dir: &str,
+	create_remote_dir: bool,
+	mode: InventoryMode,
+) -> String {
 	let quoted_remote_dir = shell_quote_path(remote_dir);
 	let quoted_marker = shell_words::quote(REMOTE_FILE_MARKER).into_owned();
+	let quoted_meta_marker = shell_words::quote(REMOTE_FILE_META_MARKER).into_owned();
 	let quoted_symlink_marker = shell_words::quote(REMOTE_SYMLINK_MARKER).into_owned();
 	let quoted_directory_marker = shell_words::quote(REMOTE_DIRECTORY_MARKER).into_owned();
+	let quoted_clock_marker = shell_words::quote(REMOTE_CLOCK_MARKER).into_owned();
+	let hash_files = match mode {
+		InventoryMode::Full => " && find . -iname .git -prune -o -type f -exec sha256sum -z {} +",
+		InventoryMode::Incremental => "",
+	};
 	let prepare_remote_dir = if create_remote_dir {
 		format!("mkdir -p -- {quoted_remote_dir} &&")
 	} else {
@@ -812,32 +881,58 @@ fn build_remote_state_script(config: &Config, remote_dir: &str, create_remote_di
 		String::new()
 	};
 
-	// Prepare the remote dir, normalize owned push directories, then print
-	// directories, symlinks, and file hashes without following symlinks.
+	// Prepare the remote dir, normalize owned push directories, then print the
+	// remote clock, directories, symlinks, file metadata, and — for a full
+	// inventory — file hashes, without following symlinks.
 	format!(
 		"umask {} && {prepare_remote_dir} \
 		 if [ -L {quoted_remote_dir} ]; then echo 'Error: remote directory is a symlink' >&2; exit 1; fi && \
 		 if [ ! -d {quoted_remote_dir} ]; then echo 'Error: remote directory is not a directory' >&2; exit 1; fi && \
 		 cd -- {quoted_remote_dir} && \
 		 {normalize_remote_dirs} \
+		 printf '%s\\0' {quoted_clock_marker} && \
+		 printf '%s\\0' \"$(date +%s)\" && \
 		 printf '%s\\0' {quoted_directory_marker} && \
 		 find . -mindepth 1 -iname .git -prune -o -type d -print0 && \
 		 printf '%s\\0' {quoted_symlink_marker} && \
 		 find . -iname .git -prune -o -type l -print0 && \
-		 printf '%s\\0' {quoted_marker} && \
-		 find . -iname .git -prune -o -type f -exec sha256sum -z {{}} +",
+		 printf '%s\\0' {quoted_meta_marker} && \
+		 find . -iname .git -prune -o -type f -printf '%s %T@ %p\\0' && \
+		 printf '%s\\0' {quoted_marker}{hash_files}",
 		config.ssh.umask
 	)
 }
 
-/// Fetches the current remote directory and file state.
-async fn fetch_remote_state(
+/// Builds a remote command that hashes exactly the given relative paths.
+///
+/// The paths are streamed into `xargs` through a shell `printf`, which keeps
+/// paths containing spaces or newlines intact and lets `xargs` batch the
+/// invocations. Returns `None` when the command would grow past
+/// [`MAX_REMOTE_HASH_COMMAND_LEN`].
+fn build_remote_hash_command(remote_dir: &str, paths: &[String]) -> Option<String> {
+	let mut command = format!("cd -- {} && printf '%s\\0'", shell_quote_path(remote_dir));
+	for path in paths {
+		// The `./` prefix keeps a path that starts with `-` from looking like an
+		// option, and matches the paths the inventory itself reports.
+		command.push(' ');
+		command.push_str(&shell_words::quote(&format!("./{path}")));
+		if command.len() > MAX_REMOTE_HASH_COMMAND_LEN {
+			return None;
+		}
+	}
+	command.push_str(" | xargs -0 sha256sum -z --");
+	Some(command)
+}
+
+/// Runs one remote inventory script and parses its output.
+async fn run_remote_inventory(
 	client: &Client,
 	config: &Config,
 	remote_dir: &str,
 	create_remote_dir: bool,
-) -> Result<RemoteState> {
-	let script = build_remote_state_script(config, remote_dir, create_remote_dir);
+	mode: InventoryMode,
+) -> Result<RemoteInventory> {
+	let script = build_remote_state_script(config, remote_dir, create_remote_dir, mode);
 
 	let result = client
 		.execute(&script)
@@ -864,7 +959,183 @@ async fn fetch_remote_state(
 
 	let output = result.stdout;
 
-	parse_remote_state(&output)
+	parse_remote_inventory(&output)
+}
+
+/// Returns the inventoried paths whose content hash is still unknown.
+fn pending_hash_paths(
+	inventory: &RemoteInventory,
+	cached: Option<&BTreeMap<String, CachedRemoteState>>,
+) -> Vec<String> {
+	inventory
+		.metadata
+		.iter()
+		.filter(|(path, fingerprint)| {
+			!inventory.hashes.contains_key(*path)
+				&& !cached.is_some_and(|cached| {
+					cached
+						.get(*path)
+						.is_some_and(|entry| &entry.fingerprint == *fingerprint)
+				})
+		})
+		.map(|(path, _)| path.clone())
+		.collect()
+}
+
+/// Hashes the remote files an incremental inventory could not resolve from cache.
+///
+/// Returns `false` when the targeted pass could not be completed, in which case
+/// the caller falls back to a full inventory. Every failure is a fallback
+/// rather than an error: the full pass produces the same state, only slower.
+async fn hash_pending_remote_files(
+	client: &Client,
+	remote_dir: &str,
+	inventory: &mut RemoteInventory,
+	pending: &[String],
+) -> bool {
+	let Some(command) = build_remote_hash_command(remote_dir, pending) else {
+		debug!(
+			pending = pending.len(),
+			"Targeted remote hash command is too large; falling back to a full remote hash pass"
+		);
+		return false;
+	};
+	let result = match client.execute(&command).await {
+		Ok(result) => result,
+		Err(error) => {
+			warn!(%error, "Failed to run targeted remote hashing; falling back to a full remote hash pass");
+			return false;
+		}
+	};
+	if result.exit_status != 0 {
+		warn!(
+			exit_status = result.exit_status,
+			stderr = result.stderr.trim(),
+			"Targeted remote hashing failed; falling back to a full remote hash pass"
+		);
+		return false;
+	}
+	match parse_remote_hashes(&result.stdout) {
+		Ok(hashes) => {
+			inventory.hashes.extend(hashes);
+			true
+		}
+		Err(error) => {
+			warn!(%error, "Failed to parse targeted remote hashes; falling back to a full remote hash pass");
+			false
+		}
+	}
+}
+
+/// Builds the remote sync state and its cache entries from a resolved inventory.
+///
+/// A file listed with metadata but without a hash disappeared between the two
+/// remote passes and is dropped; a file with a hash but no metadata appeared
+/// between them and is kept out of the cache instead.
+fn build_remote_state(
+	inventory: RemoteInventory,
+	cached: Option<&BTreeMap<String, CachedRemoteState>>,
+	mode: InventoryMode,
+) -> (RemoteState, RemoteScanCache) {
+	let RemoteInventory {
+		clock,
+		directories,
+		symlinks,
+		metadata,
+		mut hashes,
+	} = inventory;
+	let mut scan = RemoteScanCache {
+		full_hash: mode == InventoryMode::Full,
+		..RemoteScanCache::default()
+	};
+	let mut file_hashes = HashMap::new();
+	for (path, fingerprint) in metadata {
+		let hash = if let Some(hash) = hashes.remove(&path) {
+			scan.hashed = scan.hashed.saturating_add(1);
+			hash
+		} else if let Some(entry) = cached
+			.and_then(|cached| cached.get(&path))
+			.filter(|entry| entry.fingerprint == fingerprint)
+		{
+			scan.hits = scan.hits.saturating_add(1);
+			entry.hash.clone()
+		} else {
+			debug!(
+				path,
+				"Remote file vanished before it could be hashed; ignoring it"
+			);
+			continue;
+		};
+		if fingerprint.is_settled(clock) {
+			scan.entries.insert(
+				path.clone(),
+				CachedRemoteState {
+					fingerprint,
+					hash: hash.clone(),
+				},
+			);
+		}
+		file_hashes.insert(path, hash);
+	}
+	file_hashes.extend(hashes);
+
+	(
+		RemoteState {
+			file_hashes,
+			directories,
+			symlinks,
+		},
+		scan,
+	)
+}
+
+/// Fetches the current remote directory and file state.
+///
+/// With a usable remote cache, the inventory only lists file metadata and just
+/// the files whose fingerprint changed are hashed remotely; otherwise every
+/// remote file is hashed in one pass. The returned scan cache holds the entries
+/// eligible for persistence after a successful synchronization.
+async fn fetch_remote_state(
+	client: &Client,
+	config: &Config,
+	remote_dir: &str,
+	create_remote_dir: bool,
+	cached_remote: Option<&BTreeMap<String, CachedRemoteState>>,
+) -> Result<(RemoteState, RemoteScanCache)> {
+	let full_inventory = async || {
+		run_remote_inventory(
+			client,
+			config,
+			remote_dir,
+			create_remote_dir,
+			InventoryMode::Full,
+		)
+		.await
+		.map(|inventory| build_remote_state(inventory, None, InventoryMode::Full))
+	};
+	let Some(cached) = cached_remote.filter(|entries| !entries.is_empty()) else {
+		return full_inventory().await;
+	};
+
+	let mut inventory = run_remote_inventory(
+		client,
+		config,
+		remote_dir,
+		create_remote_dir,
+		InventoryMode::Incremental,
+	)
+	.await?;
+	let pending = pending_hash_paths(&inventory, Some(cached));
+	if !pending.is_empty()
+		&& !hash_pending_remote_files(client, remote_dir, &mut inventory, &pending).await
+	{
+		return full_inventory().await;
+	}
+	Ok(build_remote_state(
+		inventory,
+		Some(cached),
+		InventoryMode::Incremental,
+	))
 }
 
 /// Actions to perform during synchronization.
@@ -2632,8 +2903,16 @@ async fn verify_pull_preconditions(
 	expected_remote_state: &RemoteState,
 	baseline: Option<&LocalSnapshot>,
 ) -> Result<()> {
-	let remote_state =
-		fetch_remote_state(context.client, context.config, context.remote_dir, false).await?;
+	// Verification passes never consult the remote cache: they exist to prove
+	// the remote content itself, so every file is hashed again.
+	let (remote_state, _) = fetch_remote_state(
+		context.client,
+		context.config,
+		context.remote_dir,
+		false,
+		None,
+	)
+	.await?;
 	let remote_state = filter_remote_state_for_pull(
 		remote_state,
 		context.project_root,
@@ -2747,12 +3026,15 @@ struct SyncExecution<'a> {
 }
 
 /// Plans and applies push synchronization.
+///
+/// Returns the remote paths the push mutated (uploads and deletions), so
+/// callers can invalidate stale sync cache entries for them.
 async fn execute_push_sync(
 	context: &SyncExecution<'_>,
 	local_state: &LocalState,
 	remote_state: &RemoteState,
 	stats: &mut Stats,
-) -> Result<()> {
+) -> Result<Vec<String>> {
 	let actions = calculate_push_actions(local_state, remote_state, context.options);
 	stats.unchanged = local_state
 		.files
@@ -2767,6 +3049,12 @@ async fn execute_push_sync(
 		"Calculated push synchronization actions"
 	);
 
+	let touched_paths = actions
+		.uploads
+		.iter()
+		.map(|path| path.to_string_lossy().into_owned())
+		.chain(actions.file_deletions.iter().cloned())
+		.collect::<Vec<_>>();
 	apply_sync_actions(
 		context.client,
 		context.config,
@@ -2778,7 +3066,8 @@ async fn execute_push_sync(
 		stats,
 		context.spinner,
 	)
-	.await
+	.await?;
+	Ok(touched_paths)
 }
 
 /// Plans and applies pull synchronization.
@@ -2860,28 +3149,108 @@ fn resolve_cache_context(
 	}
 }
 
+/// The sync cache state resolved for one synchronization run.
+#[derive(Debug, Default)]
+struct CacheState {
+	/// Cache directory and key, when caching is enabled for this run.
+	context: Option<(PathBuf, CacheKey)>,
+	/// Cached local file hashes to reuse during the local scan.
+	local_files: Option<BTreeMap<String, CachedFileState>>,
+	/// Cached remote file hashes to reuse during the remote inventory.
+	remote_files: Option<BTreeMap<String, CachedRemoteState>>,
+	/// Unix seconds of the last recorded full remote hash pass.
+	remote_hashed_at: Option<u64>,
+}
+
+impl CacheState {
+	/// Loads the sync cache for one run.
+	///
+	/// `--force` recomputes all local and remote state, so it ignores the stored
+	/// hashes entirely; the cache is then rebuilt from scratch after a
+	/// successful run, which makes `--force` double as a cache reset. Cached
+	/// remote hashes are also ignored on the first run after the automatic
+	/// revalidation interval elapses.
+	fn load(config: &Config, project_root: &Path, remote_dir: &str, force: bool) -> Self {
+		let context = resolve_cache_context(config, project_root, remote_dir);
+		let cached = if force {
+			None
+		} else {
+			context
+				.as_ref()
+				.and_then(|(cache_dir, key)| sync_cache::load_cache(cache_dir, key))
+		};
+		let remote_hashed_at = cached.as_ref().and_then(|cached| cached.remote_hashed_at);
+		let revalidate = config.sync.sftp.cache.auto_revalidate
+			&& sync_cache::remote_revalidation_due(remote_hashed_at, sync_cache::unix_now());
+		if revalidate && cached.is_some() {
+			debug!("Revalidating remote sync state; cached remote hashes are ignored for this run");
+		}
+		let (local_files, remote_files) = cached.map_or((None, None), |cached| {
+			(
+				Some(cached.local_files),
+				(!revalidate).then_some(cached.remote_files),
+			)
+		});
+		Self {
+			context,
+			local_files,
+			remote_files,
+			remote_hashed_at,
+		}
+	}
+}
+
+/// Relative paths one synchronization mutated on either side.
+#[derive(Debug, Default)]
+struct TouchedPaths {
+	/// Local paths the operation rewrote or removed.
+	local: Vec<String>,
+	/// Remote paths the operation rewrote or removed.
+	remote: Vec<String>,
+}
+
 /// Persists scan results to the sync cache after a fully successful sync.
 ///
 /// Entries for paths the operation itself mutated are dropped so they are
 /// re-hashed on the next run. A failed cache write never fails the sync.
 ///
-/// The stored map is replaced wholesale with this scan's entries rather than
+/// The stored maps are replaced wholesale with this run's entries rather than
 /// merged with the previous cache. That keeps invalidation structural —
 /// entries for deleted, excluded, or type-changed paths simply vanish — at the
 /// cost of re-hashing unscanned files after a narrowly filtered sync.
+///
+/// The last full remote hash timestamp only advances when this run actually
+/// hashed every remote file, so an incremental run never postpones the next
+/// automatic revalidation.
 fn persist_scan_cache(
 	cache_context: Option<(PathBuf, CacheKey)>,
 	scan_cache: LocalScanCache,
-	touched_paths: &[String],
+	remote_scan_cache: RemoteScanCache,
+	touched_paths: &TouchedPaths,
+	previous_remote_hashed_at: Option<u64>,
 ) {
 	let Some((cache_dir, key)) = cache_context else {
 		return;
 	};
-	let mut entries = scan_cache.entries;
-	for path in touched_paths {
-		entries.remove(path);
+	let mut local_files = scan_cache.entries;
+	for path in &touched_paths.local {
+		local_files.remove(path);
 	}
-	if let Err(error) = sync_cache::save_cache(&cache_dir, &key, entries) {
+	let mut remote_files = remote_scan_cache.entries;
+	for path in &touched_paths.remote {
+		remote_files.remove(path);
+	}
+	let remote_hashed_at = if remote_scan_cache.full_hash {
+		sync_cache::unix_now()
+	} else {
+		previous_remote_hashed_at
+	};
+	let data = SyncCacheData {
+		local_files,
+		remote_files,
+		remote_hashed_at,
+	};
+	if let Err(error) = sync_cache::save_cache(&cache_dir, &key, data) {
 		warn!(%error, "Failed to save sync cache");
 	}
 }
@@ -2964,18 +3333,16 @@ async fn sync_project(
 		Some(create_spinner(message.to_owned()))
 	};
 
-	let cache_context = resolve_cache_context(config, project_root, remote_dir);
-	let cached_files = if options.force {
-		// --force recomputes all local state; the rebuilt cache is saved after success.
-		None
-	} else {
-		cache_context
-			.as_ref()
-			.and_then(|(cache_dir, key)| sync_cache::load_cache(cache_dir, key))
-	};
+	let cache = CacheState::load(config, project_root, remote_dir, options.force);
 
-	let fetch = fetch_remote_state(client, config, remote_dir, direction == Direction::Push);
-	let remote_state = if let Some(interrupts) = pull_interrupts.as_ref() {
+	let fetch = fetch_remote_state(
+		client,
+		config,
+		remote_dir,
+		direction == Direction::Push,
+		cache.remote_files.as_ref(),
+	);
+	let (remote_state, remote_scan_cache) = if let Some(interrupts) = pull_interrupts.as_ref() {
 		complete_pull_phase(interrupts, "remote inventory", fetch).await?
 	} else {
 		fetch.await?
@@ -2985,13 +3352,16 @@ async fn sync_project(
 		remote_directories = remote_state.directories.len(),
 		remote_files = remote_state.file_hashes.len(),
 		remote_symlinks = remote_state.symlinks.len(),
+		remote_cache_hits = remote_scan_cache.hits,
+		remote_hashed = remote_scan_cache.hashed,
+		remote_full_hash = remote_scan_cache.full_hash,
 		"Fetched remote sync state"
 	);
 	if direction == Direction::Pull {
 		ensure_local_pull_root(project_root).await?;
 	}
 
-	let collect = collect_local_state_async(project_root, config, options, cached_files);
+	let collect = collect_local_state_async(project_root, config, options, cache.local_files);
 	let (local_state, scan_cache) = if let Some(interrupts) = pull_interrupts.as_ref() {
 		complete_pull_phase(interrupts, "local inventory", collect).await?
 	} else {
@@ -3020,15 +3390,24 @@ async fn sync_project(
 			interrupts: pull_interrupts.as_ref(),
 		};
 		match direction {
-			Direction::Push => {
-				execute_push_sync(&execution, &local_state, &remote_state, &mut stats).await?;
+			Direction::Push => TouchedPaths {
 				// Push never mutates local files, so every scanned entry stays valid.
-				Vec::new()
-			}
-			Direction::Pull => {
-				execute_pull_sync(&execution, &local_state, remote_state, baseline, &mut stats)
-					.await?
-			}
+				local: Vec::new(),
+				remote: execute_push_sync(&execution, &local_state, &remote_state, &mut stats)
+					.await?,
+			},
+			Direction::Pull => TouchedPaths {
+				local: execute_pull_sync(
+					&execution,
+					&local_state,
+					remote_state,
+					baseline,
+					&mut stats,
+				)
+				.await?,
+				// Pull never mutates the remote directory.
+				remote: Vec::new(),
+			},
 		}
 	};
 	// A successful pull commit is the cancellation boundary: reporting an interrupt
@@ -3040,7 +3419,13 @@ async fn sync_project(
 	}
 	info!("Sync completed: {:?}", stats);
 
-	persist_scan_cache(cache_context, scan_cache, &touched_paths);
+	persist_scan_cache(
+		cache.context,
+		scan_cache,
+		remote_scan_cache,
+		&touched_paths,
+		cache.remote_hashed_at,
+	);
 	if !quiet {
 		match direction {
 			Direction::Push => {
@@ -3122,10 +3507,14 @@ pub async fn pull_project(
 /// Section of the NUL-framed remote inventory protocol.
 #[derive(Clone, Copy)]
 enum RemoteInventorySection {
+	/// Remote clock in Unix seconds.
+	Clock,
 	/// Directory paths.
 	Directories,
 	/// Symlink paths.
 	Symlinks,
+	/// File sizes, modification times, and paths.
+	FileMetadata,
 	/// File hashes and paths.
 	Files,
 }
@@ -3145,16 +3534,37 @@ fn is_sha256_hash(hash: &str) -> bool {
 	hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+/// Parses one `sha256sum` record into its digest and validated path.
+fn parse_remote_hash_record(record: &str) -> Result<(String, String)> {
+	let (hash, raw_path) = record
+		.split_once("  ")
+		.wrap_err("Malformed remote file hash record")?;
+	if !is_sha256_hash(hash) {
+		bail!("Malformed SHA-256 digest in remote inventory");
+	}
+	Ok((parse_inventory_path(raw_path)?, hash.to_owned()))
+}
+
+/// Parses the NUL-framed output of a targeted remote hashing command.
+fn parse_remote_hashes(output: &str) -> Result<HashMap<String, String>> {
+	output
+		.split_terminator('\0')
+		.map(parse_remote_hash_record)
+		.collect()
+}
+
 /// Parses the strict NUL-framed remote inventory.
-fn parse_remote_state(output: &str) -> Result<RemoteState> {
-	let mut remote_state = RemoteState::default();
+fn parse_remote_inventory(output: &str) -> Result<RemoteInventory> {
+	let mut inventory = RemoteInventory::default();
 	let mut section = None;
 	let mut found_sections = HashSet::new();
 
 	for record in output.split_terminator('\0') {
 		let marker = match record {
+			REMOTE_CLOCK_MARKER => Some(RemoteInventorySection::Clock),
 			REMOTE_DIRECTORY_MARKER => Some(RemoteInventorySection::Directories),
 			REMOTE_SYMLINK_MARKER => Some(RemoteInventorySection::Symlinks),
+			REMOTE_FILE_META_MARKER => Some(RemoteInventorySection::FileMetadata),
 			REMOTE_FILE_MARKER => Some(RemoteInventorySection::Files),
 			_ => None,
 		};
@@ -3165,31 +3575,41 @@ fn parse_remote_state(output: &str) -> Result<RemoteState> {
 		}
 
 		match section.wrap_err("Remote inventory entry appeared before its section marker")? {
+			RemoteInventorySection::Clock => {
+				inventory.clock = record
+					.parse::<i64>()
+					.wrap_err("Malformed remote clock in remote inventory")?;
+			}
 			RemoteInventorySection::Directories => {
-				remote_state
-					.directories
-					.insert(parse_inventory_path(record)?);
+				inventory.directories.insert(parse_inventory_path(record)?);
 			}
 			RemoteInventorySection::Symlinks => {
-				remote_state.symlinks.insert(parse_inventory_path(record)?);
+				inventory.symlinks.insert(parse_inventory_path(record)?);
+			}
+			RemoteInventorySection::FileMetadata => {
+				let (size, rest) = record
+					.split_once(' ')
+					.wrap_err("Malformed remote file metadata record")?;
+				let (mtime, raw_path) = rest
+					.split_once(' ')
+					.wrap_err("Malformed remote file metadata record")?;
+				inventory.metadata.insert(
+					parse_inventory_path(raw_path)?,
+					RemoteFingerprint::parse(size, mtime)?,
+				);
 			}
 			RemoteInventorySection::Files => {
-				let (hash, raw_path) = record
-					.split_once("  ")
-					.wrap_err("Malformed remote file hash record")?;
-				if !is_sha256_hash(hash) {
-					bail!("Malformed SHA-256 digest in remote inventory");
-				}
-				remote_state
-					.file_hashes
-					.insert(parse_inventory_path(raw_path)?, hash.to_owned());
+				let (path, hash) = parse_remote_hash_record(record)?;
+				inventory.hashes.insert(path, hash);
 			}
 		}
 	}
 
 	for marker in [
+		REMOTE_CLOCK_MARKER,
 		REMOTE_DIRECTORY_MARKER,
 		REMOTE_SYMLINK_MARKER,
+		REMOTE_FILE_META_MARKER,
 		REMOTE_FILE_MARKER,
 	] {
 		if !found_sections.contains(marker) {
@@ -3197,7 +3617,7 @@ fn parse_remote_state(output: &str) -> Result<RemoteState> {
 		}
 	}
 
-	Ok(remote_state)
+	Ok(inventory)
 }
 
 #[cfg(test)]
@@ -3568,66 +3988,176 @@ mod tests {
 			]),
 			hits: 0,
 		};
+		let remote_scan_cache = RemoteScanCache {
+			entries: BTreeMap::from([
+				("kept.txt".to_owned(), remote_scan_cache_entry("kept-hash")),
+				(
+					"uploaded.txt".to_owned(),
+					remote_scan_cache_entry("stale-hash"),
+				),
+			]),
+			hits: 0,
+			hashed: 0,
+			// An incremental run must not postpone the next revalidation.
+			full_hash: false,
+		};
 
 		persist_scan_cache(
 			Some((dir.path().to_path_buf(), key.clone())),
 			scan_cache,
-			&["pulled.txt".to_owned(), "deleted.txt".to_owned()],
+			remote_scan_cache,
+			&TouchedPaths {
+				local: vec!["pulled.txt".to_owned(), "deleted.txt".to_owned()],
+				remote: vec!["uploaded.txt".to_owned()],
+			},
+			Some(1_700_000_000),
 		);
 
 		let saved = sync_cache::load_cache(dir.path(), &key).unwrap();
 		assert_eq!(
-			saved.keys().cloned().collect::<Vec<_>>(),
+			saved.local_files.keys().cloned().collect::<Vec<_>>(),
 			vec!["kept.txt".to_owned()]
 		);
-	}
-
-	#[test]
-	fn parse_remote_state_rejects_traversal() {
-		let hash = "a".repeat(64);
-		let output = format!(
-			"{REMOTE_DIRECTORY_MARKER}\0{REMOTE_SYMLINK_MARKER}\0{REMOTE_FILE_MARKER}\0{hash}  ./../invalid/path.txt\0"
-		);
-		let error = parse_remote_state(&output).unwrap_err();
-		assert!(error.to_string().contains("unsafe path"), "error: {error}");
-	}
-
-	#[test]
-	fn parse_remote_state_rejects_absolute_paths() {
-		let output = format!(
-			"{REMOTE_DIRECTORY_MARKER}\0/etc\0{REMOTE_SYMLINK_MARKER}\0{REMOTE_FILE_MARKER}\0"
-		);
-		let error = parse_remote_state(&output).unwrap_err();
-		assert!(error.to_string().contains("unsafe path"), "error: {error}");
-	}
-
-	#[test]
-	fn parse_remote_state_collects_nul_framed_entries() {
-		let hash = "a".repeat(64);
-		let output = format!(
-			"{REMOTE_DIRECTORY_MARKER}\0./empty\0./nested/child\0{REMOTE_SYMLINK_MARKER}\0./link\0{REMOTE_FILE_MARKER}\0{hash}  ./nested/file\nname.txt\0"
-		);
-		let state = parse_remote_state(&output).unwrap();
-		assert!(state.directories.contains("empty"));
-		assert!(state.directories.contains("nested/child"));
-		assert!(state.symlinks.contains("link"));
 		assert_eq!(
-			state.file_hashes.get("nested/file\nname.txt").unwrap(),
+			saved.remote_files.keys().cloned().collect::<Vec<_>>(),
+			vec!["kept.txt".to_owned()]
+		);
+		assert_eq!(saved.remote_hashed_at, Some(1_700_000_000));
+	}
+
+	#[test]
+	fn persist_scan_cache_records_a_full_remote_hash_pass() {
+		let dir = tempdir().unwrap();
+		let key = CacheKey {
+			host: "cse.unsw.edu.au".to_owned(),
+			port: 22,
+			user: "z5555555".to_owned(),
+			sync_root: PathBuf::from("/home/user/project"),
+			remote_dir: "~/.cache/biwa/projects/project-abc".to_owned(),
+		};
+
+		persist_scan_cache(
+			Some((dir.path().to_path_buf(), key.clone())),
+			LocalScanCache::default(),
+			RemoteScanCache {
+				full_hash: true,
+				..RemoteScanCache::default()
+			},
+			&TouchedPaths::default(),
+			Some(1_700_000_000),
+		);
+
+		let saved = sync_cache::load_cache(dir.path(), &key).unwrap();
+		assert!(saved.remote_hashed_at > Some(1_700_000_000));
+	}
+
+	/// Builds a remote fingerprint with a settled modification time.
+	fn remote_fingerprint(size: u64) -> RemoteFingerprint {
+		RemoteFingerprint::parse(&size.to_string(), "1700000000.5").unwrap()
+	}
+
+	/// Builds one remote scan cache entry with a settled fingerprint.
+	fn remote_scan_cache_entry(hash: &str) -> CachedRemoteState {
+		CachedRemoteState {
+			fingerprint: remote_fingerprint(5),
+			hash: hash.to_owned(),
+		}
+	}
+
+	/// Remote clock far enough past the fixtures' modification times to settle them.
+	const TEST_REMOTE_CLOCK: i64 = 1_700_000_100;
+
+	/// Builds one NUL-framed remote inventory from its sections.
+	fn remote_inventory_output(
+		directories: &[&str],
+		symlinks: &[&str],
+		metadata: &[&str],
+		hashes: &[&str],
+	) -> String {
+		let section = |marker: &str, records: &[&str]| {
+			records
+				.iter()
+				.fold(format!("{marker}\0"), |mut output, record| {
+					output.push_str(record);
+					output.push('\0');
+					output
+				})
+		};
+		format!(
+			"{}{}{}{}{}",
+			section(REMOTE_CLOCK_MARKER, &[&TEST_REMOTE_CLOCK.to_string()]),
+			section(REMOTE_DIRECTORY_MARKER, directories),
+			section(REMOTE_SYMLINK_MARKER, symlinks),
+			section(REMOTE_FILE_META_MARKER, metadata),
+			section(REMOTE_FILE_MARKER, hashes),
+		)
+	}
+
+	#[test]
+	fn parse_remote_inventory_rejects_traversal() {
+		let hash = "a".repeat(64);
+		let output =
+			remote_inventory_output(&[], &[], &[], &[&format!("{hash}  ./../invalid/path.txt")]);
+		let error = parse_remote_inventory(&output).unwrap_err();
+		assert!(error.to_string().contains("unsafe path"), "error: {error}");
+	}
+
+	#[test]
+	fn parse_remote_inventory_rejects_absolute_paths() {
+		let output = remote_inventory_output(&["/etc"], &[], &[], &[]);
+		let error = parse_remote_inventory(&output).unwrap_err();
+		assert!(error.to_string().contains("unsafe path"), "error: {error}");
+	}
+
+	#[test]
+	fn parse_remote_inventory_collects_nul_framed_entries() {
+		let hash = "a".repeat(64);
+		let output = remote_inventory_output(
+			&["./empty", "./nested/child"],
+			&["./link"],
+			&["12 1700000000.5 ./nested/file\nname.txt"],
+			&[&format!("{hash}  ./nested/file\nname.txt")],
+		);
+
+		let inventory = parse_remote_inventory(&output).unwrap();
+
+		assert_eq!(inventory.clock, TEST_REMOTE_CLOCK);
+		assert!(inventory.directories.contains("empty"));
+		assert!(inventory.directories.contains("nested/child"));
+		assert!(inventory.symlinks.contains("link"));
+		// Paths may contain spaces and newlines, so only the first two fields
+		// of a metadata record are split off.
+		assert_eq!(
+			inventory
+				.metadata
+				.get("nested/file\nname.txt")
+				.unwrap()
+				.clone(),
+			remote_fingerprint(12)
+		);
+		assert_eq!(
+			inventory.hashes.get("nested/file\nname.txt").unwrap(),
 			&hash
 		);
 	}
 
 	#[test]
-	fn parse_remote_state_rejects_malformed_or_incomplete_inventory() {
-		let malformed = format!(
-			"{REMOTE_DIRECTORY_MARKER}\0{REMOTE_SYMLINK_MARKER}\0{REMOTE_FILE_MARKER}\0not-a-hash  ./file.txt\0"
-		);
-		let malformed_error = parse_remote_state(&malformed).unwrap_err();
+	fn parse_remote_inventory_rejects_malformed_or_incomplete_inventory() {
+		let malformed = remote_inventory_output(&[], &[], &[], &["not-a-hash  ./file.txt"]);
+		let malformed_error = parse_remote_inventory(&malformed).unwrap_err();
 		assert!(
 			malformed_error.to_string().contains("Malformed SHA-256"),
 			"error: {malformed_error}"
 		);
-		let incomplete_error = parse_remote_state(REMOTE_DIRECTORY_MARKER).unwrap_err();
+		let malformed_metadata = remote_inventory_output(&[], &[], &["12 ./file.txt"], &[]);
+		let metadata_error = parse_remote_inventory(&malformed_metadata).unwrap_err();
+		assert!(
+			metadata_error
+				.to_string()
+				.contains("Malformed remote file metadata"),
+			"error: {metadata_error}"
+		);
+		let incomplete_error = parse_remote_inventory(REMOTE_DIRECTORY_MARKER).unwrap_err();
 		assert!(
 			incomplete_error
 				.to_string()
@@ -3640,7 +4170,8 @@ mod tests {
 	fn build_remote_state_script_creates_only_for_push() {
 		let config = Config::default();
 
-		let push_script = build_remote_state_script(&config, "~/project", true);
+		let push_script =
+			build_remote_state_script(&config, "~/project", true, InventoryMode::Full);
 		assert!(push_script.contains("mkdir -p -- \"$HOME\"/project"));
 		assert!(push_script.contains("find . -mindepth 1 -iname .git -prune"));
 		assert!(push_script.contains("find . -mindepth 1 -iname .git -prune -o -type d -print0"));
@@ -3648,16 +4179,185 @@ mod tests {
 		assert!(push_script.contains("find . -iname .git -prune -o -type f"));
 		assert!(push_script.contains("-print0"));
 		assert!(push_script.contains("sha256sum -z"));
+		assert!(push_script.contains(REMOTE_CLOCK_MARKER));
 		assert!(push_script.contains(REMOTE_DIRECTORY_MARKER));
 		assert!(push_script.contains(REMOTE_SYMLINK_MARKER));
+		assert!(push_script.contains(REMOTE_FILE_META_MARKER));
 		assert!(push_script.contains(REMOTE_FILE_MARKER));
 
-		let pull_script = build_remote_state_script(&config, "~/project", false);
+		let pull_script =
+			build_remote_state_script(&config, "~/project", false, InventoryMode::Full);
 		assert!(!pull_script.contains("mkdir -p --"));
 		assert!(!pull_script.contains("-exec chmod"));
 		assert!(!pull_script.contains("|| true"));
 		assert!(pull_script.contains("remote directory does not exist"));
 		assert!(pull_script.contains("remote directory is not a directory"));
+	}
+
+	#[test]
+	fn build_remote_state_script_skips_hashing_for_an_incremental_inventory() {
+		let config = Config::default();
+
+		let script =
+			build_remote_state_script(&config, "~/project", true, InventoryMode::Incremental);
+
+		// Metadata is still listed, but nothing is hashed remotely.
+		assert!(script.contains("-printf '%s %T@ %p\\0'"));
+		assert!(!script.contains("sha256sum"));
+		assert!(script.contains(REMOTE_FILE_MARKER));
+		// The metadata listing must precede the hash marker so a file rewritten
+		// between the passes is recorded with a stale fingerprint, not a stale hash.
+		assert!(
+			script.find(REMOTE_FILE_META_MARKER) < script.find(REMOTE_FILE_MARKER),
+			"script: {script}"
+		);
+	}
+
+	#[test]
+	fn build_remote_hash_command_quotes_paths_and_bounds_its_length() {
+		let command = build_remote_hash_command(
+			"~/project",
+			&["weird name.txt".to_owned(), "-dash.txt".to_owned()],
+		)
+		.unwrap();
+
+		assert!(command.starts_with("cd -- \"$HOME\"/project && printf '%s\\0'"));
+		assert!(command.contains("'./weird name.txt'"));
+		// A leading dash is neutralized by the ./ prefix rather than by quoting.
+		assert!(command.contains("./-dash.txt"));
+		assert!(command.ends_with(" | xargs -0 sha256sum -z --"));
+
+		let many = (0..MAX_REMOTE_HASH_COMMAND_LEN)
+			.map(|index| format!("file-{index}.txt"))
+			.collect::<Vec<_>>();
+		assert_eq!(build_remote_hash_command("~/project", &many), None);
+	}
+
+	#[test]
+	fn pending_hash_paths_lists_only_files_the_cache_cannot_explain() {
+		let hash = "a".repeat(64);
+		let inventory = RemoteInventory {
+			clock: TEST_REMOTE_CLOCK,
+			metadata: BTreeMap::from([
+				("cached.txt".to_owned(), remote_fingerprint(5)),
+				("changed.txt".to_owned(), remote_fingerprint(9)),
+				("new.txt".to_owned(), remote_fingerprint(5)),
+				("hashed.txt".to_owned(), remote_fingerprint(5)),
+			]),
+			hashes: HashMap::from([("hashed.txt".to_owned(), hash)]),
+			..RemoteInventory::default()
+		};
+		let cached = BTreeMap::from([
+			("cached.txt".to_owned(), remote_scan_cache_entry("cached")),
+			("changed.txt".to_owned(), remote_scan_cache_entry("stale")),
+		]);
+
+		assert_eq!(
+			pending_hash_paths(&inventory, Some(&cached)),
+			vec!["changed.txt".to_owned(), "new.txt".to_owned()]
+		);
+		// Without a cache every metadata entry needs a hash.
+		assert_eq!(
+			pending_hash_paths(&inventory, None),
+			vec![
+				"cached.txt".to_owned(),
+				"changed.txt".to_owned(),
+				"new.txt".to_owned()
+			]
+		);
+	}
+
+	#[test]
+	fn build_remote_state_reuses_cached_hashes_for_matching_fingerprints() {
+		let hash = "a".repeat(64);
+		let inventory = RemoteInventory {
+			clock: TEST_REMOTE_CLOCK,
+			directories: HashSet::from(["nested".to_owned()]),
+			symlinks: HashSet::from(["link".to_owned()]),
+			metadata: BTreeMap::from([
+				("cached.txt".to_owned(), remote_fingerprint(5)),
+				("hashed.txt".to_owned(), remote_fingerprint(9)),
+			]),
+			hashes: HashMap::from([("hashed.txt".to_owned(), hash.clone())]),
+		};
+		let cached = BTreeMap::from([(
+			"cached.txt".to_owned(),
+			remote_scan_cache_entry("cached-hash"),
+		)]);
+
+		let (state, scan) =
+			build_remote_state(inventory, Some(&cached), InventoryMode::Incremental);
+
+		// The poisoned hash proves the remote file was not hashed again.
+		assert_eq!(state.file_hashes.get("cached.txt").unwrap(), "cached-hash");
+		assert_eq!(state.file_hashes.get("hashed.txt").unwrap(), &hash);
+		assert!(state.directories.contains("nested"));
+		assert!(state.symlinks.contains("link"));
+		assert_eq!(scan.hits, 1);
+		assert_eq!(scan.hashed, 1);
+		assert!(!scan.full_hash);
+		assert_eq!(scan.entries.len(), 2);
+	}
+
+	#[test]
+	fn build_remote_state_ignores_a_stale_cached_fingerprint() {
+		let hash = "a".repeat(64);
+		let inventory = RemoteInventory {
+			clock: TEST_REMOTE_CLOCK,
+			metadata: BTreeMap::from([("drifted.txt".to_owned(), remote_fingerprint(9))]),
+			hashes: HashMap::from([("drifted.txt".to_owned(), hash.clone())]),
+			..RemoteInventory::default()
+		};
+		// The cached entry records a different size, so it must not be trusted.
+		let cached = BTreeMap::from([(
+			"drifted.txt".to_owned(),
+			remote_scan_cache_entry("stale-hash"),
+		)]);
+
+		let (state, scan) =
+			build_remote_state(inventory, Some(&cached), InventoryMode::Incremental);
+
+		assert_eq!(state.file_hashes.get("drifted.txt").unwrap(), &hash);
+		assert_eq!(scan.hits, 0);
+		assert_eq!(scan.entries.get("drifted.txt").unwrap().hash, hash);
+	}
+
+	#[test]
+	fn build_remote_state_skips_caching_recently_modified_remote_files() {
+		let hash = "a".repeat(64);
+		let fingerprint = RemoteFingerprint::parse("5", &TEST_REMOTE_CLOCK.to_string()).unwrap();
+		let inventory = RemoteInventory {
+			clock: TEST_REMOTE_CLOCK,
+			metadata: BTreeMap::from([("fresh.txt".to_owned(), fingerprint)]),
+			hashes: HashMap::from([("fresh.txt".to_owned(), hash.clone())]),
+			..RemoteInventory::default()
+		};
+
+		let (state, scan) = build_remote_state(inventory, None, InventoryMode::Full);
+
+		// The file is synchronized normally but stays out of the cache because a
+		// rewrite could keep its fingerprint identical.
+		assert_eq!(state.file_hashes.get("fresh.txt").unwrap(), &hash);
+		assert!(scan.entries.is_empty());
+		assert!(scan.full_hash);
+	}
+
+	#[test]
+	fn build_remote_state_drops_files_that_vanished_before_hashing() {
+		let hash = "a".repeat(64);
+		let inventory = RemoteInventory {
+			clock: TEST_REMOTE_CLOCK,
+			metadata: BTreeMap::from([("vanished.txt".to_owned(), remote_fingerprint(5))]),
+			// A file created after the metadata pass has a hash but no fingerprint.
+			hashes: HashMap::from([("appeared.txt".to_owned(), hash.clone())]),
+			..RemoteInventory::default()
+		};
+
+		let (state, scan) = build_remote_state(inventory, None, InventoryMode::Full);
+
+		assert!(!state.file_hashes.contains_key("vanished.txt"));
+		assert_eq!(state.file_hashes.get("appeared.txt").unwrap(), &hash);
+		assert!(scan.entries.is_empty());
 	}
 
 	#[test]

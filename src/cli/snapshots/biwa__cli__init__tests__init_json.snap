@@ -45,6 +45,7 @@ expression: content
     "remote_root": "~/.cache/biwa/projects",
     "sftp": {
       "cache": {
+        "auto_revalidate": true,
         "enabled": true,
         "path": null
       },

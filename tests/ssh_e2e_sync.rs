@@ -13,12 +13,15 @@ use common::{Result, ssh_port};
 use core::time::Duration;
 #[cfg(unix)]
 use nix::sys::signal::Signal;
-use pretty_assertions::assert_eq;
+use pretty_assertions::{assert_eq, assert_ne};
 use rstest::rstest;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 use std::time::SystemTime;
-use std::{fs, path::Path};
+use std::{
+	fs,
+	path::{Path, PathBuf},
+};
 
 mod common;
 
@@ -2434,21 +2437,121 @@ fn e2e_sync_hidden_file() -> Result<()> {
 	Ok(())
 }
 
-/// Runs `biwa sync` with the sync cache stored in an explicit directory.
-fn run_cached_sync(project_dir: &Path, cache_dir: &Path, args: &[&str]) -> Result<String> {
+/// Builds a `biwa sync` command with the sync cache stored in an explicit directory.
+fn cached_sync_cmd(project_dir: &Path, cache_dir: &Path, args: &[&str]) -> duct::Expression {
 	let mut full_args = vec!["sync"];
 	full_args.extend_from_slice(args);
-	let output = biwa_cmd_tilde(&full_args, project_dir)
+	biwa_cmd_tilde(&full_args, project_dir)
 		.env("BIWA_SYNC_SFTP_CACHE_PATH", cache_dir)
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
-		.run()?;
+}
+
+/// Runs a prepared `biwa sync` command and returns its stderr.
+fn run_sync_cmd(command: &duct::Expression) -> Result<String> {
+	let output = command.run()?;
 	let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
 	if !output.status.success() {
 		return Err(eyre!("sync failed: {stderr}"));
 	}
 	Ok(stderr)
+}
+
+/// Runs `biwa sync` with the sync cache stored in an explicit directory.
+fn run_cached_sync(project_dir: &Path, cache_dir: &Path, args: &[&str]) -> Result<String> {
+	run_sync_cmd(&cached_sync_cmd(project_dir, cache_dir, args))
+}
+
+/// Runs a shell command inside the project's remote directory.
+fn run_in_remote_dir(project_dir: &Path, remote_dir: &str, script: &str) -> Result<()> {
+	let output = biwa_cmd_tilde(
+		&["run", "--skip-sync", "-d", remote_dir, "sh", "-c", script],
+		project_dir,
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	if !output.status.success() {
+		return Err(eyre!(
+			"remote command failed: {}",
+			String::from_utf8_lossy(&output.stderr)
+		));
+	}
+	Ok(())
+}
+
+/// Returns the only sync cache file in a cache directory.
+fn sync_cache_file(cache_dir: &Path) -> Result<PathBuf> {
+	let cache_files = fs::read_dir(cache_dir)?
+		.map(|entry| Ok(entry?.path()))
+		.collect::<Result<Vec<_>>>()?;
+	let [cache_file] = cache_files.as_slice() else {
+		return Err(eyre!("expected exactly one cache file: {cache_files:?}"));
+	};
+	Ok(cache_file.clone())
+}
+
+/// Returns the cached remote hash recorded for one relative path.
+fn cached_remote_hash<'cache>(cache: &'cache serde_json::Value, path: &str) -> Option<&'cache str> {
+	cache.get("remote_files")?.get(path)?.get("hash")?.as_str()
+}
+
+/// Reads the sync cache file as JSON.
+fn read_sync_cache(cache_dir: &Path) -> Result<serde_json::Value> {
+	Ok(serde_json::from_str(&fs::read_to_string(
+		sync_cache_file(cache_dir)?,
+	)?)?)
+}
+
+/// Replaces a cached remote hash and expires the last full remote hash pass.
+///
+/// A sync that trusts the cache then sees the remote file as different from the
+/// local one; a sync that re-hashes the remote directory does not.
+fn poison_remote_cache(cache_dir: &Path, path: &str, expire_full_hash: bool) -> Result<()> {
+	let mut value = read_sync_cache(cache_dir)?;
+	value
+		.get_mut("remote_files")
+		.and_then(|files| files.get_mut(path))
+		.and_then(|entry| entry.as_object_mut())
+		.ok_or_else(|| eyre!("missing cached remote entry for {path}"))?
+		.insert("hash".to_owned(), serde_json::json!("0".repeat(64)));
+	if expire_full_hash {
+		value
+			.as_object_mut()
+			.ok_or_else(|| eyre!("sync cache is not an object"))?
+			.insert("remote_hashed_at".to_owned(), serde_json::json!(1));
+	}
+	fs::write(sync_cache_file(cache_dir)?, serde_json::to_string(&value)?)?;
+	Ok(())
+}
+
+/// Syncs a fresh project twice so the sync cache holds settled remote state.
+///
+/// The first sync uploads the file, whose remote copy is written too recently
+/// to be fingerprinted; ageing it and syncing again records its remote hash.
+fn prime_remote_cache(project_dir: &Path, cache_dir: &Path, remote_dir: &str) -> Result<()> {
+	let stderr = run_cached_sync(project_dir, cache_dir, &[])?;
+	if !stderr.contains("1 uploaded") {
+		return Err(eyre!("expected the first sync to upload: {stderr}"));
+	}
+	run_in_remote_dir(
+		project_dir,
+		remote_dir,
+		"find . -type f -exec touch -t 202401010000 {} +",
+	)?;
+	let stderr = run_cached_sync(project_dir, cache_dir, &[])?;
+	if !stderr.contains("0 uploaded") {
+		return Err(eyre!(
+			"expected the second sync to upload nothing: {stderr}"
+		));
+	}
+	let cache = read_sync_cache(cache_dir)?;
+	if cached_remote_hash(&cache, "hello.txt").is_none() {
+		return Err(eyre!("remote hash was not cached: {cache}"));
+	}
+	Ok(())
 }
 
 /// Moves a file's modification time into the past so its hash is cacheable.
@@ -2524,5 +2627,117 @@ fn e2e_sync_cache_disabled_writes_no_cache() -> Result<()> {
 	assert!(output.status.success(), "stderr: {stderr}");
 	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
 	assert!(fs::read_dir(cache_dir.path())?.next().is_none());
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_cache_reuses_remote_hashes() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let cache_dir = tempfile::tempdir()?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+	let file_path = dir.path().join("hello.txt");
+	fs::write(&file_path, "world")?;
+	backdate_mtime(&file_path)?;
+	prime_remote_cache(dir.path(), cache_dir.path(), &remote_dir)?;
+
+	// Poison the cached remote hash. The untouched remote file now looks
+	// different from the local one, proving the remote inventory reused the
+	// cached hash instead of running `sha256sum` again.
+	poison_remote_cache(cache_dir.path(), "hello.txt", false)?;
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &[])?;
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+
+	// The upload invalidated the entry, so the next run hashes it again and
+	// records the real hash.
+	run_in_remote_dir(
+		dir.path(),
+		&remote_dir,
+		"find . -type f -exec touch -t 202401010000 {} +",
+	)?;
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &[])?;
+	assert!(stderr.contains("0 uploaded"), "stderr: {stderr}");
+	let cache = read_sync_cache(cache_dir.path())?;
+	assert_ne!(
+		cached_remote_hash(&cache, "hello.txt"),
+		Some("0".repeat(64).as_str()),
+		"cache: {cache}"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_cache_detects_remote_drift() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let cache_dir = tempfile::tempdir()?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+	let file_path = dir.path().join("hello.txt");
+	fs::write(&file_path, "world")?;
+	backdate_mtime(&file_path)?;
+	prime_remote_cache(dir.path(), cache_dir.path(), &remote_dir)?;
+
+	// Rewriting the remote file outside biwa moves its size and modification
+	// time, so the cached hash is rejected and the file is hashed again.
+	run_in_remote_dir(dir.path(), &remote_dir, "printf 'drifted away' > hello.txt")?;
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &[])?;
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+	run_in_remote_dir(dir.path(), &remote_dir, "test \"$(cat hello.txt)\" = world")?;
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_cache_revalidates_remote_hashes() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let cache_dir = tempfile::tempdir()?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+	let file_path = dir.path().join("hello.txt");
+	fs::write(&file_path, "world")?;
+	backdate_mtime(&file_path)?;
+	prime_remote_cache(dir.path(), cache_dir.path(), &remote_dir)?;
+
+	// An expired full hash pass re-hashes the whole remote directory, so the
+	// poisoned entry is ignored and the matching file is left alone.
+	poison_remote_cache(cache_dir.path(), "hello.txt", true)?;
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &[])?;
+	assert!(stderr.contains("0 uploaded"), "stderr: {stderr}");
+
+	// With automatic revalidation disabled the cached hash is trusted until its
+	// fingerprint changes, even long after the last full pass.
+	poison_remote_cache(cache_dir.path(), "hello.txt", true)?;
+	let stderr = run_sync_cmd(
+		&cached_sync_cmd(dir.path(), cache_dir.path(), &[])
+			.env("BIWA_SYNC_SFTP_CACHE_AUTO_REVALIDATE", "false"),
+	)?;
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_force_rebuilds_the_remote_cache() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let cache_dir = tempfile::tempdir()?;
+	let remote_dir = common::get_remote_project_dir(dir.path())?;
+	let file_path = dir.path().join("hello.txt");
+	fs::write(&file_path, "world")?;
+	backdate_mtime(&file_path)?;
+	prime_remote_cache(dir.path(), cache_dir.path(), &remote_dir)?;
+
+	// --force ignores the poisoned cache, re-uploads everything, and rebuilds
+	// the cache from a full remote hash pass.
+	poison_remote_cache(cache_dir.path(), "hello.txt", false)?;
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &["--force"])?;
+	assert!(stderr.contains("1 uploaded"), "stderr: {stderr}");
+	run_in_remote_dir(
+		dir.path(),
+		&remote_dir,
+		"find . -type f -exec touch -t 202401010000 {} +",
+	)?;
+	let stderr = run_cached_sync(dir.path(), cache_dir.path(), &[])?;
+	assert!(stderr.contains("0 uploaded"), "stderr: {stderr}");
+	let cache = read_sync_cache(cache_dir.path())?;
+	assert_ne!(
+		cached_remote_hash(&cache, "hello.txt"),
+		Some("0".repeat(64).as_str()),
+		"cache: {cache}"
+	);
 	Ok(())
 }

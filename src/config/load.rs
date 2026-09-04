@@ -488,7 +488,8 @@ mod tests {
 		      "permissions": "recreate",
 		      "cache": {
 		        "enabled": true,
-		        "path": null
+		        "path": null,
+		        "auto_revalidate": true
 		      }
 		    }
 		  },
