@@ -1,6 +1,8 @@
 use crate::Result;
 use crate::config::format::ConfigFormat;
 use crate::config::types::{AuthMode, Config};
+use crate::ssh::auth::resolve_auth;
+use crate::ssh::client::auth::{AuthenticationFailed, AuthenticationFailureKind};
 use crate::ssh::client::{Client, HostKeyVerificationFailed};
 use crate::ssh::exec::connect;
 use crate::ssh::target::ResolvedSshTarget;
@@ -11,10 +13,10 @@ use gethostname::gethostname;
 use russh::keys::ssh_key::private::Ed25519Keypair;
 use russh::keys::ssh_key::{Cipher, Kdf, LineEnding};
 use russh::keys::{HashAlg, PrivateKey, PublicKey, load_public_key};
-use std::fs;
-use std::io::{IsTerminal as _, stdin};
+use std::fs::{self, OpenOptions};
+use std::io::{IsTerminal as _, Write as _, stdin};
 use std::path::{Path, PathBuf, absolute};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Remote directory holding the user's SSH configuration.
 const REMOTE_SSH_DIR: &str = "~/.ssh";
@@ -32,6 +34,10 @@ const GENERATED_KEY_PATH: &str = ".ssh/id_ed25519";
 const BCRYPT_SALT_LEN: usize = 16;
 /// bcrypt-pbkdf rounds used when encrypting a generated private key, matching OpenSSH.
 const BCRYPT_ROUNDS: u32 = 16;
+/// Permissions of a written private key file.
+const PRIVATE_KEY_MODE: u32 = 0o600;
+/// Permissions of a written public key file.
+const PUBLIC_KEY_MODE: u32 = 0o644;
 
 /// Set up SSH key authentication on the configured host.
 #[derive(usage_rs::Args, Debug)]
@@ -98,37 +104,67 @@ enum InstallOutcome {
 	AlreadyPresent,
 }
 
+/// Result of trying the credentials biwa normally uses for public-key authentication.
+#[derive(Debug)]
+enum AuthProbe {
+	/// Key authentication already works.
+	Works,
+	/// No key file, agent identity, or configured credential is available yet.
+	NoCredentials,
+	/// Every available credential was rejected by the server.
+	Rejected(Report),
+}
+
 impl SetupSsh {
 	/// Runs the guided SSH key setup.
 	pub(super) async fn run(self, quiet: bool) -> Result<()> {
 		let config = Config::load()?;
-		let target = ResolvedSshTarget::resolve(&config.ssh)?;
 		let interactive = stdin().is_terminal();
+		let cli_key_path = self.key_path.as_deref().map(expand_key_path).transpose()?;
+		let configured_key_path = config
+			.ssh
+			.key_path
+			.as_deref()
+			.map(expand_key_path)
+			.transpose()?;
+		let selected_key_path = cli_key_path.clone().or_else(|| configured_key_path.clone());
+
+		// The probe reuses the ordinary public-key resolution, so an agent identity or an
+		// `IdentityFile` entry counts as working authentication even without a local key file.
+		let probe_config = public_key_config(&config, selected_key_path.clone());
+		// Resolving locally first keeps configuration conflicts from surfacing only after the
+		// remote authorized_keys file was already changed.
+		let target = ResolvedSshTarget::resolve(&probe_config.ssh)
+			.wrap_err("Failed to resolve the SSH target for key authentication")?;
+
+		if self.check {
+			return run_check(&probe_config, &target, selected_key_path.as_deref(), quiet).await;
+		}
+
+		match probe_public_key_authentication(&probe_config, &target, quiet).await? {
+			AuthProbe::Works => {
+				report_ready(selected_key_path.as_deref(), quiet);
+				self.finish_configuration(&config, selected_key_path.as_deref(), quiet);
+				return Ok(());
+			}
+			AuthProbe::NoCredentials => debug!("No public-key credential is available yet"),
+			AuthProbe::Rejected(error) => {
+				debug!(error = %error, "Key authentication is not authorized yet");
+			}
+		}
+
 		let (key_path, key_source) = select_key_path(
-			self.key_path.as_deref().map(expand_key_path).transpose()?,
-			config.ssh.key_path.clone(),
+			cli_key_path,
+			configured_key_path,
 			&existing_default_key_paths(),
 			generated_key_path(),
 		)?;
-
-		if self.check {
-			return run_check(&config, &key_path, key_source, quiet).await;
-		}
+		debug!(path = %key_path.display(), source = key_source.describe(), "Selected the SSH key to install");
 
 		let public_key = if key_path.is_file() {
-			if try_key_authentication(&config, &key_path, quiet)
-				.await?
-				.is_none()
-			{
-				report_ready(&key_path, quiet);
-				if self.write_config {
-					write_config_key_path(&config, &key_path, quiet)?;
-				}
-				return Ok(());
-			}
 			load_key_pair(&key_path)?
 		} else {
-			self.create_key_pair(&key_path, &target, interactive, quiet)?
+			self.create_key_pair(&key_path, key_source, &target, interactive, quiet)?
 		};
 
 		let authorized_key = authorized_key_line(&public_key)?;
@@ -144,39 +180,66 @@ impl SetupSsh {
 		let client = connect_with_password(&config, quiet).await?;
 		let outcome = install_authorized_key(&client, &authorized_key).await?;
 		drop(client);
-		if !quiet {
-			match outcome {
-				InstallOutcome::Installed => eprintln!(
-					"{} Added the public key to {REMOTE_AUTHORIZED_KEYS}",
-					style("✓").green().bold()
-				),
-				InstallOutcome::AlreadyPresent => eprintln!(
-					"{} The public key was already in {REMOTE_AUTHORIZED_KEYS}",
-					style("✓").green().bold()
-				),
+		report_install_outcome(outcome, quiet);
+
+		match probe_public_key_authentication(
+			&public_key_config(&config, Some(key_path.clone())),
+			&target,
+			quiet,
+		)
+		.await?
+		{
+			AuthProbe::Works => {}
+			AuthProbe::NoCredentials => bail!(
+				"The public key was installed, but {} could not be used as a credential",
+				key_path.display()
+			),
+			AuthProbe::Rejected(error) => {
+				return Err(error).wrap_err(format!(
+					"The public key was installed, but key authentication was still rejected. Check the server's `AuthorizedKeysFile` setting and the permissions of {REMOTE_SSH_DIR}"
+				));
 			}
 		}
+		report_ready(Some(&key_path), quiet);
 
-		if let Some(error) = try_key_authentication(&config, &key_path, quiet).await? {
-			return Err(error).wrap_err(format!(
-				"The public key was installed, but key authentication still failed. Check the server's `AuthorizedKeysFile` setting and the permissions of {REMOTE_SSH_DIR}"
-			));
-		}
-		report_ready(&key_path, quiet);
-
-		if self.write_config {
-			write_config_key_path(&config, &key_path, quiet)?;
-		} else {
-			warn_about_password_mode(&config, &key_path, quiet);
-		}
-
+		self.finish_configuration(&config, Some(&key_path), quiet);
 		Ok(())
+	}
+
+	/// Records the selected key locally, or explains what to change by hand.
+	///
+	/// Configuration bookkeeping never fails the command: the remote side is already set
+	/// up at this point, so a configuration file biwa cannot rewrite only downgrades to a
+	/// printed snippet.
+	fn finish_configuration(&self, config: &Config, key_path: Option<&Path>, quiet: bool) {
+		if !self.write_config {
+			warn_about_password_mode(config, key_path, quiet);
+			return;
+		}
+
+		let Some(key_path) = key_path else {
+			if !quiet {
+				eprintln!(
+					"{} --write-config needs a specific key, but authentication succeeded through your existing SSH configuration. Pass --key-path to record one",
+					style("!").yellow().bold()
+				);
+			}
+			warn_about_password_mode(config, key_path, quiet);
+			return;
+		};
+
+		if let Err(error) = write_config_key_path(config, key_path, quiet) {
+			warn!(error = %error, "Failed to update the biwa configuration file");
+			report_manual_config(config, key_path, &format!("{error:#}"), quiet);
+			warn_about_password_mode(config, Some(key_path), quiet);
+		}
 	}
 
 	/// Creates a key pair after confirming the choice when possible.
 	fn create_key_pair(
 		&self,
 		key_path: &Path,
+		key_source: KeySource,
 		target: &ResolvedSshTarget,
 		interactive: bool,
 		quiet: bool,
@@ -184,8 +247,9 @@ impl SetupSsh {
 		if !self.generate {
 			if !interactive {
 				bail!(
-					"No SSH private key was found at {}. Pass --generate to create one, or select an existing key with --key-path",
-					key_path.display()
+					"No SSH private key was found at {} (selected by {}). Pass --generate to create one, or select an existing key with --key-path",
+					key_path.display(),
+					key_source.describe()
 				);
 			}
 			let confirmed = Confirm::new()
@@ -231,76 +295,115 @@ impl KeyType {
 /// Verifies key authentication without changing local or remote state.
 async fn run_check(
 	config: &Config,
-	key_path: &Path,
-	key_source: KeySource,
+	target: &ResolvedSshTarget,
+	key_path: Option<&Path>,
 	quiet: bool,
 ) -> Result<()> {
-	if !key_path.is_file() {
-		bail!(
-			"No SSH private key exists at {} (selected by {}). Run `biwa setup-ssh --generate` to create one",
-			key_path.display(),
-			key_source.describe()
-		);
+	match probe_public_key_authentication(config, target, quiet).await? {
+		AuthProbe::Works => {
+			report_ready(key_path, quiet);
+			Ok(())
+		}
+		AuthProbe::NoCredentials => bail!(
+			"No SSH key or agent identity is available for {}@{}. Run `biwa setup-ssh --generate` to create one",
+			target.user,
+			target.hostname
+		),
+		AuthProbe::Rejected(error) => Err(error).wrap_err(format!(
+			"Key authentication for {}@{} is not working yet. Run `biwa setup-ssh` to install the matching public key",
+			target.user, target.hostname
+		)),
 	}
+}
 
-	let Some(error) = try_key_authentication(config, key_path, quiet).await? else {
-		report_ready(key_path, quiet);
-		return Ok(());
-	};
-
-	Err(error).wrap_err(format!(
-		"Key authentication with {} is not working yet. Run `biwa setup-ssh` to install the matching public key",
-		key_path.display()
-	))
+/// Returns a configuration that authenticates with public keys only.
+fn public_key_config(config: &Config, key_path: Option<PathBuf>) -> Config {
+	let mut key_config = config.clone();
+	key_config.ssh.auth = AuthMode::PublicKey;
+	key_config.ssh.key_path = key_path;
+	key_config
 }
 
 /// Reports that key authentication is ready.
-fn report_ready(key_path: &Path, quiet: bool) {
-	if !quiet {
-		eprintln!(
+fn report_ready(key_path: Option<&Path>, quiet: bool) {
+	if quiet {
+		return;
+	}
+	match key_path {
+		Some(path) => eprintln!(
 			"{} Key authentication works with {}",
 			style("✓").green().bold(),
-			key_path.display()
-		);
+			path.display()
+		),
+		None => eprintln!(
+			"{} Key authentication already works with your existing SSH credentials",
+			style("✓").green().bold()
+		),
+	}
+}
+
+/// Reports whether the public key had to be added remotely.
+fn report_install_outcome(outcome: InstallOutcome, quiet: bool) {
+	if quiet {
+		return;
+	}
+	match outcome {
+		InstallOutcome::Installed => eprintln!(
+			"{} Added the public key to {REMOTE_AUTHORIZED_KEYS}",
+			style("✓").green().bold()
+		),
+		InstallOutcome::AlreadyPresent => eprintln!(
+			"{} The public key was already in {REMOTE_AUTHORIZED_KEYS}",
+			style("✓").green().bold()
+		),
 	}
 }
 
 /// Warns when configuration still forces password authentication.
-fn warn_about_password_mode(config: &Config, key_path: &Path, quiet: bool) {
+fn warn_about_password_mode(config: &Config, key_path: Option<&Path>, quiet: bool) {
 	if config.ssh.auth != AuthMode::Password || quiet {
 		return;
 	}
+	let target = key_path.map_or_else(|| "your key".to_owned(), |path| path.display().to_string());
 	eprintln!(
-		"{} `ssh.auth` is still set to \"password\". Remove it, or run `biwa setup-ssh --write-config`, to use {}",
-		style("!").yellow().bold(),
-		key_path.display()
+		"{} `ssh.auth` is still set to \"password\". Remove it, or run `biwa setup-ssh --write-config`, to use {target}",
+		style("!").yellow().bold()
 	);
 }
 
-/// Attempts key authentication with the selected key.
+/// Tries the public-key credentials the configuration selects.
 ///
-/// Returns `None` when the key authenticates, and the reason otherwise. A host-key
-/// verification failure is returned as an error because retrying cannot help.
-async fn try_key_authentication(
+/// Only a rejected credential means "not authorized yet". Host-key failures, unusable
+/// credentials, and local configuration errors abort so nothing remote is changed while a
+/// local problem is misread as a missing authorization.
+async fn probe_public_key_authentication(
 	config: &Config,
-	key_path: &Path,
+	target: &ResolvedSshTarget,
 	quiet: bool,
-) -> Result<Option<Report>> {
-	let mut key_config = config.clone();
-	key_config.ssh.auth = AuthMode::PublicKey;
-	key_config.ssh.key_path = Some(key_path.to_path_buf());
+) -> Result<AuthProbe> {
+	if let Err(error) = resolve_auth(config, target).await {
+		debug!(error = %error, "No public-key credential could be resolved");
+		return Ok(AuthProbe::NoCredentials);
+	}
 
-	match connect(&key_config, quiet).await {
+	match connect(config, quiet).await {
 		Ok(client) => {
 			drop(client);
-			Ok(None)
+			Ok(AuthProbe::Works)
 		}
 		Err(error) if error.downcast_ref::<HostKeyVerificationFailed>().is_some() => Err(error),
-		Err(error) => {
-			debug!(error = %error, key = %key_path.display(), "Key authentication is not available yet");
-			Ok(Some(error))
-		}
+		Err(error) => match authentication_failure_kind(&error) {
+			Some(AuthenticationFailureKind::Retryable) => Ok(AuthProbe::Rejected(error)),
+			Some(AuthenticationFailureKind::Terminal) | None => Err(error),
+		},
 	}
+}
+
+/// Returns the fallback policy attached to an authentication failure marker.
+fn authentication_failure_kind(report: &Report) -> Option<AuthenticationFailureKind> {
+	report
+		.downcast_ref::<AuthenticationFailed>()
+		.map(|failure| failure.kind())
 }
 
 /// Connects using password authentication only.
@@ -350,6 +453,8 @@ async fn install_authorized_key(client: &Client, authorized_key: &str) -> Result
 }
 
 /// Builds the idempotent remote script that authorizes one public key.
+///
+/// The script is POSIX shell, so a login shell such as `csh` or `fish` cannot run it.
 fn install_authorized_key_script(authorized_key: &str, key_pattern: &str) -> String {
 	let quoted_key = shell_words::quote(authorized_key);
 	let quoted_pattern = shell_words::quote(key_pattern);
@@ -360,7 +465,7 @@ fn install_authorized_key_script(authorized_key: &str, key_pattern: &str) -> Str
 		format!("chmod 700 {REMOTE_SSH_DIR}"),
 		format!("touch {REMOTE_AUTHORIZED_KEYS}"),
 		format!("chmod 600 {REMOTE_AUTHORIZED_KEYS}"),
-		format!("if grep -q -F -e {quoted_pattern} {REMOTE_AUTHORIZED_KEYS}; then"),
+		format!("if grep -q -E -e {quoted_pattern} {REMOTE_AUTHORIZED_KEYS}; then"),
 		format!("echo {ALREADY_PRESENT_MARKER}"),
 		"else".to_owned(),
 		// A file whose last byte is not a newline would otherwise absorb the new entry.
@@ -384,15 +489,36 @@ fn authorized_key_line(public_key: &PublicKey) -> Result<String> {
 	Ok(line.trim().to_owned())
 }
 
-/// Returns the algorithm and key material of an `authorized_keys` line.
+/// Builds the pattern matching an `authorized_keys` entry that authorizes this key.
 ///
-/// The comment is excluded so a re-run recognizes a key installed under another comment.
+/// The entry must begin with the algorithm, optionally indented, so a commented-out line
+/// or an entry carrying options such as `from="..."` is not mistaken for an authorization
+/// this command can rely on. The comment at the end of the entry is ignored, so a key
+/// installed under a different comment is still recognized.
 fn authorized_key_pattern(authorized_key: &str) -> Result<String> {
 	let mut fields = authorized_key.split_whitespace();
 	let (Some(algorithm), Some(material)) = (fields.next(), fields.next()) else {
 		bail!("Malformed public key line: expected an algorithm and key material")
 	};
-	Ok(format!("{algorithm} {material}"))
+	Ok(format!(
+		"^[[:space:]]*{} {}([[:space:]]|$)",
+		escape_pattern(algorithm),
+		escape_pattern(material)
+	))
+}
+
+/// Escapes the characters that are special inside a POSIX extended regular expression.
+fn escape_pattern(value: &str) -> String {
+	value
+		.chars()
+		.flat_map(|character| {
+			let escape = matches!(
+				character,
+				'\\' | '.' | '[' | ']' | '(' | ')' | '{' | '}' | '*' | '+' | '?' | '|' | '^' | '$'
+			);
+			escape.then_some('\\').into_iter().chain([character])
+		})
+		.collect()
 }
 
 /// Returns the SHA-256 fingerprint of a public key.
@@ -416,11 +542,13 @@ fn select_key_path(
 	if let Some(path) = existing_default_paths.first() {
 		return Ok((path.clone(), KeySource::StandardPath));
 	}
-	new_key_path.map(|path| (path, KeySource::NewKey)).ok_or_else(|| {
-		Report::msg(
-			"Could not determine an SSH key path because the home directory is unknown. Select one with --key-path",
-		)
-	})
+	new_key_path
+		.map(|path| (path, KeySource::NewKey))
+		.ok_or_else(|| {
+			Report::msg(
+				"Could not determine an SSH key path because the home directory is unknown. Select one with --key-path",
+			)
+		})
 }
 
 /// Returns the standard private-key paths that exist locally.
@@ -503,18 +631,14 @@ fn generate_key_pair(
 	comment: &str,
 	interactive: bool,
 ) -> Result<PublicKey> {
-	if private_key_path.exists() {
-		bail!(
-			"Refusing to overwrite the existing file {}",
-			private_key_path.display()
-		);
-	}
 	let public_key_path = public_key_path(private_key_path);
-	if public_key_path.exists() {
-		bail!(
-			"Refusing to overwrite the existing file {}",
-			public_key_path.display()
-		);
+	// `symlink_metadata` does not follow links, so a dangling symlink is refused instead of
+	// being followed. The files are created exclusively below, which closes the remaining
+	// window between this check and the write.
+	for path in [private_key_path, public_key_path.as_path()] {
+		if path.symlink_metadata().is_ok() {
+			bail!("Refusing to overwrite the existing file {}", path.display());
+		}
 	}
 	create_key_directory(private_key_path)?;
 
@@ -535,24 +659,43 @@ fn generate_key_pair(
 		encrypt_private_key(&private_key, &passphrase)?
 	};
 
-	stored_key
-		.write_openssh_file(private_key_path, LineEnding::LF)
-		.wrap_err_with(|| {
-			format!(
-				"Failed to write the private key {}",
-				private_key_path.display()
-			)
-		})?;
-	public_key
-		.write_openssh_file(&public_key_path)
-		.wrap_err_with(|| {
-			format!(
-				"Failed to write the public key {}",
-				public_key_path.display()
-			)
-		})?;
+	let encoded_private_key = stored_key
+		.to_openssh(LineEnding::LF)
+		.wrap_err("Failed to encode the generated private key")?;
+	write_new_file(private_key_path, &encoded_private_key, PRIVATE_KEY_MODE)?;
+
+	let encoded_public_key = public_key
+		.to_openssh()
+		.wrap_err("Failed to encode the generated public key")?;
+	write_new_file(
+		&public_key_path,
+		&format!("{encoded_public_key}\n"),
+		PUBLIC_KEY_MODE,
+	)?;
 
 	Ok(public_key)
+}
+
+/// Creates a file that must not exist yet, with the given Unix permissions.
+#[cfg_attr(
+	not(unix),
+	expect(unused_variables, reason = "file modes only exist on Unix")
+)]
+fn write_new_file(path: &Path, contents: &str, mode: u32) -> Result<()> {
+	let mut options = OpenOptions::new();
+	options.write(true).create_new(true);
+	#[cfg(unix)]
+	{
+		use std::os::unix::fs::OpenOptionsExt as _;
+
+		options.mode(mode);
+	}
+
+	let mut file = options
+		.open(path)
+		.wrap_err_with(|| format!("Failed to create {}", path.display()))?;
+	file.write_all(contents.as_bytes())
+		.wrap_err_with(|| format!("Failed to write {}", path.display()))
 }
 
 /// Creates the directory holding a generated key with owner-only permissions.
@@ -620,12 +763,18 @@ fn random_bytes<const N: usize>() -> Result<[u8; N]> {
 fn write_config_key_path(config: &Config, key_path: &Path, quiet: bool) -> Result<()> {
 	let display_path = home_relative_path(key_path);
 	let Some((config_path, format)) = Config::find_nearest_config_file()? else {
-		report_manual_config(&display_path, "no biwa configuration file was found", quiet);
+		report_manual_config(
+			config,
+			key_path,
+			"no biwa configuration file was found",
+			quiet,
+		);
 		return Ok(());
 	};
 	if format != ConfigFormat::Toml {
 		report_manual_config(
-			&display_path,
+			config,
+			key_path,
 			&format!("{} is not a TOML configuration file", config_path.display()),
 			quiet,
 		);
@@ -663,14 +812,27 @@ fn write_config_key_path(config: &Config, key_path: &Path, quiet: bool) -> Resul
 }
 
 /// Prints the configuration snippet to apply manually.
-fn report_manual_config(key_path: &str, reason: &str, quiet: bool) {
+fn report_manual_config(config: &Config, key_path: &Path, reason: &str, quiet: bool) {
 	if quiet {
 		return;
 	}
 	eprintln!(
-		"{} Could not update the configuration automatically because {reason}. Add this manually:\n\n[ssh]\nkey_path = \"{key_path}\"\n",
-		style("!").yellow().bold()
+		"{} Could not update the configuration automatically because {reason}. Add this manually:\n\n{}\n",
+		style("!").yellow().bold(),
+		manual_config_snippet(config.ssh.auth, key_path)
 	);
+}
+
+/// Renders the configuration snippet that selects the installed key.
+fn manual_config_snippet(auth: AuthMode, key_path: &Path) -> String {
+	let encoded_path = toml::Value::String(home_relative_path(key_path)).to_string();
+	let auth_line = if auth == AuthMode::Password {
+		let encoded_auth = toml::Value::String(AuthMode::PublicKey.as_str().to_owned()).to_string();
+		format!("\nauth = {encoded_auth}")
+	} else {
+		String::new()
+	};
+	format!("[ssh]\nkey_path = {encoded_path}{auth_line}")
 }
 
 /// Renders a path with the home directory replaced by `~`.
@@ -687,10 +849,17 @@ fn home_relative_path(path: &Path) -> String {
 
 /// Sets one string value inside the `[ssh]` table of a TOML configuration file.
 ///
-/// Only the affected line is rewritten so comments, ordering, and formatting survive.
+/// Only the affected line is rewritten so comments, ordering, formatting, and the file's
+/// line endings survive.
 fn set_toml_ssh_value(contents: &str, key: &str, value: &str) -> Result<String> {
 	let encoded = toml::Value::String(value.to_owned()).to_string();
 	let dotted_key = format!("ssh.{key}");
+	// `str::lines` already drops a carriage return, so only the joining style has to match.
+	let line_ending = if contents.contains("\r\n") {
+		"\r\n"
+	} else {
+		"\n"
+	};
 	let mut lines: Vec<String> = contents.lines().map(str::to_owned).collect();
 	let mut current_table: Option<String> = None;
 	let mut ssh_header_index: Option<usize> = None;
@@ -708,7 +877,7 @@ fn set_toml_ssh_value(contents: &str, key: &str, value: &str) -> Result<String> 
 			}
 			continue;
 		}
-		let Some(name) = assignment_key(trimmed) else {
+		let Some((name, assigned)) = assignment(trimmed) else {
 			continue;
 		};
 		let matches = match current_table.as_deref() {
@@ -718,7 +887,10 @@ fn set_toml_ssh_value(contents: &str, key: &str, value: &str) -> Result<String> 
 		};
 		if matches {
 			let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-			*line = format!("{indent}{name} = {encoded}");
+			let comment = trailing_comment(assigned)
+				.map(|comment| format!(" {comment}"))
+				.unwrap_or_default();
+			*line = format!("{indent}{name} = {encoded}{comment}");
 			replaced = true;
 			break;
 		}
@@ -736,22 +908,46 @@ fn set_toml_ssh_value(contents: &str, key: &str, value: &str) -> Result<String> 
 		}
 	}
 
-	let mut updated = lines.join("\n");
+	let mut updated = lines.join(line_ending);
 	if contents.is_empty() || contents.ends_with('\n') {
-		updated.push('\n');
+		updated.push_str(line_ending);
 	}
 	verify_toml_ssh_value(&updated, key, value)?;
 	Ok(updated)
 }
 
-/// Returns the key of a `key = value` assignment line.
-fn assignment_key(line: &str) -> Option<&str> {
-	let (key, _value) = line.split_once('=')?;
+/// Splits a `key = value` assignment line into its key and everything after the `=`.
+fn assignment(line: &str) -> Option<(&str, &str)> {
+	let (key, assigned) = line.split_once('=')?;
 	let key = key.trim();
 	if key.is_empty() || key.contains(char::is_whitespace) {
 		return None;
 	}
-	Some(key)
+	Some((key, assigned))
+}
+
+/// Returns the comment trailing an assigned TOML value, if any.
+///
+/// A `#` inside a quoted string starts no comment, so quoting is tracked while scanning.
+fn trailing_comment(assigned: &str) -> Option<&str> {
+	let mut quote: Option<char> = None;
+	let mut escaped = false;
+
+	for (index, character) in assigned.char_indices() {
+		if escaped {
+			escaped = false;
+			continue;
+		}
+		match (quote, character) {
+			// Only a basic string uses backslash escapes.
+			(Some('"'), '\\') => escaped = true,
+			(Some(open), _) if open == character => quote = None,
+			(None, '"' | '\'') => quote = Some(character),
+			(None, '#') => return assigned.get(index..).map(str::trim_end),
+			(Some(_) | None, _) => {}
+		}
+	}
+	None
 }
 
 /// Ensures the rewritten configuration parses and selects the intended value.
@@ -777,6 +973,8 @@ mod tests {
 
 	const PUBLIC_KEY: &str =
 		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGYh1Ntz2neFcfgNyBAx3kFJwSURKqRrnAuLiQ5M296T biwa";
+	const KEY_MATERIAL: &str =
+		"AAAAC3NzaC1lZDI1NTE5AAAAIGYh1Ntz2neFcfgNyBAx3kFJwSURKqRrnAuLiQ5M296T";
 
 	fn public_key() -> PublicKey {
 		PublicKey::from_openssh(PUBLIC_KEY).expect("static key is valid")
@@ -839,24 +1037,66 @@ mod tests {
 	}
 
 	#[test]
+	fn public_key_config_forces_public_key_authentication() {
+		let mut config = Config::default();
+		config.ssh.auth = AuthMode::Password;
+		config.ssh.key_path = Some(PathBuf::from("/configured"));
+
+		let selected = public_key_config(&config, Some(PathBuf::from("/selected")));
+		assert_eq!(selected.ssh.auth, AuthMode::PublicKey);
+		assert_eq!(selected.ssh.key_path, Some(PathBuf::from("/selected")));
+
+		let ambient = public_key_config(&config, None);
+		assert_eq!(ambient.ssh.auth, AuthMode::PublicKey);
+		assert_eq!(ambient.ssh.key_path, None);
+	}
+
+	#[test]
+	fn authentication_failure_kind_reads_the_marker() {
+		let rejected =
+			Report::from(AuthenticationFailed::retryable()).wrap_err("credential rejected");
+		let terminal = Report::from(AuthenticationFailed::terminal()).wrap_err("unusable key");
+
+		assert_eq!(
+			authentication_failure_kind(&rejected),
+			Some(AuthenticationFailureKind::Retryable)
+		);
+		assert_eq!(
+			authentication_failure_kind(&terminal),
+			Some(AuthenticationFailureKind::Terminal)
+		);
+		assert_eq!(
+			authentication_failure_kind(&Report::msg("local error")),
+			None
+		);
+	}
+
+	#[test]
 	fn authorized_key_line_drops_trailing_whitespace() -> Result<()> {
 		assert_eq!(authorized_key_line(&public_key())?, PUBLIC_KEY);
 		Ok(())
 	}
 
 	#[test]
-	fn authorized_key_pattern_ignores_the_comment() -> Result<()> {
+	fn authorized_key_pattern_anchors_the_entry_and_ignores_the_comment() -> Result<()> {
 		assert_eq!(
 			authorized_key_pattern(PUBLIC_KEY)?,
-			"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGYh1Ntz2neFcfgNyBAx3kFJwSURKqRrnAuLiQ5M296T"
-		);
-		assert_eq!(
-			authorized_key_pattern("ssh-ed25519 AAAA")?,
-			"ssh-ed25519 AAAA"
+			format!("^[[:space:]]*ssh-ed25519 {KEY_MATERIAL}([[:space:]]|$)")
 		);
 		let _error =
 			authorized_key_pattern("ssh-ed25519").expect_err("a key line needs key material");
 		Ok(())
+	}
+
+	#[test]
+	fn escape_pattern_protects_regex_metacharacters() {
+		assert_eq!(escape_pattern("ssh-ed25519"), "ssh-ed25519");
+		assert_eq!(
+			escape_pattern("sk-ssh-ed25519@openssh.com"),
+			"sk-ssh-ed25519@openssh\\.com"
+		);
+		assert_eq!(escape_pattern("a+b/c=d"), "a\\+b/c=d");
+		assert_eq!(escape_pattern("^$.[]()"), "\\^\\$\\.\\[\\]\\(\\)");
 	}
 
 	#[test]
@@ -867,7 +1107,7 @@ mod tests {
 		assert!(script.contains("mkdir -p ~/.ssh"));
 		assert!(script.contains("chmod 700 ~/.ssh"));
 		assert!(script.contains("chmod 600 ~/.ssh/authorized_keys"));
-		assert!(script.contains("if grep -q -F -e "));
+		assert!(script.contains("if grep -q -E -e '^[[:space:]]*ssh-ed25519 "));
 		assert!(script.contains(&format!("printf '%s\\n' '{PUBLIC_KEY}'")));
 		assert!(script.contains(ALREADY_PRESENT_MARKER));
 		assert!(script.contains(INSTALLED_MARKER));
@@ -879,7 +1119,7 @@ mod tests {
 		let hostile = format!("{PUBLIC_KEY}; rm -rf ~");
 		let script = install_authorized_key_script(&hostile, &authorized_key_pattern(&hostile)?);
 
-		assert!(script.contains("'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGYh1Ntz2neFcfgNyBAx3kFJwSURKqRrnAuLiQ5M296T biwa; rm -rf ~'"));
+		assert!(script.contains(&format!("printf '%s\\n' '{hostile}'")));
 		Ok(())
 	}
 
@@ -927,6 +1167,21 @@ mod tests {
 	}
 
 	#[test]
+	fn expand_key_path_resolves_the_home_marker() -> Result<()> {
+		if let Some(home) = homedir::my_home().ok().flatten() {
+			assert_eq!(
+				expand_key_path(Path::new("~/.ssh/id_ed25519"))?,
+				home.join(".ssh/id_ed25519")
+			);
+		}
+		assert_eq!(
+			expand_key_path(Path::new("/opt/keys/id_ed25519"))?,
+			PathBuf::from("/opt/keys/id_ed25519")
+		);
+		Ok(())
+	}
+
+	#[test]
 	fn public_key_path_appends_the_pub_suffix() {
 		assert_eq!(
 			public_key_path(Path::new("/home/user/.ssh/id_ed25519")),
@@ -955,7 +1210,7 @@ mod tests {
 
 			assert_eq!(
 				fs::metadata(&key_path)?.permissions().mode() & 0o777,
-				0o600,
+				PRIVATE_KEY_MODE,
 				"a generated private key must not be readable by other users"
 			);
 			assert_eq!(
@@ -983,6 +1238,23 @@ mod tests {
 		let error = generate_key_pair(&key_path, KeyType::Ed25519, "biwa@test", false)
 			.expect_err("an existing public key must be preserved");
 		assert!(error.to_string().contains("Refusing to overwrite"));
+		Ok(())
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn generated_key_pair_refuses_to_follow_a_symlink() -> Result<()> {
+		use std::os::unix::fs::symlink;
+
+		let dir = tempfile::tempdir()?;
+		let key_path = dir.path().join("id_ed25519");
+		let target = dir.path().join("elsewhere");
+		symlink(&target, &key_path)?;
+
+		let error = generate_key_pair(&key_path, KeyType::Ed25519, "biwa@test", false)
+			.expect_err("a dangling symlink must not be followed");
+		assert!(error.to_string().contains("Refusing to overwrite"));
+		assert!(!target.exists(), "the symlink target must not be created");
 		Ok(())
 	}
 
@@ -1028,6 +1300,48 @@ mod tests {
 		assert_eq!(
 			updated,
 			"[ssh]\nhost = \"cse\"\n  key_path = \"~/.ssh/id_ed25519\"\n\n[sync]\nauto = true\n"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn toml_value_preserves_a_trailing_comment() -> Result<()> {
+		let updated = set_toml_ssh_value(
+			"[ssh]\nkey_path = \"~/.ssh/old\" # the key biwa uses\n",
+			"key_path",
+			"~/.ssh/new",
+		)?;
+
+		assert_eq!(
+			updated,
+			"[ssh]\nkey_path = \"~/.ssh/new\" # the key biwa uses\n"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn toml_value_ignores_a_hash_inside_the_old_value() -> Result<()> {
+		let updated = set_toml_ssh_value(
+			"[ssh]\nkey_path = \"~/.ssh/id#1\"\n",
+			"key_path",
+			"~/.ssh/new",
+		)?;
+
+		assert_eq!(updated, "[ssh]\nkey_path = \"~/.ssh/new\"\n");
+		Ok(())
+	}
+
+	#[test]
+	fn toml_value_preserves_carriage_returns() -> Result<()> {
+		let updated = set_toml_ssh_value(
+			"[ssh]\r\nhost = \"cse\"\r\n",
+			"key_path",
+			"~/.ssh/id_ed25519",
+		)?;
+
+		assert_eq!(
+			updated,
+			"[ssh]\r\nkey_path = \"~/.ssh/id_ed25519\"\r\nhost = \"cse\"\r\n"
 		);
 		Ok(())
 	}
@@ -1091,15 +1405,41 @@ mod tests {
 	}
 
 	#[test]
-	fn assignment_key_reads_only_simple_assignments() {
-		assert_eq!(assignment_key("key_path = \"value\""), Some("key_path"));
+	fn assignment_reads_only_simple_assignments() {
 		assert_eq!(
-			assignment_key("ssh.key_path=\"value\""),
-			Some("ssh.key_path")
+			assignment("key_path = \"value\""),
+			Some(("key_path", " \"value\""))
 		);
-		assert_eq!(assignment_key("no assignment here"), None);
-		assert_eq!(assignment_key("two words = 1"), None);
-		assert_eq!(assignment_key("= 1"), None);
+		assert_eq!(
+			assignment("ssh.key_path=\"value\""),
+			Some(("ssh.key_path", "\"value\""))
+		);
+		assert_eq!(assignment("no assignment here"), None);
+		assert_eq!(assignment("two words = 1"), None);
+		assert_eq!(assignment("= 1"), None);
+	}
+
+	#[test]
+	fn trailing_comment_skips_quoted_hashes() {
+		assert_eq!(trailing_comment(" \"value\" # comment "), Some("# comment"));
+		assert_eq!(trailing_comment(" \"va#lue\""), None);
+		assert_eq!(trailing_comment(" '#literal'"), None);
+		assert_eq!(trailing_comment(" \"escaped \\\" # inside\""), None);
+		assert_eq!(trailing_comment(" true"), None);
+	}
+
+	#[test]
+	fn manual_snippet_encodes_the_path_and_the_auth_change() {
+		// A path containing a quote becomes a TOML literal string rather than an invalid
+		// basic string.
+		assert_eq!(
+			manual_config_snippet(AuthMode::PublicKey, Path::new("/opt/keys/id\"quoted")),
+			"[ssh]\nkey_path = '/opt/keys/id\"quoted'"
+		);
+		assert_eq!(
+			manual_config_snippet(AuthMode::Password, Path::new("/opt/keys/id_ed25519")),
+			"[ssh]\nkey_path = \"/opt/keys/id_ed25519\"\nauth = \"public-key\""
+		);
 	}
 
 	#[test]

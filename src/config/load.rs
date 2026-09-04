@@ -216,7 +216,23 @@ impl Config {
 	}
 
 	/// Resolves loaded local paths that may still come from defaults or environment variables.
+	///
+	/// Configuration files expand `~` while their layer is loaded, but environment
+	/// variables bypass that step, so every local path is expanded again here. Expanding
+	/// an already absolute path is a no-op.
 	fn resolve_loaded_paths(config: &mut Self) {
+		for path in [
+			config.ssh.key_path.as_mut(),
+			config.ssh.known_hosts.as_mut(),
+			config.state_dir.as_mut(),
+			config.sync.sftp.cache.path.as_mut(),
+		]
+		.into_iter()
+		.flatten()
+		{
+			*path = expand_tilde(path);
+		}
+
 		if let Some(bin_dir) = &mut config.direct.bin_dir {
 			*bin_dir = expand_tilde(bin_dir);
 			if !bin_dir.as_os_str().is_empty()
@@ -1455,6 +1471,31 @@ child = ["--skip-sync"]
 
 		// Should load "fallback", NOT "ignored"
 		assert_eq!(config.ssh.host, "fallback");
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn environment_paths_expand_the_home_marker() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
+		let _key_path = EnvCleanup::set("BIWA_SSH_KEY_PATH", "~/.ssh/env_key");
+		let _known_hosts = EnvCleanup::set("BIWA_SSH_KNOWN_HOSTS", "~/.ssh/env_known_hosts");
+		let _state_dir = EnvCleanup::set("BIWA_STATE_DIR", "/tmp/biwa-state");
+		let _cache_path = EnvCleanup::set("BIWA_SYNC_SFTP_CACHE_PATH", "~/.cache/biwa-env");
+
+		let config = load_internal(None, None, None)?;
+
+		if let Some(home) = homedir::my_home().ok().flatten() {
+			assert_eq!(config.ssh.key_path, Some(home.join(".ssh/env_key")));
+			assert_eq!(
+				config.ssh.known_hosts,
+				Some(home.join(".ssh/env_known_hosts"))
+			);
+			assert_eq!(
+				config.sync.sftp.cache.path,
+				Some(home.join(".cache/biwa-env"))
+			);
+		}
 		Ok(())
 	}
 

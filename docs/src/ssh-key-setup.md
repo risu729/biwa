@@ -21,12 +21,14 @@ biwa run --skip-sync hostname
 
 The command resolves the host, user, and port from your normal configuration, then:
 
-1. Checks whether key authentication already works, and stops there if it does.
-2. Selects `--key-path`, `ssh.key_path`, or the first existing standard key (`~/.ssh/id_ed25519`, then `~/.ssh/id_rsa`).
+1. Tries the credentials biwa normally uses — an SSH agent identity, an `IdentityFile` entry, `ssh.key_path`, or a standard key — and stops there if key authentication already works.
+2. Otherwise selects `--key-path`, `ssh.key_path`, or the first existing standard key (`~/.ssh/id_ed25519`, then `~/.ssh/id_rsa`).
 3. Offers to generate a new Ed25519 key pair when none exists, prompting for an optional passphrase.
 4. Connects once with password authentication, prompting for the password interactively.
-5. Creates `~/.ssh` (mode `700`) remotely and appends the public key to `~/.ssh/authorized_keys` (mode `600`) only if it is not already there.
+5. Creates `~/.ssh` (mode `700`) remotely and appends the public key to `~/.ssh/authorized_keys` (mode `600`) only if it is not already authorized there.
 6. Opens a fresh connection with the key to confirm the result.
+
+A local problem — an unreadable key, or a `ssh.key_path` that disagrees with your OpenSSH `IdentityFile` — stops the command before anything remote is changed.
 
 ```bash
 # Reuse or create a specific key
@@ -42,10 +44,18 @@ biwa setup-ssh --check
 biwa setup-ssh --write-config
 ```
 
-The command is idempotent: re-running it never adds a duplicate `authorized_keys` entry, and it never prints private key material or your password.
+`--check` exits successfully whenever key authentication works, including through an agent, and fails otherwise. It never connects with a password and never changes local or remote files.
+
+`--write-config` rewrites only the affected lines of the nearest TOML configuration file, keeping comments and formatting, and also switches `ssh.auth = "password"` to `"public-key"`. If the file cannot be updated safely, biwa prints the snippet to apply by hand; the key setup itself still succeeds.
+
+The command is idempotent: re-running it never adds a duplicate `authorized_keys` entry, and it never prints private key material or your password. An entry counts as already authorized only when the line starts with the key itself, so a commented-out entry or one carrying options such as `from="..."` does not hide a missing authorization.
 
 ::: tip Non-Interactive Use
 Without a terminal, pass `--generate` to allow key creation and supply the password through `BIWA_SSH_PASSWORD`. A key generated without a terminal has no passphrase.
+:::
+
+::: warning POSIX Shell Required
+The remote setup step runs a small POSIX shell script, like the rest of biwa's remote commands. If your login shell on the server is `csh`, `tcsh`, or `fish`, install the key manually as described below.
 :::
 
 ::: warning Windows

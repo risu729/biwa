@@ -17,7 +17,8 @@ const UNRELATED_AGENT_LIMIT: usize = 10;
 
 /// A deterministic list of concrete credentials to try.
 #[derive(Debug)]
-pub(super) struct AuthPlan {
+#[expect(clippy::redundant_pub_crate, reason = "Preferred by reviewer")]
+pub(crate) struct AuthPlan {
 	/// Credentials in attempt order. Each receives a fresh SSH transport.
 	pub methods: Vec<Method>,
 	/// Agent identities omitted by the unrelated-identity bound.
@@ -25,7 +26,8 @@ pub(super) struct AuthPlan {
 }
 
 /// Resolves credentials without opening a network connection or prompting.
-pub(super) async fn resolve_auth(config: &Config, target: &ResolvedSshTarget) -> Result<AuthPlan> {
+#[expect(clippy::redundant_pub_crate, reason = "Preferred by reviewer")]
+pub(crate) async fn resolve_auth(config: &Config, target: &ResolvedSshTarget) -> Result<AuthPlan> {
 	let interaction_allowed = stdin().is_terminal();
 
 	if config.ssh.auth == AuthMode::Password {
