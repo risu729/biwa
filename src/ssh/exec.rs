@@ -288,7 +288,14 @@ fn build_mise_prefix(mise: &MiseConfig) -> Result<Option<String>> {
 	}
 
 	let wrapper = if let Some(prefix) = mise.configured_command_prefix() {
-		// The escape hatch is inserted verbatim; it is trusted configuration input.
+		// The escape hatch is inserted verbatim; it is only honored from global
+		// configuration or the environment, never from project-local config.
+		if mise.mode != MiseMode::Prefix {
+			debug!(
+				mode = ?mise.mode,
+				"mise.command_prefix overrides the wrapper built from mise.mode"
+			);
+		}
 		prefix.to_owned()
 	} else {
 		match mise.mode {
@@ -310,22 +317,69 @@ fn build_mise_prefix(mise: &MiseConfig) -> Result<Option<String>> {
 	Ok(Some(format!("{env_selection}{wrapper} ")))
 }
 
+/// Remote executable a configured mise wrapper resolves to.
+#[derive(Debug, PartialEq, Eq)]
+struct MiseProbeTarget {
+	/// Shell word looked up on the remote host.
+	word: String,
+	/// Configuration key the word was taken from, for error messages.
+	source: &'static str,
+}
+
+/// Returns the executable to look up remotely for the configured wrapper.
+///
+/// An explicit `command_prefix` replaces the wrapper built from `mode`, so the
+/// probe follows it and checks the prefix's own first word instead of `bin`,
+/// which is unused in that case.
+fn mise_probe_target(mise: &MiseConfig) -> Option<MiseProbeTarget> {
+	if let Some(prefix) = mise.configured_command_prefix() {
+		// The prefix is already shell syntax, so its first word is used verbatim.
+		return prefix
+			.split_whitespace()
+			.next()
+			.map(|word| MiseProbeTarget {
+				word: word.to_owned(),
+				source: "mise.command_prefix",
+			});
+	}
+
+	match mise.mode {
+		MiseMode::Exec => Some(MiseProbeTarget {
+			word: shell_quote_path(mise.bin.trim()),
+			source: "mise.bin",
+		}),
+		// Prefix mode without a command prefix is rejected before execution.
+		MiseMode::Prefix => None,
+	}
+}
+
 /// Fails early when the mise integration is enabled but the remote executable is missing.
 async fn ensure_remote_mise_available(client: &Client, mise: &MiseConfig) -> Result<()> {
-	let bin = mise.bin.trim();
-	let probe = format!("command -v {} > /dev/null 2>&1", shell_quote_path(bin));
-	let result = client
-		.execute(&probe)
-		.await
-		.wrap_err_with(|| format!("Failed to check for `{bin}` on the remote host"))?;
+	let Some(target) = mise_probe_target(mise) else {
+		return Ok(());
+	};
+
+	let probe = format!("command -v {} > /dev/null 2>&1", target.word);
+	let result = client.execute(&probe).await.wrap_err_with(|| {
+		format!(
+			"Failed to check for `{}` (from `{}`) on the remote host",
+			target.word, target.source
+		)
+	})?;
 
 	if result.exit_status == 0 {
-		debug!(bin, "Found mise on the remote host");
+		debug!(
+			probe_target = target.word,
+			source = target.source,
+			"Found mise on the remote host"
+		);
 		return Ok(());
 	}
 
 	bail!(
-		"`{bin}` was not found on the remote host, but the mise integration is enabled. Install it remotely (e.g. `biwa run --skip-sync 'curl https://mise.run | sh'`), point `mise.bin` at its absolute path, skip this check with `mise.verify = false`, or disable the integration with `mise.enabled = false`"
+		"`{}` (from `{}`) was not found on the remote host, but the mise integration is enabled. Install it remotely (e.g. `BIWA_MISE_ENABLED=false biwa run --skip-sync 'curl https://mise.run | sh'`), point `mise.bin` at its absolute path, skip this check with `mise.verify = false`, or disable the integration with `mise.enabled = false`",
+		target.word,
+		target.source
 	)
 }
 
@@ -1129,6 +1183,48 @@ mod tests {
 			error.to_string().contains("mise.command_prefix"),
 			"error was: {error:?}"
 		);
+	}
+
+	#[test]
+	fn mise_probe_target_follows_the_configured_wrapper() {
+		assert_eq!(
+			mise_probe_target(&MiseConfig {
+				bin: "~/.local/bin/mise".to_owned(),
+				..mise_config(MiseMode::Exec)
+			}),
+			Some(MiseProbeTarget {
+				word: "\"$HOME\"/.local/bin/mise".to_owned(),
+				source: "mise.bin",
+			})
+		);
+
+		// An explicit prefix replaces the wrapper, so `bin` must not be probed.
+		assert_eq!(
+			mise_probe_target(&MiseConfig {
+				command_prefix: Some("/opt/tools/mise x --".to_owned()),
+				..mise_config(MiseMode::Prefix)
+			}),
+			Some(MiseProbeTarget {
+				word: "/opt/tools/mise".to_owned(),
+				source: "mise.command_prefix",
+			})
+		);
+		assert_eq!(
+			mise_probe_target(&MiseConfig {
+				command_prefix: Some("\"$HOME\"/bin/mise x --".to_owned()),
+				bin: "unused-mise".to_owned(),
+				..mise_config(MiseMode::Exec)
+			}),
+			Some(MiseProbeTarget {
+				word: "\"$HOME\"/bin/mise".to_owned(),
+				source: "mise.command_prefix",
+			})
+		);
+	}
+
+	#[test]
+	fn mise_probe_target_is_none_for_prefix_mode_without_a_prefix() {
+		assert_eq!(mise_probe_target(&mise_config(MiseMode::Prefix)), None);
 	}
 
 	#[test]

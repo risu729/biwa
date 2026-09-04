@@ -104,11 +104,11 @@ Relative `known_hosts` paths follow the same rules described above: project root
 | Key              | Type    | Default  | Description                                                          |
 | ---------------- | ------- | -------- | -------------------------------------------------------------------- |
 | `enabled`        | boolean | `false`  | Run remote commands inside a [mise](https://mise.jdx.dev)-managed environment |
-| `bin`            | string  | `"mise"` | mise executable on the remote host (absolute or `~`-relative paths allowed) |
+| `bin`            | string  | `"mise"` | mise executable on the remote host (bare name, absolute path, or `~`-relative path) |
 | `mode`           | string  | `"exec"` | Wrapping strategy: `"exec"` or `"prefix"`                            |
 | `env`            | string? | `null`   | mise environment name, forwarded to the remote command as `MISE_ENV` |
-| `command_prefix` | string? | `null`   | Literal shell prefix used instead of the prefix built from `mode`    |
-| `verify`         | boolean | `true`   | Check that `bin` exists on the remote host before wrapping a command |
+| `command_prefix` | string? | `null`   | Literal shell prefix used instead of the prefix built from `mode` (global configuration only) |
+| `verify`         | boolean | `true`   | Check that the configured wrapper exists on the remote host before running a command |
 
 The integration is off by default, so remote execution is unchanged until you opt in.
 
@@ -122,6 +122,18 @@ With that configuration, `biwa run node --version` executes
 `mise exec -- node --version` in the remote project directory. See
 [mise integration](/env-vars#mise-integration) for wrapping order, remote setup,
 and the advanced `command_prefix` escape hatch.
+
+The wrapper prefixes the command, so `biwa run 'a && b'` runs only `a` inside
+the mise environment; use `biwa run sh -c 'a && b'` to run the whole compound
+command under mise.
+
+::: danger `command_prefix` is global-only
+`command_prefix` is inserted into the remote command without shell quoting, so
+biwa reads it only from global configuration or `BIWA_MISE_COMMAND_PREFIX` and
+rejects it in project-local configuration. Otherwise a config file committed to
+a cloned repository could choose the command that runs on your SSH host. See
+[mise integration](/env-vars#modes).
+:::
 
 ### `[direct]` — Direct Command Settings
 

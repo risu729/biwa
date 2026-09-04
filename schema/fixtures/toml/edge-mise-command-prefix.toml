@@ -1,0 +1,7 @@
+# Edge case: explicit mise command prefix (global-only key; rejected in project-local config)
+
+[mise]
+enabled = true
+mode = "prefix"
+command_prefix = "mise x --"
+verify = true

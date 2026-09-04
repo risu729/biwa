@@ -1338,44 +1338,92 @@ fn e2e_run_forwards_setenv_on_capable_server() -> Result<()> {
 	Ok(())
 }
 
-/// Installs a fake remote `mise` that echoes its argv and the selected environment.
+/// A fake remote `mise` installed for one test and removed when the test ends.
 ///
 /// The SSH test containers do not ship mise, so the wrapper is verified against
 /// a stand-in that records how biwa invoked it and then execs the real command.
-fn install_fake_mise(dir_name: &str) -> Result<String> {
-	let remote_dir = format!("~/{dir_name}");
-	let script = format!(
-		"mkdir -p -- \"$HOME/{dir_name}\" && printf '%s\\n' \
-		'#!/bin/sh' \
-		'printf \"FAKE_MISE_ARGV:%s\\n\" \"$*\"' \
-		'printf \"FAKE_MISE_ENV:%s\\n\" \"${{MISE_ENV-unset}}\"' \
-		'if [ \"$1\" = exec ] || [ \"$1\" = x ]; then shift; fi' \
-		'if [ \"$1\" = -- ]; then shift; fi' \
-		'exec \"$@\"' \
-		> \"$HOME/{dir_name}/mise\" && chmod +x \"$HOME/{dir_name}/mise\""
-	);
+struct FakeMise {
+	/// Remote directory holding the fake executable, relative to the home directory.
+	dir_name: String,
+	/// Whether the fake was installed on the capable SSH server.
+	capable: bool,
+}
 
-	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "sh", "-c", &script])
-		.stdout_capture()
-		.stderr_capture()
-		.unchecked()
-		.run()?;
+impl FakeMise {
+	/// Writes the fake executable into `~/<dir_name>` on the selected test server.
+	fn install(dir_name: &str, capable: bool) -> Result<Self> {
+		let fake = Self {
+			dir_name: dir_name.to_owned(),
+			capable,
+		};
+		let script = format!(
+			"mkdir -p -- \"$HOME/{dir_name}\" && printf '%s\\n' \
+			'#!/bin/sh' \
+			'printf \"FAKE_MISE_ARGV:%s\\n\" \"$*\"' \
+			'printf \"FAKE_MISE_ENV:%s\\n\" \"${{MISE_ENV-unset}}\"' \
+			'if [ \"$1\" = exec ] || [ \"$1\" = x ]; then shift; fi' \
+			'if [ \"$1\" = -- ]; then shift; fi' \
+			'exec \"$@\"' \
+			> \"$HOME/{dir_name}/mise\" && chmod +x \"$HOME/{dir_name}/mise\""
+		);
 
-	assert!(
-		output.status.success(),
-		"failed to install the fake remote mise: {}",
-		String::from_utf8_lossy(&output.stderr)
-	);
-	Ok(remote_dir)
+		let output = fake
+			.cmd(&["--quiet", "run", "--skip-sync", "sh", "-c", &script])
+			.stdout_capture()
+			.stderr_capture()
+			.unchecked()
+			.run()?;
+
+		assert!(
+			output.status.success(),
+			"failed to install the fake remote mise: {}",
+			String::from_utf8_lossy(&output.stderr)
+		);
+		Ok(fake)
+	}
+
+	/// Builds a biwa invocation against the server holding this fake mise.
+	fn cmd(&self, args: &[&str]) -> duct::Expression {
+		if self.capable {
+			biwa_cmd_capable(args)
+		} else {
+			biwa_cmd(args)
+		}
+	}
+
+	/// Returns the `~`-relative remote path of the fake executable.
+	fn bin(&self) -> String {
+		format!("~/{}/mise", self.dir_name)
+	}
+
+	/// Returns the fake executable as a shell word that expands `$HOME` remotely.
+	fn shell_bin(&self) -> String {
+		format!("\"$HOME\"/{}/mise", self.dir_name)
+	}
+}
+
+impl Drop for FakeMise {
+	fn drop(&mut self) {
+		let script = format!("rm -rf -- \"$HOME/{}\"", self.dir_name);
+		let cleanup = self
+			.cmd(&["--quiet", "run", "--skip-sync", "sh", "-c", &script])
+			.stdout_null()
+			.stderr_null()
+			.unchecked()
+			.run();
+		match cleanup {
+			Ok(_) | Err(_) => {}
+		}
+	}
 }
 
 #[test]
 fn e2e_run_mise_exec_mode_wraps_the_remote_command() -> Result<()> {
-	let remote_dir = install_fake_mise(".biwa-test-mise-exec")?;
+	let fake_mise = FakeMise::install(".biwa-test-mise-exec", false)?;
 
 	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "echo", "mise wrapped"])
 		.env("BIWA_MISE_ENABLED", "true")
-		.env("BIWA_MISE_BIN", format!("{remote_dir}/mise"))
+		.env("BIWA_MISE_BIN", fake_mise.bin())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -1395,18 +1443,17 @@ fn e2e_run_mise_exec_mode_wraps_the_remote_command() -> Result<()> {
 
 #[test]
 fn e2e_run_mise_command_prefix_and_env_selection() -> Result<()> {
-	let remote_dir = install_fake_mise(".biwa-test-mise-prefix")?;
+	let fake_mise = FakeMise::install(".biwa-test-mise-prefix", false)?;
 
+	// The availability check follows the prefix, so the unrelated default
+	// `mise.bin` must not be probed here.
 	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "echo", "prefixed"])
 		.env("BIWA_MISE_ENABLED", "true")
-		.env("BIWA_MISE_VERIFY", "false")
+		.env("BIWA_MISE_MODE", "prefix")
 		.env("BIWA_MISE_ENV", "dev")
 		.env(
 			"BIWA_MISE_COMMAND_PREFIX",
-			format!(
-				"\"$HOME\"/{}/mise x --",
-				remote_dir.trim_start_matches("~/")
-			),
+			format!("{} x --", fake_mise.shell_bin()),
 		)
 		.stdout_capture()
 		.stderr_capture()
@@ -1426,6 +1473,42 @@ fn e2e_run_mise_command_prefix_and_env_selection() -> Result<()> {
 }
 
 #[test]
+fn e2e_run_mise_forwards_env_with_setenv_method() -> Result<()> {
+	let fake_mise = FakeMise::install(".biwa-test-mise-setenv", true)?;
+
+	let output = fake_mise
+		.cmd(&[
+			"--quiet",
+			"run",
+			"--skip-sync",
+			"--env",
+			"BIWA_TEST_FLAG=ok",
+			"printenv",
+			"BIWA_TEST_FLAG",
+		])
+		.env("BIWA_ENV_FORWARD_METHOD", "setenv")
+		.env("BIWA_MISE_ENABLED", "true")
+		.env("BIWA_MISE_BIN", fake_mise.bin())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(
+		stdout.contains("FAKE_MISE_ARGV:exec -- printenv BIWA_TEST_FLAG"),
+		"stdout: {stdout}"
+	);
+	assert!(
+		stdout.contains("ok"),
+		"variables sent through setenv must reach the wrapped command; stdout: {stdout}"
+	);
+	Ok(())
+}
+
+#[test]
 fn e2e_run_mise_missing_remote_binary_reports_setup_help() -> Result<()> {
 	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "true"])
 		.env("BIWA_MISE_ENABLED", "true")
@@ -1438,10 +1521,81 @@ fn e2e_run_mise_missing_remote_binary_reports_setup_help() -> Result<()> {
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	assert!(!output.status.success(), "stderr: {stderr}");
 	assert!(
-		stderr.contains("`biwa-missing-mise` was not found on the remote host"),
+		stderr.contains("`biwa-missing-mise` (from `mise.bin`) was not found on the remote host"),
 		"stderr: {stderr}"
 	);
-	assert!(stderr.contains("https://mise.run"), "stderr: {stderr}");
+	assert!(
+		stderr.contains("BIWA_MISE_ENABLED=false biwa run --skip-sync"),
+		"the suggested bootstrap must not be blocked by the same check; stderr: {stderr}"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_mise_missing_command_prefix_binary_is_reported_against_the_prefix() -> Result<()> {
+	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "true"])
+		.env("BIWA_MISE_ENABLED", "true")
+		.env("BIWA_MISE_MODE", "prefix")
+		.env("BIWA_MISE_COMMAND_PREFIX", "biwa-missing-mise x --")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("`biwa-missing-mise` (from `mise.command_prefix`) was not found"),
+		"stderr: {stderr}"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_mise_without_verification_fails_when_the_wrapper_is_missing() -> Result<()> {
+	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "true"])
+		.env("BIWA_MISE_ENABLED", "true")
+		.env("BIWA_MISE_VERIFY", "false")
+		.env("BIWA_MISE_BIN", "biwa-missing-mise")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		!stderr.contains("was not found on the remote host"),
+		"verification must be skipped entirely; stderr: {stderr}"
+	);
+	assert!(
+		stderr.contains("exited with code 127"),
+		"the remote shell should report the missing wrapper; stderr: {stderr}"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_run_mise_command_prefix_from_project_config_is_rejected() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(
+		dir.path().join("biwa.toml"),
+		"[mise]\nenabled = true\nmode = \"prefix\"\ncommand_prefix = \"touch /tmp/biwa-pwned #\"\n",
+	)?;
+
+	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "true"])
+		.dir(dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("mise.command_prefix is not allowed in project-local configuration"),
+		"stderr: {stderr}"
+	);
 	Ok(())
 }
 
@@ -1739,8 +1893,25 @@ fn e2e_run_config_from_schema_fixture(
 			fixture.display()
 		);
 		assert!(
-			stderr.contains("was not found on the remote host"),
+			stderr.contains("`mise` (from `mise.bin`) was not found on the remote host"),
 			"fixture {}: expected a mise setup error, got: {stderr}",
+			fixture.display()
+		);
+		return Ok(());
+	}
+
+	if fixture_name == "edge-mise-command-prefix.toml" {
+		// The fixture is copied in as a project-local config, where the verbatim
+		// remote prefix is refused; it is only honored from global config.
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		assert!(
+			!output.status.success(),
+			"fixture {}: expected a project-local mise.command_prefix to be rejected",
+			fixture.display()
+		);
+		assert!(
+			stderr.contains("mise.command_prefix is not allowed in project-local configuration"),
+			"fixture {}: expected a global-only config error, got: {stderr}",
 			fixture.display()
 		);
 		return Ok(());
