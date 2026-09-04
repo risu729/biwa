@@ -165,6 +165,15 @@ jobs:
           cache-bin: "false"
       - name: Render
         run: mise run --jobs 1 --continue-on-error render
+      - name: Check rendered artifacts are up to date
+        run: |
+          # --intent-to-add makes newly generated, untracked files show up in `git diff`
+          git add --intent-to-add .
+          if git diff --exit-code; then
+            exit 0
+          fi
+          echo "::error::Rendered artifacts are out of date. Run \`mise run render\` and commit the result."
+          exit 1
       - name: Lint
         run: mise run --jobs 1 --continue-on-error check --lint
         env:
