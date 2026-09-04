@@ -750,11 +750,12 @@ fn e2e_run_pull_rejects_local_edits_during_command() -> Result<()> {
 #[cfg(unix)]
 #[test]
 fn e2e_run_pull_sigint_during_staging_preserves_local_tree() -> Result<()> {
+	use common::PullPhase;
 	use nix::sys::signal::{Signal, kill};
 	use nix::unistd::Pid;
 	use std::io::Result as IoResult;
 
-	const FILE_COUNT: usize = 300;
+	const FILE_COUNT: usize = 32;
 	let dir = tempfile::tempdir()?;
 	let remote_dir = common::get_remote_project_dir(dir.path())?;
 	for index in 0..FILE_COUNT {
@@ -776,40 +777,15 @@ fn e2e_run_pull_sigint_during_staging_preserves_local_tree() -> Result<()> {
 	child
 		.current_dir(dir.path())
 		.env("BIWA_CLEAN_AUTO", "false")
-		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", FILE_COUNT.to_string())
+		.env(PullPhase::DownloadStaging.block_env(), "1")
 		.stdout(Stdio::null())
 		.stderr(Stdio::piped());
 	let mut child = child.spawn()?;
-	let deadline = Instant::now() + Duration::from_secs(20);
-	loop {
-		let staging_has_download = fs::read_dir(dir.path())?
-			.filter_map(IoResult::ok)
-			.filter(|entry| {
-				entry
-					.file_name()
-					.to_string_lossy()
-					.starts_with(".biwa-pull-stage-")
-			})
-			.any(|entry| {
-				fs::read_dir(entry.path().join("downloads"))
-					.is_ok_and(|mut entries| entries.next().is_some())
-			});
-		if staging_has_download {
-			let pid = i32::try_from(child.id())?;
-			kill(Pid::from_raw(pid), Signal::SIGINT)?;
-			break;
-		}
-		if let Some(status) = child.try_wait()? {
-			return Err(eyre!(
-				"run --pull exited before staging could be interrupted: {status}"
-			));
-		}
-		if Instant::now() >= deadline {
-			child.kill()?;
-			return Err(eyre!("timed out waiting for run --pull staging"));
-		}
-		thread::sleep(Duration::from_millis(1));
-	}
+	// The pull waits inside download staging until it is signalled, so the signal
+	// always lands mid-staging with at least one file already staged.
+	common::wait_for_pull_phase(dir.path(), PullPhase::DownloadStaging, &mut child)?;
+	let pid = i32::try_from(child.id())?;
+	kill(Pid::from_raw(pid), Signal::SIGINT)?;
 
 	let output = child.wait_with_output()?;
 	let stderr = String::from_utf8_lossy(&output.stderr);

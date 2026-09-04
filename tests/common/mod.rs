@@ -9,6 +9,7 @@
 )]
 pub type Result<T> = color_eyre::Result<T>;
 
+use color_eyre::eyre::bail;
 use gethostname::gethostname;
 use russh::keys::{
 	PrivateKey,
@@ -16,9 +17,13 @@ use russh::keys::{
 };
 use sha2::Digest as _;
 use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 use std::{
 	env, fs, iter,
+	io::{Read as _, Result as IoResult},
 	path::{Path, PathBuf},
+	process::Child,
+	thread,
 };
 
 /// Shared state directory for one test binary.
@@ -167,6 +172,108 @@ pub fn write_hooks_config(
 	fs::create_dir_all(dir.path().join("biwa"))?;
 	fs::write(dir.path().join("biwa/config.toml"), config + "\n")?;
 	Ok(dir)
+}
+
+/// Reserved top-level prefix of a local pull transaction directory.
+const PULL_STAGE_PREFIX: &str = ".biwa-pull-stage-";
+
+/// Local pull transaction phase that a signal-driven test interrupts.
+///
+/// Each variant names the `biwa` test hook that holds the phase open until the pull
+/// receives a termination signal, so tests never have to race the phase.
+#[allow(
+	dead_code,
+	reason = "Only signal-driven pull tests interrupt a pull phase."
+)]
+#[derive(Clone, Copy)]
+pub enum PullPhase {
+	/// Staging of remote files into the private transaction directory.
+	DownloadStaging,
+	/// Local commit that backs up, installs, and verifies the staged files.
+	LocalCommit,
+}
+
+#[allow(
+	dead_code,
+	reason = "Only signal-driven pull tests interrupt a pull phase."
+)]
+impl PullPhase {
+	/// Returns the environment variable that holds this phase open until a signal arrives.
+	pub const fn block_env(self) -> &'static str {
+		match self {
+			Self::DownloadStaging => "BIWA_TEST_PULL_BLOCK_DOWNLOAD_STAGING",
+			Self::LocalCommit => "BIWA_TEST_PULL_BLOCK_LOCAL_COMMIT",
+		}
+	}
+
+	/// Returns the human-readable phase name used in failure messages.
+	const fn name(self) -> &'static str {
+		match self {
+			Self::DownloadStaging => "download staging",
+			Self::LocalCommit => "local commit",
+		}
+	}
+
+	/// Returns whether a pull transaction directory has visibly entered this phase.
+	fn started(self, staging_root: &Path) -> bool {
+		match self {
+			// The downloads directory exists before the first file is staged, so an
+			// entry inside it is what proves a file has actually been downloaded.
+			Self::DownloadStaging => fs::read_dir(staging_root.join("downloads"))
+				.is_ok_and(|mut entries| entries.next().is_some()),
+			Self::LocalCommit => staging_root.join("backups").is_dir(),
+		}
+	}
+}
+
+/// Waits until a running `biwa` pull enters `phase` and holds it there.
+///
+/// The child must set `phase.block_env()`, which makes the pull wait inside `phase`
+/// until it receives a termination signal. The deadline therefore only has to cover
+/// process startup, the push sync, and the remote command, which are much slower under
+/// coverage instrumentation than the phase itself.
+#[allow(
+	dead_code,
+	reason = "Only signal-driven pull tests interrupt a pull phase."
+)]
+pub fn wait_for_pull_phase(project_root: &Path, phase: PullPhase, child: &mut Child) -> Result<()> {
+	/// Interval between two checks for the transaction directory.
+	const POLL_INTERVAL: Duration = Duration::from_millis(10);
+	/// Upper bound for everything the pull does before it reaches the phase.
+	const TIMEOUT: Duration = Duration::from_secs(120);
+
+	let deadline = Instant::now()
+		.checked_add(TIMEOUT)
+		.ok_or_else(|| color_eyre::eyre::eyre!("pull phase deadline overflowed"))?;
+	loop {
+		let started = fs::read_dir(project_root)?
+			.filter_map(IoResult::ok)
+			.filter(|entry| {
+				entry
+					.file_name()
+					.to_string_lossy()
+					.starts_with(PULL_STAGE_PREFIX)
+			})
+			.any(|entry| phase.started(&entry.path()));
+		if started {
+			return Ok(());
+		}
+		if let Some(status) = child.try_wait()? {
+			let mut stderr = String::new();
+			if let Some(mut pipe) = child.stderr.take() {
+				pipe.read_to_string(&mut stderr)?;
+			}
+			bail!(
+				"biwa exited before the pull reached {}: {status}\nstderr: {stderr}",
+				phase.name()
+			);
+		}
+		if Instant::now() >= deadline {
+			child.kill()?;
+			bail!("timed out waiting for the pull to reach {}", phase.name());
+		}
+		thread::sleep(POLL_INTERVAL);
+	}
 }
 
 /// Computes the absolute path to the remote project directory.

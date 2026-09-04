@@ -1066,14 +1066,13 @@ fn e2e_sync_never_transfers_or_deletes_git_metadata() -> Result<()> {
 
 #[cfg(unix)]
 fn run_pull_signal_during_commit(signal: Signal) -> Result<()> {
+	use common::PullPhase;
 	use nix::sys::signal::kill;
 	use nix::unistd::Pid;
 	use std::io::Result as IoResult;
 	use std::process::{Command, Stdio};
-	use std::thread;
-	use std::time::{Duration, Instant};
 
-	const FILE_COUNT: usize = 500;
+	const FILE_COUNT: usize = 32;
 	let dir = tempfile::tempdir()?;
 	let state_dir = tempfile::tempdir()?;
 	let remote_dir = common::get_remote_project_dir(dir.path())?;
@@ -1129,41 +1128,17 @@ fn run_pull_signal_during_commit(signal: Signal) -> Result<()> {
 		.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
 		.env("BIWA_SSH_KNOWN_HOSTS", common::test_known_hosts_path())
 		.env("BIWA_SYNC_REMOTE_ROOT", "~/.cache/biwa/projects")
-		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", FILE_COUNT.to_string())
 		.env("BIWA_CLEAN_AUTO", "false")
 		.env("BIWA_STATE_DIR", state_dir.path())
+		.env(PullPhase::LocalCommit.block_env(), "1")
 		.stdout(Stdio::null())
 		.stderr(Stdio::piped());
 	let mut child = command.spawn()?;
-	let deadline = Instant::now()
-		.checked_add(Duration::from_secs(20))
-		.ok_or_else(|| eyre!("pull commit deadline overflowed"))?;
-	loop {
-		let commit_started = fs::read_dir(dir.path())?
-			.filter_map(IoResult::ok)
-			.any(|entry| {
-				entry
-					.file_name()
-					.to_string_lossy()
-					.starts_with(".biwa-pull-stage-")
-					&& entry.path().join("backups").is_dir()
-			});
-		if commit_started {
-			let pid = i32::try_from(child.id())?;
-			kill(Pid::from_raw(pid), signal)?;
-			break;
-		}
-		if let Some(status) = child.try_wait()? {
-			return Err(eyre!(
-				"pull exited before its commit could be interrupted: {status}"
-			));
-		}
-		if Instant::now() >= deadline {
-			child.kill()?;
-			return Err(eyre!("timed out waiting for pull commit to begin"));
-		}
-		thread::sleep(Duration::from_millis(1));
-	}
+	// The pull waits at the start of its local commit until it is signalled, so the
+	// signal always lands while the commit is still in progress.
+	common::wait_for_pull_phase(dir.path(), PullPhase::LocalCommit, &mut child)?;
+	let pid = i32::try_from(child.id())?;
+	kill(Pid::from_raw(pid), signal)?;
 
 	let output = child.wait_with_output()?;
 	let stderr = String::from_utf8_lossy(&output.stderr);

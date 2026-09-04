@@ -7,6 +7,8 @@ use super::sync_paths::{MAX_REMOTE_MKDIR_COMMAND_LEN, compute_remote_path};
 use super::sync_paths::{build_mkdir_commands, collect_leaf_directories, resolve_sftp_path};
 use crate::Result;
 use crate::config::types::{Config, SftpPermissions, SyncEngine};
+#[cfg(debug_assertions)]
+use crate::env_flag;
 use crate::ssh::client::Client;
 use crate::ssh::target::ResolvedSshTarget;
 use crate::ui::create_spinner;
@@ -59,6 +61,10 @@ const LOCAL_PULL_STAGE_PREFIX: &str = ".biwa-pull-stage-";
 /// long command still risks the remote shell's input limits, and past this size
 /// re-hashing the whole remote directory in one pass is cheaper anyway.
 const MAX_REMOTE_HASH_COMMAND_LEN: usize = 0x4000;
+/// Test-only variable that holds the pull download staging phase open until a signal arrives.
+const TEST_BLOCK_DOWNLOAD_STAGING_ENV: &str = "BIWA_TEST_PULL_BLOCK_DOWNLOAD_STAGING";
+/// Test-only variable that holds the pull local commit phase open until a signal arrives.
+const TEST_BLOCK_LOCAL_COMMIT_ENV: &str = "BIWA_TEST_PULL_BLOCK_LOCAL_COMMIT";
 
 /// Computes the remote directory path for a given project.
 ///
@@ -2591,6 +2597,31 @@ impl Drop for PullInterruptListener {
 	}
 }
 
+/// Holds a pull phase open until a termination signal arrives.
+///
+/// Signal-driven end-to-end tests must deliver their signal while a pull sits inside a
+/// specific phase. Without this hook the phase can finish before the test observes it,
+/// so the tests would have to guess timings. The hook only exists in debug builds and
+/// only waits for the very signal the surrounding phase already handles, so it can
+/// never hold a real pull open.
+#[cfg(debug_assertions)]
+async fn block_pull_phase_for_test(interrupts: &PullInterruptListener, variable: &str) {
+	if !env_flag::is_truthy(variable) {
+		return;
+	}
+	debug!(
+		variable,
+		"Holding the pull phase open until a termination signal arrives"
+	);
+	interrupts.recv().await;
+}
+
+/// Holds a pull phase open until a termination signal arrives.
+///
+/// Release builds never expose the test hook.
+#[cfg(not(debug_assertions))]
+async fn block_pull_phase_for_test(_interrupts: &PullInterruptListener, _variable: &str) {}
+
 /// Completes one pre-commit pull phase or aborts it when termination is requested.
 #[expect(
 	clippy::integer_division_remainder_used,
@@ -2633,6 +2664,8 @@ async fn commit_pull_transaction_with_interrupts(
 		}
 		return Err(error);
 	}
+	// The backup directory is the first externally observable sign of the commit phase.
+	block_pull_phase_for_test(interrupts, TEST_BLOCK_LOCAL_COMMIT_ENV).await;
 
 	let mut state = PullCommitState::default();
 	let (commit_result, interrupted) = {
@@ -2792,6 +2825,10 @@ async fn apply_pull_actions(
 			.await?;
 			preserve_round_trip_file_mode(&mut staged, baseline).await?;
 			staged_downloads.push(staged);
+			if index == 0 {
+				// Staged files are observable from outside only once the first one exists.
+				block_pull_phase_for_test(interrupts, TEST_BLOCK_DOWNLOAD_STAGING_ENV).await;
+			}
 		}
 		Ok::<_, color_eyre::Report>(staged_downloads)
 	})

@@ -91,6 +91,7 @@ It captures the commands, conventions, and guardrails that are actually used her
 - Shared integration helpers are in `tests/common/mod.rs`.
 - Tests install `color_eyre` globally at startup for improved diagnostics.
 - Tests that mutate environment variables use `#[serial]` and cleanup guards; preserve that pattern.
+- Signal-driven pull tests do not race a phase: `BIWA_TEST_PULL_BLOCK_DOWNLOAD_STAGING` and `BIWA_TEST_PULL_BLOCK_LOCAL_COMMIT` hold that pull phase open until the pull receives a termination signal. Both hooks are debug-build only; use `common::PullPhase` and `common::wait_for_pull_phase` instead of polling with a timing guess.
 
 ## Rust Style Guidelines
 
