@@ -142,7 +142,7 @@ post_sync = "echo sync complete"
 Because configuration is discovered from the current directory and its ancestors, an untrusted repository containing a `biwa.toml` with `[hooks]` can run arbitrary commands on your machine as soon as you run biwa inside it. Review a project's biwa configuration before running biwa in a repository you did not write.
 :::
 
-In a round trip (`biwa run --pull` / `--pull-always`), files created by `post_sync` inside the transfer scope are pulled away again, because they exist locally but not remotely. Exclude such artifacts from the sync scope if they need to survive the pull.
+In a round trip (`biwa run --pull` / `--pull-always`), files created by `post_sync` inside the transfer scope are pulled away again, because they exist locally but not remotely. Exclude such artifacts from the sync scope if they need to survive the pull. A file that already existed at push time and is modified or removed while `post_sync` runs still trips the round-trip drift guard, so the pull refuses rather than overwriting it.
 
 See the [`[hooks]` configuration reference](/configuration) for the full behavior, including working directory, argument parsing, and output handling.
 

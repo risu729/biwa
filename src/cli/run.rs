@@ -9,7 +9,8 @@ use crate::{
 	ssh::exec::{ExecuteCommandOptions, connect, execute_command_status},
 	ssh::sync::{
 		LocalSnapshot, Options, ensure_local_snapshot_unchanged,
-		ensure_remote_matches_local_snapshot, pull_project, push_project, snapshot_local_project,
+		ensure_remote_matches_local_snapshot, merge_hook_additions, pull_project, push_project,
+		snapshot_local_project,
 	},
 };
 use color_eyre::eyre::{Context as _, bail};
@@ -242,15 +243,20 @@ async fn push_phase(
 		return Err(error);
 	}
 
-	// A post-sync hook may legitimately touch the sync root, so the pull baseline
-	// is re-taken afterwards. Otherwise its files would be reported as local drift
-	// during the remote command and the round-trip pull would refuse to run.
-	if pushed.is_some() && config.hooks.post_sync.is_some() {
-		return Ok(Some(
-			snapshot_local_project(&transfer.local_root, config, &transfer.options).await?,
-		));
+	// A post-sync hook may legitimately add files to the sync root, so those paths
+	// are folded into the pull baseline; otherwise they would be reported as local
+	// drift and the round-trip pull would refuse to run. Paths that already existed
+	// at push time keep their pushed state, so an edit made while the hook ran is
+	// still caught by the drift guard instead of being overwritten by the pull.
+	let Some(baseline) = pushed else {
+		return Ok(None);
+	};
+	if config.hooks.post_sync.is_none() {
+		return Ok(Some(baseline));
 	}
-	Ok(pushed)
+	let after_hook =
+		snapshot_local_project(&transfer.local_root, config, &transfer.options).await?;
+	Ok(Some(merge_hook_additions(baseline, after_hook)))
 }
 
 /// Shared execution path for remote commands (used by both `biwa run` and implicit `biwa <args>`).

@@ -745,6 +745,20 @@ pub fn ensure_local_snapshot_unchanged(
 	ensure_local_snapshot_matches(expected, actual, phase)
 }
 
+/// Folds paths a post-sync hook added into the baseline captured at push time.
+///
+/// Only paths that did not exist when the project was pushed are taken from
+/// `after_hook`. Every path that already existed keeps its pushed entry, so a
+/// local edit made while the hook was running is still reported as drift by the
+/// round-trip pull instead of being silently overwritten. Paths the hook removed
+/// keep their pushed entry for the same reason.
+#[must_use]
+pub fn merge_hook_additions(pushed: LocalSnapshot, after_hook: LocalSnapshot) -> LocalSnapshot {
+	let mut entries = after_hook.entries;
+	entries.extend(pushed.entries);
+	LocalSnapshot { entries }
+}
+
 /// Captures selected local state for round-trip synchronization.
 pub async fn snapshot_local_project(
 	project_root: &Path,
@@ -4812,6 +4826,76 @@ mod tests {
 		);
 
 		assert!(actions.file_deletions.is_empty());
+	}
+
+	#[test]
+	fn merge_hook_additions_accepts_added_paths_only() {
+		let file = |hash: &str| LocalSnapshotEntry::File {
+			hash: hash.to_owned(),
+			mode: Some(0o644),
+		};
+		let pushed = LocalSnapshot {
+			entries: BTreeMap::from([
+				("kept.txt".to_owned(), file("pushed")),
+				("removed.txt".to_owned(), file("pushed")),
+			]),
+		};
+		let after_hook = LocalSnapshot {
+			entries: BTreeMap::from([
+				// Edited while the hook ran, by the hook or by the user.
+				("kept.txt".to_owned(), file("edited")),
+				// Created by the hook.
+				("added.txt".to_owned(), file("added")),
+			]),
+		};
+
+		let merged = merge_hook_additions(pushed, after_hook);
+
+		assert_eq!(
+			merged.entries,
+			BTreeMap::from([
+				("kept.txt".to_owned(), file("pushed")),
+				("removed.txt".to_owned(), file("pushed")),
+				("added.txt".to_owned(), file("added")),
+			])
+		);
+	}
+
+	#[test]
+	fn merged_hook_baseline_still_detects_edits_made_during_the_hook() {
+		let file = |hash: &str| LocalSnapshotEntry::File {
+			hash: hash.to_owned(),
+			mode: Some(0o644),
+		};
+		let pushed = LocalSnapshot {
+			entries: BTreeMap::from([("tracked.txt".to_owned(), file("pushed"))]),
+		};
+		let after_hook = LocalSnapshot {
+			entries: BTreeMap::from([
+				("tracked.txt".to_owned(), file("edited")),
+				("hook.txt".to_owned(), file("added")),
+			]),
+		};
+
+		let baseline = merge_hook_additions(pushed, after_hook.clone());
+
+		// The hook's own file is accepted, so it no longer looks like drift.
+		ensure_local_snapshot_unchanged(
+			&baseline,
+			&LocalSnapshot {
+				entries: BTreeMap::from([
+					("tracked.txt".to_owned(), file("pushed")),
+					("hook.txt".to_owned(), file("added")),
+				]),
+			},
+			"during test",
+		)
+		.unwrap();
+		// An edit to a path that existed at push time is still refused.
+		let error = ensure_local_snapshot_unchanged(&baseline, &after_hook, "during test")
+			.unwrap_err()
+			.to_string();
+		assert!(error.contains("tracked.txt"), "error: {error}");
 	}
 
 	#[test]

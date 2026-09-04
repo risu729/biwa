@@ -515,6 +515,35 @@ fn e2e_run_pull_round_trip_allows_sync_hooks() -> Result<()> {
 }
 
 #[test]
+fn e2e_run_pull_refuses_edits_made_while_the_post_sync_hook_ran() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+	// The hook rewrites a file that already existed at push time, standing in for
+	// any local edit landing during the hook's window. Only paths the hook *adds*
+	// join the pull baseline, so this must still be reported as drift.
+	common::write_hooks_config(
+		dir.path(),
+		None,
+		Some(r#"sh -c "printf edited > input.txt""#),
+	)?;
+
+	let output = biwa_cmd(&["run", "--pull", "sh", "-c", "printf remote > input.txt"])
+		.dir(dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("Local files changed"), "stderr: {stderr}");
+	assert!(stderr.contains("input.txt"), "stderr: {stderr}");
+	// The local edit survives instead of being overwritten by the remote copy.
+	pretty_assertions::assert_eq!(fs::read_to_string(dir.path().join("input.txt"))?, "edited");
+	Ok(())
+}
+
+#[test]
 fn e2e_run_pull_always_allows_sync_hooks() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("input.txt"), "local")?;

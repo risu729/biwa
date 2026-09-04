@@ -221,7 +221,9 @@ Both hooks run **locally**, never on the remote host:
 - Hooks do not inherit biwa's stdin, so they must not be interactive.
 
 ::: warning Round trips (`--pull` / `--pull-always`)
-With `biwa run --pull` or `--pull-always`, files created by `post_sync` inside the transfer scope never existed remotely, so the pull mirrors them away like any other local-only entry. Keep post-sync artifacts out of the sync scope (for example via `.gitignore`, `.biwaignore`, `sync.exclude`, or `--exclude`) when they must survive the pull.
+With `biwa run --pull` or `--pull-always`, files **created** by `post_sync` inside the transfer scope never existed remotely, so the pull mirrors them away like any other local-only entry. Keep post-sync artifacts out of the sync scope (for example via `.gitignore`, `.biwaignore`, `sync.exclude`, or `--exclude`) when they must survive the pull.
+
+Files that already existed when the project was pushed are a different case: if such a file is **modified or removed** while `post_sync` runs — by the hook itself or by an editor save landing at that moment — the round-trip pull refuses with `Local files changed …` instead of overwriting it. Use `post_sync` hooks that only produce new files in round-trip workflows.
 :::
 
 ```toml
