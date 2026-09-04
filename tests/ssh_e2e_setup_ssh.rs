@@ -481,6 +481,47 @@ fn e2e_setup_ssh_aborts_on_an_identity_conflict_before_installing() -> Result<()
 
 #[serial]
 #[test]
+fn e2e_setup_ssh_installs_only_the_first_public_key_entry() -> Result<()> {
+	const UNRELATED: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIWBVymg7tyFs+jzE07UpfXkQEibpPg23d2KCVnIvxLN unrelated";
+
+	let dir = tempfile::tempdir()?;
+	let key_path = dir.path().join("id_ed25519");
+	write_ssh_private_key_from_seed(&key_path, &[0x3c; 32])?;
+	let selected = PrivateKey::read_openssh_file(&key_path)?
+		.public_key()
+		.to_openssh()?;
+	// A comment may contain spaces, so a second entry must not be folded into the first.
+	fs::write(
+		format!("{}.pub", key_path.display()),
+		format!("{selected} selected\n{UNRELATED}\n"),
+	)?;
+
+	let output = setup_ssh(
+		Server::Default,
+		&["--key-path", &key_path.to_string_lossy()],
+	)
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	let _guard = RemoteKeyGuard::new(Server::Default, key_material(&selected)?);
+	let _unrelated_guard = RemoteKeyGuard::new(Server::Default, key_material(UNRELATED)?);
+
+	assert!(output.status.success(), "setup-ssh failed: {stderr}");
+
+	let authorized_keys = remote_authorized_keys(Server::Default)?;
+	assert_eq!(
+		authorized_keys.matches(&key_material(&selected)?).count(),
+		1,
+		"the selected key must be authorized once: {authorized_keys}"
+	);
+	assert!(
+		!authorized_keys.contains(&key_material(UNRELATED)?),
+		"a second entry in the public key file must not be authorized: {authorized_keys}"
+	);
+	Ok(())
+}
+
+#[serial]
+#[test]
 fn e2e_setup_ssh_enforces_remote_permissions() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	let key_path = dir.path().join("id_ed25519");

@@ -6,7 +6,12 @@ general.mise = true
 [daemons.ssh-server]
 run = "./tasks/start-ssh-server"
 port = { expect = [2222, 2223], bump = true }
-watch = ["docker-compose.yml", "tasks/start-ssh-server", "tests/fixtures/ssh-capable/Dockerfile"]
+watch = [
+	"docker-compose.yml",
+	"tasks/start-ssh-server",
+	"tests/fixtures/ssh/Dockerfile",
+	"tests/fixtures/ssh-capable/Dockerfile",
+]
 auto = ["start", "stop"]
 # an image layer transfer occasionally wedges at 0 bytes on CI runners; BuildKit
 # retries on errors, not on a stalled body read, so the transfer only recovers

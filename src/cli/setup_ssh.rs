@@ -161,17 +161,22 @@ impl SetupSsh {
 		)?;
 		debug!(path = %key_path.display(), source = key_source.describe(), "Selected the SSH key to install");
 
-		let public_key = if key_path.is_file() {
-			load_key_pair(&key_path)?
-		} else {
+		let generated = !key_path.is_file();
+		let public_key = if generated {
 			self.create_key_pair(&key_path, key_source, &target, interactive, quiet)?
+		} else {
+			load_key_pair(&key_path)?
 		};
 
 		// The key selected for installation may conflict with the OpenSSH `IdentityFile`
 		// entry, which the ambient probe could not see. Checking here keeps that local
 		// conflict from surfacing only after authorized_keys was already changed.
 		let key_config = public_key_config(&config, Some(key_path.clone()));
-		let install_target = resolve_key_target(&key_config)?;
+		let install_target = resolve_key_target(&key_config).inspect_err(|_error| {
+			if generated {
+				report_unused_key(&key_path, quiet);
+			}
+		})?;
 
 		let authorized_key = authorized_key_line(&public_key)?;
 		if !quiet {
@@ -336,6 +341,18 @@ fn public_key_config(config: &Config, key_path: Option<PathBuf>) -> Config {
 	key_config
 }
 
+/// Reports that a key pair was created but not used.
+fn report_unused_key(key_path: &Path, quiet: bool) {
+	if quiet {
+		return;
+	}
+	eprintln!(
+		"{} The key pair generated at {} was not installed and can be removed",
+		style("!").yellow().bold(),
+		key_path.display()
+	);
+}
+
 /// Reports that key authentication is ready.
 fn report_ready(key_path: Option<&Path>, quiet: bool) {
 	if quiet {
@@ -498,7 +515,14 @@ fn authorized_key_line(public_key: &PublicKey) -> Result<String> {
 	let line = public_key
 		.to_openssh()
 		.wrap_err("Failed to encode the public key")?;
-	Ok(line.trim().to_owned())
+	let line = line.trim().to_owned();
+	// One key must authorize exactly one entry, whatever the comment happens to hold.
+	if line.contains(['\n', '\r']) {
+		bail!(
+			"The public key comment spans several lines; refusing to write an ambiguous authorized_keys entry"
+		)
+	}
+	Ok(line)
 }
 
 /// Builds the pattern matching an `authorized_keys` entry that authorizes this key.
@@ -616,10 +640,12 @@ fn public_key_path(private_key_path: &Path) -> PathBuf {
 /// require its passphrase here.
 fn load_key_pair(private_key_path: &Path) -> Result<PublicKey> {
 	let companion = public_key_path(private_key_path);
-	// Parsing the file directly keeps the comment, which `load_public_key` discards.
+	// Parsing the file directly keeps the comment, which `load_public_key` discards. Only
+	// the first line is read: a comment may contain spaces, so anything after it would be
+	// folded into the comment and turn one selected key into several authorized entries.
 	if let Some(public_key) = fs::read_to_string(&companion)
 		.ok()
-		.and_then(|contents| PublicKey::from_openssh(contents.trim()).ok())
+		.and_then(|contents| PublicKey::from_openssh(contents.lines().next()?.trim()).ok())
 	{
 		debug!(path = %companion.display(), "Using the companion public key");
 		return Ok(public_key);
@@ -660,7 +686,7 @@ fn generate_key_pair(
 
 	let mut private_key = match key_type {
 		KeyType::Ed25519 => {
-			let seed = Zeroizing::new(random_bytes::<32>()?);
+			let seed = random_bytes::<32>()?;
 			PrivateKey::from(Ed25519Keypair::from_seed(&seed))
 		}
 	};
@@ -771,10 +797,10 @@ fn encrypt_private_key(private_key: &PrivateKey, passphrase: &str) -> Result<Pri
 		.wrap_err("Failed to encrypt the generated private key")
 }
 
-/// Returns cryptographically secure random bytes.
-fn random_bytes<const N: usize>() -> Result<[u8; N]> {
-	let mut bytes = [0_u8; N];
-	getrandom::fill(&mut bytes).wrap_err("Failed to read random bytes for key generation")?;
+/// Returns cryptographically secure random bytes, cleared when they go out of scope.
+fn random_bytes<const N: usize>() -> Result<Zeroizing<[u8; N]>> {
+	let mut bytes = Zeroizing::new([0_u8; N]);
+	getrandom::fill(bytes.as_mut()).wrap_err("Failed to read random bytes for key generation")?;
 	Ok(bytes)
 }
 
@@ -1217,6 +1243,39 @@ mod tests {
 			"the comment stored beside an existing key must reach authorized_keys"
 		);
 		Ok(())
+	}
+
+	#[test]
+	fn only_the_first_entry_of_a_public_key_file_is_installed() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let key_path = dir.path().join("id_ed25519");
+		let expected = write_test_ssh_private_key(&key_path)?;
+		// A comment may contain spaces, so a second line would otherwise be folded into the
+		// comment and authorize an unrelated key.
+		fs::write(
+			public_key_path(&key_path),
+			format!("{} biwa-e2e\n{PUBLIC_KEY}\n", expected.to_openssh()?),
+		)?;
+
+		let loaded = load_key_pair(&key_path)?;
+		assert_eq!(loaded.key_data(), expected.key_data());
+		let line = authorized_key_line(&loaded)?;
+		assert!(!line.contains('\n'), "line was: {line}");
+		assert!(
+			!line.contains("AAAAC3NzaC1lZDI1NTE5AAAAIGYh"),
+			"the unrelated key must not be authorized: {line}"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn authorized_key_line_rejects_a_multiline_comment() {
+		let mut public_key = public_key();
+		public_key.set_comment("first\nssh-ed25519 AAAAsecond");
+
+		let error = authorized_key_line(&public_key)
+			.expect_err("a comment spanning lines cannot become one entry");
+		assert!(error.to_string().contains("spans several lines"));
 	}
 
 	#[test]

@@ -28,7 +28,9 @@ The command resolves the host, user, and port from your normal configuration, th
 5. Creates `~/.ssh` (mode `700`) remotely and appends the public key to `~/.ssh/authorized_keys` (mode `600`) only if it is not already authorized there.
 6. Opens a fresh connection with the key to confirm the result.
 
-A local problem — an unreadable key, or a `ssh.key_path` that disagrees with your OpenSSH `IdentityFile` — stops the command before anything remote is changed.
+A local problem — an unreadable key, or a `ssh.key_path` that disagrees with your OpenSSH `IdentityFile` — stops the command before anything remote is changed. When the key had just been generated, it is left on disk unused, and the message names it so you can remove it.
+
+Step 1 offers every credential biwa would normally try, so a loaded agent can produce several rejected attempts before the command falls back to your password. A hardened server may throttle that; select the key you want with `--key-path` to try exactly one.
 
 ```bash
 # Reuse or create a specific key
@@ -48,7 +50,7 @@ biwa setup-ssh --write-config
 
 `--write-config` rewrites only the affected lines of the nearest TOML configuration file, keeping comments and formatting, and also switches `ssh.auth = "password"` to `"public-key"`. If the file cannot be updated safely, biwa prints the snippet to apply by hand; the key setup itself still succeeds.
 
-The command is idempotent: re-running it never adds a duplicate `authorized_keys` entry, and it never prints private key material or your password. An entry counts as already authorized only when the line starts with the key itself, so a commented-out entry or one carrying options such as `from="..."` does not hide a missing authorization.
+The command is idempotent: re-running it never adds a duplicate `authorized_keys` entry, and it never prints private key material or your password. An entry counts as already authorized only when the line starts with the key itself, so a commented-out entry or one carrying options such as `from="..."` does not hide a missing authorization. Only the first line of a `.pub` file is installed, so a file holding several keys authorizes just the selected one.
 
 ::: tip Non-Interactive Use
 Without a terminal, pass `--generate` to allow key creation and supply the password through `BIWA_SSH_PASSWORD`. A key generated without a terminal has no passphrase.

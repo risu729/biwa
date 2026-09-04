@@ -1,6 +1,8 @@
 services:
   ssh-server:
-    image: lscr.io/linuxserver/openssh-server@sha256:2a48f9ce01f61c1d7b376b7be99bd12801a3ecd9f339a4c7e7698d529e8d0b47
+    build:
+      context: .
+      dockerfile: tests/fixtures/ssh/Dockerfile
     ports:
       - "${BIWA_TEST_SSH_PORT:-2222}:2222"
     environment:
