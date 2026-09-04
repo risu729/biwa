@@ -17,7 +17,7 @@ use russh::keys::{
 use sha2::Digest as _;
 use std::sync::LazyLock;
 use std::{
-	env,
+	env, fs, iter,
 	path::{Path, PathBuf},
 };
 
@@ -147,6 +147,25 @@ fn ssh_capable_port() -> &'static str {
 		env::var("BIWA_TEST_SSH_CAPABLE_PORT").unwrap_or_else(|_| "2223".to_owned())
 	});
 	PORT.as_str()
+}
+
+/// Writes a local `biwa.toml` in `dir` that configures the given sync hooks.
+#[allow(
+	dead_code,
+	reason = "Only the sync hook integration tests configure hooks."
+)]
+pub fn write_hooks_config(
+	dir: &Path,
+	pre_sync: Option<&str>,
+	post_sync: Option<&str>,
+) -> Result<()> {
+	let config = iter::once("[hooks]".to_owned())
+		.chain(pre_sync.map(|command| format!("pre_sync = '{command}'")))
+		.chain(post_sync.map(|command| format!("post_sync = '{command}'")))
+		.collect::<Vec<_>>()
+		.join("\n");
+	fs::write(dir.join("biwa.toml"), config + "\n")?;
+	Ok(())
 }
 
 /// Computes the absolute path to the remote project directory.

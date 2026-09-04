@@ -33,6 +33,15 @@ impl SyncHook {
 	}
 }
 
+/// Output suppression applied to a hook's streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct HookOutput {
+	/// Suppresses hook stdout, like biwa's own progress output.
+	pub quiet: bool,
+	/// Suppresses hook stderr too, so a hook stays silent even when it fails.
+	pub silent: bool,
+}
+
 /// Runs a configured synchronization hook locally in the resolved sync root.
 ///
 /// Hooks are optional: an unset command is a no-op. A configured hook that fails
@@ -41,7 +50,7 @@ pub(super) async fn run_sync_hook(
 	hook: SyncHook,
 	hooks: &HooksConfig,
 	sync_root: &Path,
-	quiet: bool,
+	output: HookOutput,
 ) -> Result<()> {
 	let Some(command_line) = hook.command_line(hooks) else {
 		return Ok(());
@@ -58,7 +67,7 @@ pub(super) async fn run_sync_hook(
 		"Running sync hook"
 	);
 
-	let status = hook_command(program, arguments, sync_root, quiet)?
+	let status = hook_command(program, arguments, sync_root, output)
 		.status()
 		.await
 		.wrap_err_with(|| {
@@ -94,10 +103,7 @@ fn parse_hook_command(hook: SyncHook, command_line: &str) -> Result<Vec<String>>
 		)
 	})?;
 	if argv.is_empty() {
-		bail!(
-			"`{}` is empty; remove the key to disable the hook.",
-			hook.config_key()
-		);
+		bail!("Invalid {}: command must not be empty", hook.config_key());
 	}
 	Ok(argv)
 }
@@ -107,8 +113,8 @@ fn hook_command(
 	program: &str,
 	arguments: &[String],
 	sync_root: &Path,
-	quiet: bool,
-) -> Result<Command> {
+	output: HookOutput,
+) -> Command {
 	let mut command = Command::new(program);
 	command
 		.args(arguments)
@@ -116,36 +122,41 @@ fn hook_command(
 		// Hooks must not consume the stdin that belongs to the remote command.
 		.stdin(Stdio::null())
 		// Hook stdout is redirected to biwa's stderr so that piping `biwa run`
-		// output keeps yielding the remote command's stdout only.
-		.stdout(hook_output(quiet)?)
-		.stderr(if quiet {
+		// output keeps yielding the remote command's stdout only. Hook stderr
+		// survives `--quiet` so a failing hook can still explain itself.
+		.stdout(if output.quiet {
+			Stdio::null()
+		} else {
+			stderr_stdio()
+		})
+		.stderr(if output.silent {
 			Stdio::null()
 		} else {
 			Stdio::inherit()
-		});
-	Ok(command)
+		})
+		// Do not leave a hook running in the background if biwa is torn down.
+		.kill_on_drop(true);
+	command
 }
 
-/// Returns the stdio target for hook stdout: biwa's stderr, or nothing when quiet.
+/// Returns a stdio target that writes to biwa's own stderr.
 #[cfg(unix)]
-fn hook_output(quiet: bool) -> Result<Stdio> {
+fn stderr_stdio() -> Stdio {
 	use std::io::stderr;
 	use std::os::fd::AsFd as _;
 
-	if quiet {
-		return Ok(Stdio::null());
-	}
-	Ok(Stdio::from(stderr().as_fd().try_clone_to_owned()?))
+	// Duplicating the descriptor keeps the hook's stdout a terminal when biwa's
+	// stderr is one; inheriting stdout is the harmless fallback if it fails.
+	stderr()
+		.as_fd()
+		.try_clone_to_owned()
+		.map_or_else(|_error| Stdio::inherit(), Stdio::from)
 }
 
-/// Returns the stdio target for hook stdout on platforms without file descriptors.
+/// Returns the hook stdout target on platforms without file descriptors.
 #[cfg(not(unix))]
-fn hook_output(quiet: bool) -> Result<Stdio> {
-	Ok(if quiet {
-		Stdio::null()
-	} else {
-		Stdio::inherit()
-	})
+fn stderr_stdio() -> Stdio {
+	Stdio::inherit()
 }
 
 /// Describes how a hook process terminated, including signals on Unix.
@@ -171,6 +182,12 @@ mod tests {
 	use std::fs;
 	use tempfile::tempdir;
 
+	/// Suppresses hook output in tests.
+	const SILENCED: HookOutput = HookOutput {
+		quiet: true,
+		silent: true,
+	};
+
 	/// Returns a hooks configuration with only `pre_sync` set.
 	fn pre_sync(command: &str) -> HooksConfig {
 		HooksConfig {
@@ -193,7 +210,9 @@ mod tests {
 		for command in ["", "   ", "\t\n"] {
 			let error = parse_hook_command(SyncHook::PostSync, command).unwrap_err();
 			assert!(
-				error.to_string().contains("`hooks.post_sync` is empty"),
+				error
+					.to_string()
+					.contains("Invalid hooks.post_sync: command must not be empty"),
 				"error was: {error}"
 			);
 		}
@@ -218,8 +237,8 @@ mod tests {
 			post_sync: None,
 		};
 
-		run_sync_hook(SyncHook::PreSync, &hooks, dir.path(), true).await?;
-		run_sync_hook(SyncHook::PostSync, &hooks, dir.path(), true).await?;
+		run_sync_hook(SyncHook::PreSync, &hooks, dir.path(), SILENCED).await?;
+		run_sync_hook(SyncHook::PostSync, &hooks, dir.path(), SILENCED).await?;
 		Ok(())
 	}
 
@@ -233,7 +252,7 @@ mod tests {
 			SyncHook::PreSync,
 			&pre_sync("sh -c 'printf generated > generated.txt'"),
 			&sync_root,
-			true,
+			SILENCED,
 		)
 		.await?;
 
@@ -255,7 +274,7 @@ mod tests {
 				post_sync: Some("sh -c 'exit 3'".to_owned()),
 			},
 			dir.path(),
-			true,
+			SILENCED,
 		)
 		.await
 		.unwrap_err();
@@ -275,7 +294,7 @@ mod tests {
 			SyncHook::PreSync,
 			&pre_sync("biwa-hook-command-that-does-not-exist"),
 			dir.path(),
-			true,
+			SILENCED,
 		)
 		.await
 		.unwrap_err();

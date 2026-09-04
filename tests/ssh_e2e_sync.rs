@@ -15,7 +15,6 @@ use core::time::Duration;
 use nix::sys::signal::Signal;
 use pretty_assertions::{assert_eq, assert_ne};
 use rstest::rstest;
-use std::iter;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 use std::thread::sleep;
@@ -2871,21 +2870,10 @@ fn e2e_pull_verification_rejects_a_stale_cached_remote_hash() -> Result<()> {
 	Ok(())
 }
 
-/// Writes a local `biwa.toml` that configures the given sync hooks.
-fn write_hooks_config(dir: &Path, pre_sync: Option<&str>, post_sync: Option<&str>) -> Result<()> {
-	let config = iter::once("[hooks]".to_owned())
-		.chain(pre_sync.map(|command| format!("pre_sync = '{command}'")))
-		.chain(post_sync.map(|command| format!("post_sync = '{command}'")))
-		.collect::<Vec<_>>()
-		.join("\n");
-	fs::write(dir.join("biwa.toml"), config + "\n")?;
-	Ok(())
-}
-
 #[test]
 fn e2e_sync_runs_local_hooks_around_upload() -> Result<()> {
 	let dir = tempfile::tempdir()?;
-	write_hooks_config(
+	common::write_hooks_config(
 		dir.path(),
 		Some(r#"sh -c "printf generated > generated.txt; echo pre-sync-marker""#),
 		Some(r#"sh -c "printf done > post-sync.txt""#),
@@ -2953,22 +2941,37 @@ fn e2e_sync_runs_local_hooks_around_upload() -> Result<()> {
 }
 
 #[test]
-fn e2e_sync_quiet_suppresses_hook_output() -> Result<()> {
+fn e2e_sync_hook_output_follows_quiet_and_silent() -> Result<()> {
 	let dir = tempfile::tempdir()?;
-	write_hooks_config(
+	common::write_hooks_config(
 		dir.path(),
 		Some(r#"sh -c "echo pre-sync-marker; echo pre-sync-error >&2""#),
 		None,
 	)?;
 
-	let output = biwa_cmd_tilde(&["--quiet", "sync"], dir.path())
+	// --quiet hides hook stdout but keeps hook stderr, so a failing hook can
+	// still explain itself.
+	let quiet = biwa_cmd_tilde(&["--quiet", "sync"], dir.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
 		.run()?;
-	let stderr = String::from_utf8_lossy(&output.stderr);
-	let stdout = String::from_utf8_lossy(&output.stdout);
-	assert!(output.status.success(), "stderr: {stderr}");
+	let stderr = String::from_utf8_lossy(&quiet.stderr);
+	let stdout = String::from_utf8_lossy(&quiet.stdout);
+	assert!(quiet.status.success(), "stderr: {stderr}");
+	assert!(!stderr.contains("pre-sync-marker"), "stderr: {stderr}");
+	assert!(stderr.contains("pre-sync-error"), "stderr: {stderr}");
+	assert!(!stdout.contains("pre-sync-marker"), "stdout: {stdout}");
+
+	// --silent hides both hook streams.
+	let silent = biwa_cmd_tilde(&["--silent", "sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&silent.stderr);
+	let stdout = String::from_utf8_lossy(&silent.stdout);
+	assert!(silent.status.success(), "stderr: {stderr}");
 	assert!(!stderr.contains("pre-sync-marker"), "stderr: {stderr}");
 	assert!(!stderr.contains("pre-sync-error"), "stderr: {stderr}");
 	assert!(!stdout.contains("pre-sync-marker"), "stdout: {stdout}");
@@ -2979,7 +2982,7 @@ fn e2e_sync_quiet_suppresses_hook_output() -> Result<()> {
 fn e2e_sync_pre_sync_failure_aborts_before_upload() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("hello.txt"), "world")?;
-	write_hooks_config(
+	common::write_hooks_config(
 		dir.path(),
 		Some(r#"sh -c "exit 3""#),
 		Some(r#"sh -c "printf done > post-sync.txt""#),
@@ -3027,7 +3030,7 @@ fn e2e_sync_pre_sync_failure_aborts_before_upload() -> Result<()> {
 fn e2e_sync_post_sync_failure_fails_the_command() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("hello.txt"), "world")?;
-	write_hooks_config(dir.path(), None, Some(r#"sh -c "exit 4""#))?;
+	common::write_hooks_config(dir.path(), None, Some(r#"sh -c "exit 4""#))?;
 
 	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.stdout_capture()
@@ -3062,9 +3065,41 @@ fn e2e_sync_post_sync_failure_fails_the_command() -> Result<()> {
 }
 
 #[test]
+fn e2e_sync_push_failure_skips_post_sync_hook() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("first.txt"), "first")?;
+	fs::write(dir.path().join("second.txt"), "second")?;
+	common::write_hooks_config(
+		dir.path(),
+		Some(r#"sh -c "printf pre > pre-sync.txt""#),
+		Some(r#"sh -c "printf post > post-sync.txt""#),
+	)?;
+
+	// The file limit makes the upload itself fail after the pre-sync hook ran.
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", "1")
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("Aborting synchronization"),
+		"stderr: {stderr}"
+	);
+	assert_eq!(fs::read_to_string(dir.path().join("pre-sync.txt"))?, "pre");
+	assert!(
+		!dir.path().join("post-sync.txt").exists(),
+		"post_sync ran even though the upload failed"
+	);
+	Ok(())
+}
+
+#[test]
 fn e2e_run_hooks_follow_the_sync_phase() -> Result<()> {
 	let dir = tempfile::tempdir()?;
-	write_hooks_config(
+	common::write_hooks_config(
 		dir.path(),
 		Some(r#"sh -c "printf pre > pre-sync.txt""#),
 		Some(r#"sh -c "printf post > post-sync.txt""#),

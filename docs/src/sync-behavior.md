@@ -136,7 +136,13 @@ pre_sync = "cargo build"
 post_sync = "echo sync complete"
 ```
 
-`pre_sync` runs before files are uploaded — by `biwa sync` and by the automatic sync phase of `biwa run` — so generated artifacts are included in the same upload. `post_sync` runs after a successful upload, before the remote command of `biwa run` starts. Both hooks are skipped whenever the sync phase itself is skipped (`--skip-sync`, `-d` without `--sync`, or `sync.auto = false`), and a failing hook aborts the operation.
+`pre_sync` runs before files are uploaded — by `biwa sync` and by the automatic sync phase of `biwa run` — so generated artifacts are included in the same upload. `post_sync` runs after a successful upload, before the remote command of `biwa run` starts. Both hooks are skipped whenever the sync phase itself is skipped (`--skip-sync`, `-d` without `--sync`, or `sync.auto = false`), and `biwa pull` never runs them because it does not push. A failing hook aborts the operation, and `post_sync` never runs when the upload failed.
+
+::: danger Hooks execute local commands from project configuration
+Because configuration is discovered from the current directory and its ancestors, an untrusted repository containing a `biwa.toml` with `[hooks]` can run arbitrary commands on your machine as soon as you run biwa inside it. Review a project's biwa configuration before running biwa in a repository you did not write.
+:::
+
+In a round trip (`biwa run --pull` / `--pull-always`), files created by `post_sync` inside the transfer scope are pulled away again, because they exist locally but not remotely. Exclude such artifacts from the sync scope if they need to survive the pull.
 
 See the [`[hooks]` configuration reference](/configuration) for the full behavior, including working directory, argument parsing, and output handling.
 

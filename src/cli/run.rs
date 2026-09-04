@@ -1,6 +1,6 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
-use crate::cli::hooks::{SyncHook, run_sync_hook};
+use crate::cli::hooks::{HookOutput, SyncHook, run_sync_hook};
 use crate::cli::transfer::{ResolvedTransfer, TransferArgs, record_connection_use};
 use crate::config::types::Config;
 use crate::env_vars::parse_cli_env_vars;
@@ -179,13 +179,13 @@ fn pull_recovery_guidance(
 
 /// Runs the local sync hooks and the push that precede a remote command.
 ///
-/// Returns the verified local baseline used by round-trip workflows, if any.
+/// Returns the local baseline used by round-trip workflows, if any.
 async fn push_phase(
 	client: &Client,
 	config: &Config,
 	transfer: &ResolvedTransfer,
 	transfer_mode: RunTransferMode,
-	quiet: bool,
+	output: HookOutput,
 ) -> Result<Option<LocalSnapshot>> {
 	if !transfer_mode.should_push() {
 		return Ok(None);
@@ -197,7 +197,7 @@ async fn push_phase(
 		SyncHook::PreSync,
 		&config.hooks,
 		&transfer.local_root,
-		quiet,
+		output,
 	)
 	.await?;
 
@@ -213,11 +213,12 @@ async fn push_phase(
 		&transfer.local_root,
 		&transfer.remote_dir,
 		&transfer.options,
-		quiet,
+		output.quiet,
 	)
 	.await?;
 
-	let baseline = if let Some(before) = baseline_before_push {
+	// The pushed state is verified against the local tree as it was uploaded.
+	let pushed = if let Some(before) = baseline_before_push {
 		let after = snapshot_local_project(&transfer.local_root, config, &transfer.options).await?;
 		ensure_local_snapshot_unchanged(&before, &after, "while the project was being pushed")?;
 		ensure_remote_matches_local_snapshot(client, config, &transfer.remote_dir, &after).await?;
@@ -228,15 +229,28 @@ async fn push_phase(
 
 	// The post-sync hook runs once the push (and its round-trip verification) is
 	// complete, and before the remote command starts.
-	run_sync_hook(
+	if let Err(error) = run_sync_hook(
 		SyncHook::PostSync,
 		&config.hooks,
 		&transfer.local_root,
-		quiet,
+		output,
 	)
-	.await?;
+	.await
+	{
+		// The upload already completed, so keep the directory marked as in use.
+		record_connection_use(config, &transfer.remote_dir);
+		return Err(error);
+	}
 
-	Ok(baseline)
+	// A post-sync hook may legitimately touch the sync root, so the pull baseline
+	// is re-taken afterwards. Otherwise its files would be reported as local drift
+	// during the remote command and the round-trip pull would refuse to run.
+	if pushed.is_some() && config.hooks.post_sync.is_some() {
+		return Ok(Some(
+			snapshot_local_project(&transfer.local_root, config, &transfer.options).await?,
+		));
+	}
+	Ok(pushed)
 }
 
 /// Shared execution path for remote commands (used by both `biwa run` and implicit `biwa <args>`).
@@ -258,7 +272,14 @@ pub(super) async fn run_remote(
 	// does not treat an active old project as stale.
 	record_connection_use(config, &transfer.remote_dir);
 
-	let baseline = push_phase(&client, config, &transfer, transfer_mode, quiet).await?;
+	let baseline = push_phase(
+		&client,
+		config,
+		&transfer,
+		transfer_mode,
+		HookOutput { quiet, silent },
+	)
+	.await?;
 
 	let cli_env_vars = parse_cli_env_vars(remote_command.cli_env_vars)?;
 	let exit_status = execute_command_status(

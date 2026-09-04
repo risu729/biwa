@@ -476,6 +476,80 @@ fn e2e_run_pull_skips_pull_after_nonzero_exit() -> Result<()> {
 }
 
 #[test]
+fn e2e_run_pull_round_trip_allows_sync_hooks() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+	common::write_hooks_config(
+		dir.path(),
+		Some(r#"sh -c "printf pre > pre-marker.txt""#),
+		Some(r#"sh -c "printf post > post-marker.txt""#),
+	)?;
+
+	let output = biwa_cmd(&[
+		"run",
+		"--pull",
+		"sh",
+		"-c",
+		"test \"$(cat pre-marker.txt)\" = pre && printf remote > result.txt",
+	])
+	.dir(dir.path())
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	// A post-sync hook that touches the sync root must not look like local drift.
+	assert!(!stderr.contains("Local files changed"), "stderr: {stderr}");
+	assert!(output.status.success(), "stderr: {stderr}");
+	// The pre-sync hook's file was uploaded and survives the round trip.
+	pretty_assertions::assert_eq!(
+		fs::read_to_string(dir.path().join("pre-marker.txt"))?,
+		"pre"
+	);
+	pretty_assertions::assert_eq!(fs::read_to_string(dir.path().join("result.txt"))?, "remote");
+	// The post-sync hook ran after the push, so the pull mirrors its file away
+	// like any other local-only entry in scope.
+	assert!(!dir.path().join("post-marker.txt").exists());
+	Ok(())
+}
+
+#[test]
+fn e2e_run_pull_always_allows_sync_hooks() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+	common::write_hooks_config(
+		dir.path(),
+		None,
+		Some(r#"sh -c "printf post > post-marker.txt""#),
+	)?;
+
+	let output = biwa_cmd(&[
+		"run",
+		"--pull-always",
+		"sh",
+		"-c",
+		"printf partial > result.txt; exit 7",
+	])
+	.dir(dir.path())
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(!stderr.contains("Local files changed"), "stderr: {stderr}");
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("Pull completed"), "stderr: {stderr}");
+	assert!(stderr.contains("exited with code 7"), "stderr: {stderr}");
+	pretty_assertions::assert_eq!(
+		fs::read_to_string(dir.path().join("result.txt"))?,
+		"partial"
+	);
+	Ok(())
+}
+
+#[test]
 fn e2e_run_pull_always_pulls_after_nonzero_exit() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("input.txt"), "local")?;

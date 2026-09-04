@@ -256,6 +256,14 @@ impl Config {
 				}
 			}
 		}
+		for (key, command) in [
+			("hooks.pre_sync", self.hooks.pre_sync.as_deref()),
+			("hooks.post_sync", self.hooks.post_sync.as_deref()),
+		] {
+			if command.is_some_and(|command| command.trim().is_empty()) {
+				bail!("Invalid {key}: command must not be empty");
+			}
+		}
 		for key in self.clean.quota_thresholds.keys() {
 			if *key > 100 {
 				bail!("Invalid clean.quota_thresholds key {key}: must be between 0 and 100");
@@ -867,6 +875,27 @@ verify = false
 		assert!(!config.mise.enabled);
 		Ok(())
 	}
+
+	#[serial]
+	#[test]
+	fn rejects_empty_hook_commands() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"ssh.host = 'h'\nssh.user = 'u'\nhooks.post_sync = '   '\n",
+		)?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("h", "u");
+
+		let error = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref()).unwrap_err();
+		assert!(
+			error
+				.to_string()
+				.contains("Invalid hooks.post_sync: command must not be empty"),
+			"unexpected error: {error}"
+		);
+		Ok(())
+	}
+
 
 	#[serial]
 	#[test]

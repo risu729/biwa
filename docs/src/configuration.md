@@ -202,16 +202,27 @@ The sync cache speeds up repeated syncs by reusing hashes while a file's metadat
 | `pre_sync`  | string? | `null`  | Local command run before synchronization uploads files       |
 | `post_sync` | string? | `null`  | Local command run after a successful synchronization         |
 
+::: danger Hooks run arbitrary local commands from configuration
+A hook is a command biwa executes **on your own machine**, and configuration is discovered automatically from the current directory and its ancestors. Cloning an untrusted repository that ships a `biwa.toml` with a `[hooks]` section and then running any biwa command in it therefore executes that command locally, without a confirmation prompt.
+
+Treat a project-local biwa configuration like any other executable content in the repository: read `biwa.toml` (or `.biwa.*` / `.config/biwa.*`) before running biwa inside a project you did not write, or keep hooks in your global configuration only.
+:::
+
 Both hooks run **locally**, never on the remote host:
 
 - `pre_sync` runs before `biwa sync` uploads files, and before the automatic sync phase of `biwa run`. Files it generates are part of the same upload.
 - `post_sync` runs after the upload succeeded. It runs before the remote command of `biwa run` starts.
-- If the sync is skipped (`biwa run --skip-sync`, or `-d` / `--remote-dir` without `--sync`, or `sync.auto = false`), neither hook runs.
-- A failing hook aborts the operation. `pre_sync` failures abort before anything is uploaded; `post_sync` failures fail the command after the upload already completed.
+- If the sync is skipped (`biwa run --skip-sync`, or `-d` / `--remote-dir` without `--sync`, or `sync.auto = false`), neither hook runs. `biwa pull` never runs sync hooks either — they are tied to the push, not to every transfer.
+- A failing hook aborts the operation. `pre_sync` failures abort before anything is uploaded; `post_sync` failures fail the command after the upload already completed, and never run when the upload itself failed.
 - Hooks run with the resolved [sync root](/sync-behavior#sync-root) as their working directory, so `npm run build` or `cargo build` sees the project directory.
-- Commands are split into arguments with shell word splitting (quotes are honored) and executed directly, so there is no implicit shell expansion. Use `sh -c "..."` when you need pipes, redirection, or variables.
-- Hook output is streamed to biwa's **stderr** so that piping `biwa run` output still yields only the remote command's stdout. `--quiet` and `--silent` suppress hook output.
+- Hooks run after the SSH connection is established, so an unreachable host fails before a build starts.
+- Commands are split into arguments with shell word splitting (quotes are honored) and executed directly, so there is no implicit shell expansion. Use `sh -c "..."` when you need pipes, redirection, or variables. An empty hook command is rejected when the configuration loads.
+- Hook output is streamed to biwa's **stderr** so that piping `biwa run` output still yields only the remote command's stdout. `--quiet` suppresses hook stdout but keeps hook stderr, so a failing hook can still explain itself; `--silent` suppresses both.
 - Hooks do not inherit biwa's stdin, so they must not be interactive.
+
+::: warning Round trips (`--pull` / `--pull-always`)
+With `biwa run --pull` or `--pull-always`, files created by `post_sync` inside the transfer scope never existed remotely, so the pull mirrors them away like any other local-only entry. Keep post-sync artifacts out of the sync scope (for example via `.gitignore`, `.biwaignore`, `sync.exclude`, or `--exclude`) when they must survive the pull.
+:::
 
 ```toml
 # JavaScript project
