@@ -15,7 +15,9 @@ auto = ["start", "stop"]
 # an image layer transfer occasionally wedges at 0 bytes on CI runners; BuildKit
 # retries on errors, not on a stalled body read, so the transfer only recovers
 # once the kernel gives up on the TCP connection. relaunching the whole task
-# opens fresh connections, which is what makes a rerun succeed instantly
+# opens fresh connections, which is what makes a rerun succeed instantly.
+# `retry` also applies after readiness, so a mid-run compose crash relaunches
+# instead of failing outright
 retry = 2
 ready_output = { pattern = "SSH test servers are ready", timeout = "3m" }
 
