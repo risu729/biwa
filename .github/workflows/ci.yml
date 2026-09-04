@@ -165,19 +165,23 @@ jobs:
           cache-bin: "false"
       - name: Render
         run: mise run --jobs 1 --continue-on-error render
-      - name: Check rendered artifacts are up to date
-        run: |
-          # --intent-to-add makes newly generated, untracked files show up in `git diff`
-          git add --intent-to-add .
-          if git diff --exit-code; then
-            exit 0
-          fi
-          echo "::error::Rendered artifacts are out of date. Run \`mise run render\` and commit the result."
-          exit 1
       - name: Lint
         run: mise run --jobs 1 --continue-on-error check --lint
         env:
           GITHUB_TOKEN: ${{ github.token }}
+      # runs after Lint so that drift does not hide hk findings
+      - name: Check generated files are up to date
+        if: ${{ !cancelled() }}
+        run: |
+          # --intent-to-add records untracked files so they show up in `git diff HEAD`
+          # compare against HEAD, not the index, since `git add` also stages deletions
+          git add --intent-to-add .
+          if git diff HEAD --exit-code --stat; then
+            exit 0
+          fi
+          git diff HEAD || true
+          echo "::error::Generated files are out of date. Run \`mise run render\` (and \`cargo build\` if \`Cargo.lock\` changed) and commit the result."
+          exit 1
   schema:
     name: Schema
     needs:
