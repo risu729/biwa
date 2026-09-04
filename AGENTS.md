@@ -155,6 +155,7 @@ It captures the commands, conventions, and guardrails that are actually used her
 - Snapshot tests use `insta`.
 - Always use `pretty_assertions` in tests for diff quality.
 - For environment mutation in tests, keep `#[serial]` and cleanup guards.
+- On an `#[rstest]` test, write `#[serial]` *after* every `#[case]` attribute, directly above `fn`. `rstest` attaches attributes that precede a `#[case]` to that case alone, so `#[rstest] #[serial] #[case] ...` serializes only the first case and silently leaves the rest parallel. `#[serial]` before `#[rstest]` does not compile, because `serial_test` drops the function arguments.
 
 ## Commit Message And PR Title Conventions
 
