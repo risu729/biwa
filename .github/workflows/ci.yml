@@ -63,8 +63,10 @@ jobs:
             test:
               - *ci
               - *build
+              - 'biwa.usage.kdl'
               - 'docker-compose.yml'
               - 'pitchfork.toml'
+              - 'schema/fixtures/**'
               - 'tasks/start-ssh-server'
               - 'tests/**'
               - 'tarpaulin.toml'
