@@ -33,6 +33,10 @@ const CACHE_DIR_NAME: &str = "sync_cache";
 const RACY_MTIME_WINDOW: Duration = Duration::from_secs(RACY_MTIME_WINDOW_SECS);
 
 /// [`RACY_MTIME_WINDOW`] in whole seconds, for remote timestamp comparisons.
+///
+/// `REMOTE_SETTLE_WINDOW` in `tests/ssh_e2e_sync.rs` mirrors this value so the
+/// end-to-end tests wait long enough for a remote fingerprint to be cacheable;
+/// update it alongside this constant.
 const RACY_MTIME_WINDOW_SECS: u64 = 2;
 
 /// Maximum age of a full remote hash pass before automatic revalidation runs.

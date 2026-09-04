@@ -2565,14 +2565,23 @@ fn sha256_hex(content: &str) -> String {
 	hex::encode(<sha2::Sha256 as sha2::Digest>::digest(content.as_bytes()))
 }
 
+/// The window biwa requires a remote timestamp to be outside of before caching.
+///
+/// Mirrors `RACY_MTIME_WINDOW_SECS` in `src/ssh/sync_cache.rs`, which is private
+/// to the crate; keep the two in step.
+const REMOTE_SETTLE_WINDOW: Duration = Duration::from_secs(2);
+
+/// Extra time waited so a whole-second timestamp cannot land on the boundary.
+const REMOTE_SETTLE_HEADROOM: Duration = Duration::from_millis(500);
+
 /// Waits until remote timestamps written just now can key a cache entry.
 ///
 /// A remote fingerprint is only recorded once its modification *and* change
-/// times are outside the two second window that guards against a rewrite
+/// times are outside [`REMOTE_SETTLE_WINDOW`], which guards against a rewrite
 /// reproducing a fingerprint. Change times cannot be back-dated from user
 /// space, so the window has to be waited out.
 fn wait_for_settled_remote_timestamps() {
-	sleep(Duration::from_millis(2500));
+	sleep(REMOTE_SETTLE_WINDOW.saturating_add(REMOTE_SETTLE_HEADROOM));
 }
 
 /// Syncs a fresh project twice so the sync cache holds settled remote state.

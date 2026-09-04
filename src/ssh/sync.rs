@@ -1039,7 +1039,20 @@ async fn hash_pending_remote_files(
 	match parse_remote_hashes(&result.stdout) {
 		Ok(hashes) => {
 			inventory.hashes.extend(hashes);
-			true
+			// Every requested path must now have a hash. `xargs` reports a failed
+			// `sha256sum` with a non-zero status, so a short result is not
+			// expected, but checking it here keeps a file from being resolved
+			// from a hash nothing produced.
+			let resolved = pending
+				.iter()
+				.all(|path| inventory.hashes.contains_key(path));
+			if !resolved {
+				warn!(
+					requested = pending.len(),
+					"Targeted remote hashing returned fewer hashes than requested; falling back to a full remote hash pass"
+				);
+			}
+			resolved
 		}
 		Err(error) => {
 			warn!(%error, "Failed to parse targeted remote hashes; falling back to a full remote hash pass");
