@@ -733,6 +733,42 @@ verify = false
 		Ok(())
 	}
 
+	/// Guards the hand-maintained key list against a new `[mise]` field silently
+	/// escaping the project-local restriction.
+	#[serial]
+	#[test]
+	fn mise_keys_in_layer_covers_every_mise_field() -> Result<()> {
+		use crate::config::types::MiseConfig;
+
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(
+			&path,
+			r#"
+[mise]
+enabled = true
+bin = "mise"
+mode = "prefix"
+env = "dev"
+command_prefix = "mise x --"
+verify = false
+"#,
+		)?;
+		let partial = Config::load_partial(&path, ConfigFormat::Toml, dir.path())?;
+
+		let value = serde_json::to_value(MiseConfig::default())?;
+		let Some(field_count) = value.as_object().map(serde_json::Map::len) else {
+			bail!("MiseConfig must serialize to an object")
+		};
+
+		assert_eq!(
+			mise_keys_in_layer(&partial).len(),
+			field_count,
+			"every [mise] field must be listed in mise_keys_in_layer, otherwise a project-local config could set it"
+		);
+		Ok(())
+	}
+
 	#[serial]
 	#[test]
 	fn empty_mise_section_in_project_local_config_is_accepted() -> Result<()> {
