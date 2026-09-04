@@ -507,43 +507,43 @@ url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellche
 url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056930"
 
 [[tools.tombi]]
-version = "1.2.10"
+version = "1.5.1"
 backend = "aqua:tombi-toml/tombi"
 
 [tools.tombi."platforms.linux-arm64"]
-checksum = "sha256:8b4d25b27beac050000f1c36cca1b3bdafc1635efabb531ebf3777a8cea5bfc2"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.10/tombi-cli-1.2.10-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/508637475"
+checksum = "sha256:3512b6fc916d3c56758c230cfd941df2498b8601e011fe52327acea9a7271a63"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.5.1/tombi-cli-1.5.1-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/542927307"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.linux-arm64-musl"]
-checksum = "sha256:8b4d25b27beac050000f1c36cca1b3bdafc1635efabb531ebf3777a8cea5bfc2"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.10/tombi-cli-1.2.10-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/508637475"
+checksum = "sha256:3512b6fc916d3c56758c230cfd941df2498b8601e011fe52327acea9a7271a63"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.5.1/tombi-cli-1.5.1-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/542927307"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.linux-x64"]
-checksum = "sha256:abb3bc596699020506d7dccde7ea5f884970a2baabd4afab9cc513c1b75cb774"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.10/tombi-cli-1.2.10-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/508637503"
+checksum = "sha256:f3f599f4fdb2e5a62b7bb716e9b840b03d4127323014a48785c466901e0a3f5b"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.5.1/tombi-cli-1.5.1-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/542927329"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.linux-x64-musl"]
-checksum = "sha256:abb3bc596699020506d7dccde7ea5f884970a2baabd4afab9cc513c1b75cb774"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.10/tombi-cli-1.2.10-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/508637503"
+checksum = "sha256:f3f599f4fdb2e5a62b7bb716e9b840b03d4127323014a48785c466901e0a3f5b"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.5.1/tombi-cli-1.5.1-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/542927329"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.macos-arm64"]
-checksum = "sha256:153adcddaa70c53358c08287ffa20697926c149f8413d700b9961793891561a7"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.10/tombi-cli-1.2.10-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/508637483"
+checksum = "sha256:77a48fa3c5774eb48f42b8c16265201bb92a5948e06357da9d9a335a116b684b"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.5.1/tombi-cli-1.5.1-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/542927301"
 provenance = "github-attestations"
 
 [tools.tombi."platforms.macos-x64"]
-checksum = "sha256:ef58f1ed7b6dc26cf6cb6dcaf82d79720d3527b082602d9e26605af1401642ff"
-url = "https://github.com/tombi-toml/tombi/releases/download/v1.2.10/tombi-cli-1.2.10-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/508637482"
+checksum = "sha256:c6d04a64e8e2d5f984d65957eff748ef659b3a5899cf5224e76c26a8c648ae9d"
+url = "https://github.com/tombi-toml/tombi/releases/download/v1.5.1/tombi-cli-1.5.1-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/542927304"
 provenance = "github-attestations"
 
 [[tools.typos]]
