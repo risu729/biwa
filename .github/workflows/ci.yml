@@ -66,6 +66,7 @@ jobs:
               - 'biwa.usage.kdl'
               - 'docker-compose.yml'
               - 'pitchfork.toml'
+              - 'schema/config.json'
               - 'schema/fixtures/**'
               - 'tasks/start-ssh-server'
               - 'tests/**'
