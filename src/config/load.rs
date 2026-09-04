@@ -25,6 +25,37 @@ impl Config {
 		Ok(config)
 	}
 
+	/// Returns the configuration file [`Self::load`] reads first, if one exists.
+	///
+	/// Local layers are searched from the current directory upwards, then the global
+	/// candidates, mirroring the precedence used while loading.
+	pub fn find_nearest_config_file() -> Result<Option<(PathBuf, ConfigFormat)>> {
+		let home = homedir::my_home().ok().flatten();
+		let config_dir = dirs::config_dir();
+		let cwd = env::current_dir().ok();
+		Self::find_nearest_config_file_with(home.as_ref(), config_dir.as_ref(), cwd.as_deref())
+	}
+
+	/// Finds the nearest configuration file from explicit roots for deterministic tests.
+	fn find_nearest_config_file_with(
+		home: Option<&PathBuf>,
+		config_dir: Option<&PathBuf>,
+		cwd: Option<&Path>,
+	) -> Result<Option<(PathBuf, ConfigFormat)>> {
+		if let Some(cwd) = cwd {
+			for layer in local_config_layers(home, cwd) {
+				let Some(candidates) = local_config_candidates(&layer) else {
+					continue;
+				};
+				if let Some(found) = find_single_config(&candidates)? {
+					return Ok(Some(found));
+				}
+			}
+		}
+
+		find_single_config(&global_config_candidates(home, config_dir))
+	}
+
 	/// Loads only global configuration for commands that do not require SSH settings.
 	pub fn load_global_optional_ssh() -> Result<Self> {
 		let home = homedir::my_home().ok().flatten();
@@ -62,54 +93,22 @@ impl Config {
 		let mut builder = Self::builder().env();
 		let mut required_presence = RequiredConfigPresence::from_env();
 
-		let mut global_candidates = Vec::new();
-		let global_root: Option<PathBuf> = home.map(|home_path| {
-			global_candidates.push(home_path.join("biwa"));
-			global_candidates.push(home_path.join(".biwa"));
-			let config_home = config_dir
-				.cloned()
-				.unwrap_or_else(|| home_path.join(".config"));
-			global_candidates.push(config_home.join("biwa/config"));
-			// All global configs should resolve relative paths from the home dir (~)
-			home_path.clone()
-		});
+		let global_candidates = global_config_candidates(home, config_dir);
+		// All global configs should resolve relative paths from the home dir (~)
+		let global_root: Option<PathBuf> = home.cloned();
 
 		if let Some(cwd_path) = cwd {
-			let mut current = Some(cwd_path.as_path());
-
-			let mut layers = Vec::new();
-			while let Some(path) = current {
-				if let Some(home_path) = home
-					&& path == home_path
-				{
-					break;
-				}
-
-				if path.parent().is_none() {
-					break;
-				}
-
-				layers.push(path.to_path_buf());
-				current = path.parent();
-			}
-
 			// Higher precedence sources must be added first in confique!
 			// So iterate layers from cwd (innermost) up to outer directory.
-			for path in &layers {
+			for path in &local_config_layers(home, cwd_path) {
 				// Don't load config from .config directory itself
-				if path.file_name().and_then(|s| s.to_str()) == Some(".config") {
+				let Some(local_candidates) = local_config_candidates(path) else {
 					debug!(
 						path = %path.display(),
 						"Skipping .config directory while resolving config layers"
 					);
 					continue;
-				}
-
-				let local_candidates = vec![
-					path.join("biwa"),
-					path.join(".biwa"),
-					path.join(".config/biwa"),
-				];
+				};
 
 				// For local configs, the config root is always the project root
 				// represented by this layer (`path`):
@@ -417,6 +416,62 @@ fn expand_tilde(path: &Path) -> PathBuf {
 		}
 	}
 	path.to_path_buf()
+}
+
+/// Returns the directories that may hold a project-local configuration layer.
+///
+/// Layers are ordered from the current directory outwards, stopping at the home
+/// directory or the filesystem root.
+fn local_config_layers(home: Option<&PathBuf>, cwd: &Path) -> Vec<PathBuf> {
+	let mut layers = Vec::new();
+	let mut current = Some(cwd);
+
+	while let Some(path) = current {
+		if let Some(home_path) = home
+			&& path == home_path
+		{
+			break;
+		}
+
+		if path.parent().is_none() {
+			break;
+		}
+
+		layers.push(path.to_path_buf());
+		current = path.parent();
+	}
+
+	layers
+}
+
+/// Returns the extension-less configuration candidates for one local layer.
+///
+/// Returns `None` for a `.config` directory, which is only ever searched through its
+/// parent layer.
+fn local_config_candidates(path: &Path) -> Option<Vec<PathBuf>> {
+	if path.file_name().and_then(|name| name.to_str()) == Some(".config") {
+		return None;
+	}
+
+	Some(vec![
+		path.join("biwa"),
+		path.join(".biwa"),
+		path.join(".config/biwa"),
+	])
+}
+
+/// Returns the extension-less global configuration candidates.
+fn global_config_candidates(home: Option<&PathBuf>, config_dir: Option<&PathBuf>) -> Vec<PathBuf> {
+	home.map_or_else(Vec::new, |home_path| {
+		let config_home = config_dir
+			.cloned()
+			.unwrap_or_else(|| home_path.join(".config"));
+		vec![
+			home_path.join("biwa"),
+			home_path.join(".biwa"),
+			config_home.join("biwa/config"),
+		]
+	})
 }
 
 /// Tries to find exactly one config file from base path list. Errors on multiple files.
@@ -1401,6 +1456,87 @@ child = ["--skip-sync"]
 		// Should load "fallback", NOT "ignored"
 		assert_eq!(config.ssh.host, "fallback");
 		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn find_nearest_config_file_prefers_the_innermost_layer() -> Result<()> {
+		let dir = tempdir()?;
+		let home = dir.path().join("home");
+		let project = home.join("project");
+		let nested = project.join("src");
+		fs::create_dir_all(&nested)?;
+		fs::write(home.join("biwa.toml"), "ssh.host = \"global\"\n")?;
+		fs::write(project.join("biwa.toml"), "ssh.host = \"project\"\n")?;
+
+		assert_eq!(
+			Config::find_nearest_config_file_with(Some(&home), None, Some(&nested))?,
+			Some((project.join("biwa.toml"), ConfigFormat::Toml))
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn find_nearest_config_file_falls_back_to_the_global_layer() -> Result<()> {
+		let dir = tempdir()?;
+		let home = dir.path().join("home");
+		let config_home = home.join(".config");
+		let project = home.join("project");
+		fs::create_dir_all(&project)?;
+		fs::create_dir_all(config_home.join("biwa"))?;
+		fs::write(
+			config_home.join("biwa/config.toml"),
+			"ssh.host = \"global\"\n",
+		)?;
+
+		assert_eq!(
+			Config::find_nearest_config_file_with(Some(&home), Some(&config_home), Some(&project))?,
+			Some((config_home.join("biwa/config.toml"), ConfigFormat::Toml))
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn find_nearest_config_file_reports_no_configuration() -> Result<()> {
+		let dir = tempdir()?;
+		let home = dir.path().join("home");
+		let project = home.join("project");
+		fs::create_dir_all(&project)?;
+
+		assert_eq!(
+			Config::find_nearest_config_file_with(Some(&home), None, Some(&project))?,
+			None
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn local_config_candidates_skip_the_dot_config_layer() {
+		assert_eq!(local_config_candidates(Path::new("/project/.config")), None);
+		assert_eq!(
+			local_config_candidates(Path::new("/project")),
+			Some(vec![
+				PathBuf::from("/project/biwa"),
+				PathBuf::from("/project/.biwa"),
+				PathBuf::from("/project/.config/biwa"),
+			])
+		);
+	}
+
+	#[test]
+	fn local_config_layers_stop_at_the_home_directory() {
+		assert_eq!(
+			local_config_layers(
+				Some(&PathBuf::from("/home/user")),
+				Path::new("/home/user/project/src")
+			),
+			vec![
+				PathBuf::from("/home/user/project/src"),
+				PathBuf::from("/home/user/project"),
+			]
+		);
 	}
 
 	#[serial]

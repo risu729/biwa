@@ -9,6 +9,53 @@ SSH key authentication is the recommended way to connect to CSE servers. It's mo
 
 For the official CSE documentation, see: [SSH Keys — CSE FAQ](https://taggi.cse.unsw.edu.au/FAQ/SSH_Keys/)
 
+## Automated Setup
+
+`biwa setup-ssh` performs the whole migration from password authentication for you:
+
+```bash
+biwa init
+biwa setup-ssh
+biwa run --skip-sync hostname
+```
+
+The command resolves the host, user, and port from your normal configuration, then:
+
+1. Checks whether key authentication already works, and stops there if it does.
+2. Selects `--key-path`, `ssh.key_path`, or the first existing standard key (`~/.ssh/id_ed25519`, then `~/.ssh/id_rsa`).
+3. Offers to generate a new Ed25519 key pair when none exists, prompting for an optional passphrase.
+4. Connects once with password authentication, prompting for the password interactively.
+5. Creates `~/.ssh` (mode `700`) remotely and appends the public key to `~/.ssh/authorized_keys` (mode `600`) only if it is not already there.
+6. Opens a fresh connection with the key to confirm the result.
+
+```bash
+# Reuse or create a specific key
+biwa setup-ssh --key-path ~/.ssh/id_ed25519
+
+# Create the key when the path does not exist
+biwa setup-ssh --generate --key-type ed25519
+
+# Verify key authentication without changing anything
+biwa setup-ssh --check
+
+# Also write ssh.key_path into the nearest biwa configuration file
+biwa setup-ssh --write-config
+```
+
+The command is idempotent: re-running it never adds a duplicate `authorized_keys` entry, and it never prints private key material or your password.
+
+::: tip Non-Interactive Use
+Without a terminal, pass `--generate` to allow key creation and supply the password through `BIWA_SSH_PASSWORD`. A key generated without a terminal has no passphrase.
+:::
+
+::: warning Windows
+Run `biwa setup-ssh` inside [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install). Key paths are resolved on the machine biwa runs on, so a key created in WSL2 lives in the WSL2 home directory, not in `C:\Users\...\.ssh`.
+:::
+
+`--generate` creates Ed25519 keys only. To use an RSA key, create it with `ssh-keygen -t rsa` and pass it with `--key-path`.
+
+If you prefer to control key setup yourself, the manual steps below remain fully supported.
+
 ## Generate an SSH Key
 
 You can generate a key either **on your local machine** or **on the CSE server**.
@@ -37,7 +84,7 @@ Ed25519 keys are smaller and more secure. The CSE FAQ recommends RSA, and both w
 
 ## Install Your Public Key on CSE
 
-CSE doesn't support `ssh-copy-id`. You need to manually add your public key:
+CSE doesn't support `ssh-copy-id`. Either run `biwa setup-ssh` as shown above, or add your public key manually:
 
 ```bash
 # From your local machine, copy and append the public key
@@ -56,7 +103,7 @@ chmod 600 ~/.ssh/authorized_keys
 ssh z5555555@cse.unsw.edu.au echo "Success!"
 ```
 
-If this prints "Success!" without asking for a password, key auth is working.
+If this prints "Success!" without asking for a password, key auth is working. `biwa setup-ssh --check` performs the same verification through biwa's own configuration.
 
 ## How biwa Resolves Authentication
 
