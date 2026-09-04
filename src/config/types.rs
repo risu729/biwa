@@ -128,6 +128,12 @@ mod schema_defaults {
 		true
 	}
 
+	/// Default for `MiseConfig::bin` in schema.
+	#[must_use]
+	pub fn mise_bin() -> String {
+		"mise".to_owned()
+	}
+
 	/// JSON Schema for [`CleanConfig::quota_thresholds`]: keys are quota percentages 0–100 only.
 	#[must_use]
 	pub fn clean_quota_thresholds_schema(
@@ -198,6 +204,10 @@ pub struct Config {
 	#[config(nested)]
 	#[schemars(default)]
 	pub hooks: HooksConfig,
+	/// mise integration for remote command environments.
+	#[config(nested)]
+	#[schemars(default)]
+	pub mise: MiseConfig,
 	/// Local state directory for connection tracking and daemon PID files.
 	///
 	/// If unset, biwa uses an XDG/platform default path. `BIWA_STATE_DIR` always
@@ -462,6 +472,70 @@ pub struct HooksConfig {
 impl Default for HooksConfig {
 	fn default() -> Self {
 		Config::default().hooks
+	}
+}
+
+/// Strategy for running remote commands inside a mise-managed environment.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum MiseMode {
+	/// Prefix the remote command with `<bin> exec --`.
+	#[default]
+	Exec,
+	/// Prefix the remote command with the literal `mise.command_prefix` value.
+	Prefix,
+}
+
+/// mise integration settings for remote command execution.
+#[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct MiseConfig {
+	/// Run remote commands inside a mise-managed environment.
+	///
+	/// Disabled by default, so remote execution is unchanged unless you opt in.
+	#[config(default = false, env = "BIWA_MISE_ENABLED")]
+	#[schemars(default)]
+	pub enabled: bool,
+	/// mise executable to use on the remote host. May be an absolute path or `~`-relative.
+	#[config(default = "mise", env = "BIWA_MISE_BIN")]
+	#[schemars(default = "crate::config::types::schema_defaults::mise_bin")]
+	pub bin: String,
+	/// Wrapping strategy for remote commands.
+	///
+	/// `exec` prefixes the command with `<bin> exec --`. `prefix` requires
+	/// `command_prefix` and uses it verbatim.
+	#[config(default = "exec", env = "BIWA_MISE_MODE")]
+	#[schemars(default)]
+	pub mode: MiseMode,
+	/// Optional mise environment name, forwarded to the remote command as `MISE_ENV`.
+	#[config(env = "BIWA_MISE_ENV")]
+	pub env: Option<String>,
+	/// Literal shell prefix inserted before the remote command.
+	///
+	/// This is an escape hatch (e.g. `"mise x --"`). When set, it replaces the
+	/// prefix that `mode` would otherwise build. It is inserted verbatim without
+	/// shell quoting, so treat it as trusted configuration.
+	#[config(env = "BIWA_MISE_COMMAND_PREFIX")]
+	pub command_prefix: Option<String>,
+	/// Check that `bin` exists on the remote host before wrapping a command.
+	#[config(default = true, env = "BIWA_MISE_VERIFY")]
+	#[schemars(default = "crate::config::types::schema_defaults::bool_true")]
+	pub verify: bool,
+}
+
+impl MiseConfig {
+	/// Returns the literal shell prefix to use, if one was configured.
+	#[must_use]
+	pub fn configured_command_prefix(&self) -> Option<&str> {
+		self.command_prefix
+			.as_deref()
+			.map(str::trim)
+			.filter(|prefix| !prefix.is_empty())
+	}
+}
+
+impl Default for MiseConfig {
+	fn default() -> Self {
+		Config::default().mise
 	}
 }
 

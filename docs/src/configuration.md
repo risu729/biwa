@@ -99,6 +99,30 @@ Relative `known_hosts` paths follow the same rules described above: project root
 
 - Environment variable inheritance, wildcard matching, exclusions, and forwarding are documented in detail on [`/env-vars`](/env-vars).
 
+### `[mise]` — mise Integration Settings
+
+| Key              | Type    | Default  | Description                                                          |
+| ---------------- | ------- | -------- | -------------------------------------------------------------------- |
+| `enabled`        | boolean | `false`  | Run remote commands inside a [mise](https://mise.jdx.dev)-managed environment |
+| `bin`            | string  | `"mise"` | mise executable on the remote host (absolute or `~`-relative paths allowed) |
+| `mode`           | string  | `"exec"` | Wrapping strategy: `"exec"` or `"prefix"`                            |
+| `env`            | string? | `null`   | mise environment name, forwarded to the remote command as `MISE_ENV` |
+| `command_prefix` | string? | `null`   | Literal shell prefix used instead of the prefix built from `mode`    |
+| `verify`         | boolean | `true`   | Check that `bin` exists on the remote host before wrapping a command |
+
+The integration is off by default, so remote execution is unchanged until you opt in.
+
+```toml
+[mise]
+enabled = true
+mode = "exec"
+```
+
+With that configuration, `biwa run node --version` executes
+`mise exec -- node --version` in the remote project directory. See
+[mise integration](/env-vars#mise-integration) for wrapping order, remote setup,
+and the advanced `command_prefix` escape hatch.
+
 ### `[direct]` — Direct Command Settings
 
 | Key        | Type    | Default           | Description                                                |

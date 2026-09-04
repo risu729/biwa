@@ -27,3 +27,10 @@ vars = [
 forward_method = "export"
 
 [hooks]
+
+[mise]
+enabled = false
+bin = "mise"
+mode = "exec"
+env = "dev"
+verify = true

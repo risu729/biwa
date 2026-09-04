@@ -1,7 +1,7 @@
 use super::auth::resolve_auth;
 use super::sync::shell_quote_path;
 use crate::Result;
-use crate::config::types::{Config, Umask};
+use crate::config::types::{Config, MiseConfig, MiseMode, Umask};
 use crate::env_vars::{
 	EnvForwardMethod, EnvVarRule, EnvVarSource, is_environment_dependent_env_var,
 	local_env_var_names, resolve_env_var_rules,
@@ -90,16 +90,61 @@ type StdinReceiver = mpsc::Receiver<Option<Vec<u8>>>;
 /// Terminal interrupt character sent when forwarding Ctrl+C into a remote PTY.
 const PTY_INTERRUPT: &[u8] = b"\x03";
 
+/// Environment variable mise reads to select the active environment.
+const MISE_ENV_VAR: &str = "MISE_ENV";
+
 /// Static execution settings reused across remote command helpers.
 struct RunCommandOptions<'a> {
 	/// Remote working directory to enter before running the command.
 	working_dir: Option<&'a str>,
 	/// Remote umask to apply before command execution.
 	umask: &'a Umask,
+	/// Shell fragment that wraps the command in a mise environment, if enabled.
+	mise_prefix: Option<&'a str>,
 	/// Suppresses local progress output when true.
 	quiet: bool,
 	/// Suppresses forwarded remote stdout/stderr when true.
 	silent: bool,
+}
+
+/// Ordered pieces of the shell command sent to the remote host.
+struct RemoteShellCommand<'a> {
+	/// Remote umask applied before any other step.
+	umask: &'a Umask,
+	/// Remote working directory created and entered before the command runs.
+	working_dir: Option<&'a str>,
+	/// Shell `export` statements for forwarded environment variables.
+	env_prefix: &'a str,
+	/// Shell fragment that wraps the command in a mise environment.
+	mise_prefix: Option<&'a str>,
+	/// User command with shell-quoted arguments.
+	command: &'a str,
+}
+
+impl RemoteShellCommand<'_> {
+	/// Renders the remote shell command with an explicit, documented order:
+	/// `umask`, `mkdir`/`cd`, environment exports, mise wrapper, user command.
+	///
+	/// The working directory is entered before the mise wrapper so mise
+	/// discovers the project-local configuration of the synced project.
+	fn render(&self) -> String {
+		let mut steps = vec![format!("umask {}", self.umask)];
+
+		if let Some(dir) = self.working_dir {
+			let quoted_dir = shell_quote_path(dir);
+			steps.push(format!("mkdir -p -- {quoted_dir}"));
+			steps.push(format!("cd {quoted_dir}"));
+		}
+
+		steps.push(format!(
+			"{}{}{}",
+			self.env_prefix,
+			self.mise_prefix.unwrap_or_default(),
+			self.command
+		));
+
+		steps.join(" && ")
+	}
 }
 
 /// Connect to the SSH server using the resolved authentication method.
@@ -231,6 +276,57 @@ fn build_export_prefix(env_vars: &[ResolvedEnvVar]) -> String {
 		});
 		format!("{} && ", exports.collect::<Vec<_>>().join(" && "))
 	}
+}
+
+/// Builds the shell fragment that runs the remote command inside a mise environment.
+///
+/// Returns `None` when the integration is disabled. The fragment ends with a
+/// trailing space so it can be concatenated directly in front of the command.
+fn build_mise_prefix(mise: &MiseConfig) -> Result<Option<String>> {
+	if !mise.enabled {
+		return Ok(None);
+	}
+
+	let wrapper = if let Some(prefix) = mise.configured_command_prefix() {
+		// The escape hatch is inserted verbatim; it is trusted configuration input.
+		prefix.to_owned()
+	} else {
+		match mise.mode {
+			MiseMode::Exec => format!("{} exec --", shell_quote_path(mise.bin.trim())),
+			MiseMode::Prefix => bail!(
+				"mise.mode = \"prefix\" requires a non-empty mise.command_prefix (for example `mise x --`)"
+			),
+		}
+	};
+
+	let env_selection = mise
+		.env
+		.as_deref()
+		.filter(|env| !env.is_empty())
+		.map_or_else(String::new, |env| {
+			format!("export {MISE_ENV_VAR}={} && ", shell_words::quote(env))
+		});
+
+	Ok(Some(format!("{env_selection}{wrapper} ")))
+}
+
+/// Fails early when the mise integration is enabled but the remote executable is missing.
+async fn ensure_remote_mise_available(client: &Client, mise: &MiseConfig) -> Result<()> {
+	let bin = mise.bin.trim();
+	let probe = format!("command -v {} > /dev/null 2>&1", shell_quote_path(bin));
+	let result = client
+		.execute(&probe)
+		.await
+		.wrap_err_with(|| format!("Failed to check for `{bin}` on the remote host"))?;
+
+	if result.exit_status == 0 {
+		debug!(bin, "Found mise on the remote host");
+		return Ok(());
+	}
+
+	bail!(
+		"`{bin}` was not found on the remote host, but the mise integration is enabled. Install it remotely (e.g. `biwa run --skip-sync 'curl https://mise.run | sh'`), point `mise.bin` at its absolute path, skip this check with `mise.verify = false`, or disable the integration with `mise.enabled = false`"
+	)
 }
 
 /// Resolves config and CLI environment variable settings into concrete values.
@@ -425,20 +521,18 @@ async fn run_command(
 	forward_method: &EnvForwardMethod,
 	options: RunCommandOptions<'_>,
 ) -> Result<u32> {
-	let command_with_env = match forward_method {
-		EnvForwardMethod::Export => format!("{}{}", build_export_prefix(env_vars), full_command),
-		EnvForwardMethod::Setenv => full_command.to_owned(),
+	let env_prefix = match forward_method {
+		EnvForwardMethod::Export => build_export_prefix(env_vars),
+		EnvForwardMethod::Setenv => String::new(),
 	};
-	let effective_command = options.working_dir.map_or_else(
-		|| format!("umask {} && {command_with_env}", options.umask),
-		|dir| {
-			let quoted_dir = shell_quote_path(dir);
-			format!(
-				"umask {} && mkdir -p -- {quoted_dir} && cd {quoted_dir} && {command_with_env}",
-				options.umask,
-			)
-		},
-	);
+	let effective_command = RemoteShellCommand {
+		umask: options.umask,
+		working_dir: options.working_dir,
+		env_prefix: &env_prefix,
+		mise_prefix: options.mise_prefix,
+		command: full_command,
+	}
+	.render();
 	if tracing::enabled!(tracing::Level::DEBUG) {
 		let env_var_names: Vec<&str> = env_vars
 			.iter()
@@ -451,6 +545,7 @@ async fn run_command(
 				forward_method = ?forward_method,
 				working_dir = options.working_dir,
 				umask = %options.umask,
+				mise_prefix = options.mise_prefix,
 				env_var_names = ?env_var_names,
 				"Executing remote command"
 			),
@@ -460,6 +555,7 @@ async fn run_command(
 				forward_method = ?forward_method,
 				working_dir = options.working_dir,
 				umask = %options.umask,
+				mise_prefix = options.mise_prefix,
 				env_var_names = ?env_var_names,
 				"Executing remote command"
 			),
@@ -557,12 +653,17 @@ pub async fn execute_command_status(
 		command = options.command,
 		args_count = options.args.len(),
 		has_working_dir = options.working_dir.is_some(),
+		mise_enabled = config.mise.enabled,
 		quiet = options.quiet,
 		silent = options.silent,
 		"Starting remote command execution"
 	);
 	let full_command = build_command(options.command, options.args);
 	let env_vars = resolve_env_vars(config, options.cli_env_vars)?;
+	let mise_prefix = build_mise_prefix(&config.mise)?;
+	if config.mise.enabled && config.mise.verify {
+		ensure_remote_mise_available(client, &config.mise).await?;
+	}
 	run_command(
 		client,
 		&full_command,
@@ -571,6 +672,7 @@ pub async fn execute_command_status(
 		RunCommandOptions {
 			working_dir: options.working_dir,
 			umask: &config.ssh.umask,
+			mise_prefix: mise_prefix.as_deref(),
 			quiet: options.quiet,
 			silent: options.silent,
 		},
@@ -869,6 +971,164 @@ mod tests {
 	fn build_command_quotes_args_with_special_chars() {
 		let args = vec!["foo$bar".to_owned()];
 		assert_eq!(build_command("echo", &args), "echo 'foo$bar'");
+	}
+
+	/// Builds an enabled mise configuration without reading the environment.
+	fn mise_config(mode: MiseMode) -> MiseConfig {
+		MiseConfig {
+			enabled: true,
+			bin: "mise".to_owned(),
+			mode,
+			env: None,
+			command_prefix: None,
+			verify: true,
+		}
+	}
+
+	/// Renders a remote shell command with the default umask.
+	fn render_remote_command(
+		working_dir: Option<&str>,
+		env_prefix: &str,
+		mise_prefix: Option<&str>,
+		command: &str,
+	) -> String {
+		RemoteShellCommand {
+			umask: &Umask::default(),
+			working_dir,
+			env_prefix,
+			mise_prefix,
+			command,
+		}
+		.render()
+	}
+
+	#[test]
+	fn remote_shell_command_without_working_dir_only_sets_umask() {
+		assert_eq!(
+			render_remote_command(None, "", None, "ls -la"),
+			"umask 077 && ls -la"
+		);
+	}
+
+	#[test]
+	fn remote_shell_command_creates_and_enters_working_dir() {
+		assert_eq!(
+			render_remote_command(Some("~/.cache/biwa/projects/app"), "", None, "ls"),
+			"umask 077 && mkdir -p -- \"$HOME\"/.cache/biwa/projects/app && cd \"$HOME\"/.cache/biwa/projects/app && ls"
+		);
+	}
+
+	#[test]
+	fn remote_shell_command_orders_umask_working_dir_env_then_mise() {
+		assert_eq!(
+			render_remote_command(
+				Some("~/project"),
+				"export NODE_ENV=production && ",
+				Some("mise exec -- "),
+				"npm run build",
+			),
+			"umask 077 && mkdir -p -- \"$HOME\"/project && cd \"$HOME\"/project && export NODE_ENV=production && mise exec -- npm run build"
+		);
+	}
+
+	#[test]
+	fn remote_shell_command_wraps_quoted_arguments_after_the_mise_prefix() {
+		let command = build_command("echo", &["hello world".to_owned(), "foo$bar".to_owned()]);
+		assert_eq!(
+			render_remote_command(None, "", Some("mise exec -- "), &command),
+			"umask 077 && mise exec -- echo 'hello world' 'foo$bar'"
+		);
+	}
+
+	#[test]
+	fn build_mise_prefix_is_none_when_disabled() -> Result<()> {
+		let mise = MiseConfig {
+			enabled: false,
+			..mise_config(MiseMode::Exec)
+		};
+		assert_eq!(build_mise_prefix(&mise)?, None);
+		Ok(())
+	}
+
+	#[test]
+	fn build_mise_prefix_exec_mode_uses_mise_exec() -> Result<()> {
+		assert_eq!(
+			build_mise_prefix(&mise_config(MiseMode::Exec))?,
+			Some("mise exec -- ".to_owned())
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn build_mise_prefix_quotes_the_configured_binary_path() -> Result<()> {
+		let mise = MiseConfig {
+			bin: "~/.local/bin/mise".to_owned(),
+			..mise_config(MiseMode::Exec)
+		};
+		assert_eq!(
+			build_mise_prefix(&mise)?,
+			Some("\"$HOME\"/.local/bin/mise exec -- ".to_owned())
+		);
+
+		let mise = MiseConfig {
+			bin: "/opt/my tools/mise".to_owned(),
+			..mise_config(MiseMode::Exec)
+		};
+		assert_eq!(
+			build_mise_prefix(&mise)?,
+			Some("'/opt/my tools/mise' exec -- ".to_owned())
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn build_mise_prefix_exports_the_selected_environment() -> Result<()> {
+		let mise = MiseConfig {
+			env: Some("dev prod".to_owned()),
+			..mise_config(MiseMode::Exec)
+		};
+		assert_eq!(
+			build_mise_prefix(&mise)?,
+			Some("export MISE_ENV='dev prod' && mise exec -- ".to_owned())
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn build_mise_prefix_uses_the_command_prefix_escape_hatch() -> Result<()> {
+		let mise = MiseConfig {
+			command_prefix: Some("  mise x --  ".to_owned()),
+			..mise_config(MiseMode::Exec)
+		};
+		assert_eq!(
+			build_mise_prefix(&mise)?,
+			Some("mise x -- ".to_owned()),
+			"an explicit command prefix replaces the prefix built from the mode"
+		);
+
+		let mise = MiseConfig {
+			command_prefix: Some("mise x --".to_owned()),
+			env: Some("dev".to_owned()),
+			..mise_config(MiseMode::Prefix)
+		};
+		assert_eq!(
+			build_mise_prefix(&mise)?,
+			Some("export MISE_ENV=dev && mise x -- ".to_owned())
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn build_mise_prefix_rejects_prefix_mode_without_a_command_prefix() {
+		let mise = MiseConfig {
+			command_prefix: Some("   ".to_owned()),
+			..mise_config(MiseMode::Prefix)
+		};
+		let error = build_mise_prefix(&mise).expect_err("prefix mode requires a command prefix");
+		assert!(
+			error.to_string().contains("mise.command_prefix"),
+			"error was: {error:?}"
+		);
 	}
 
 	#[test]

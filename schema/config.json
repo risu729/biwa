@@ -37,6 +37,18 @@
         "pre_sync": null
       }
     },
+    "mise": {
+      "description": "mise integration for remote command environments.",
+      "$ref": "#/$defs/MiseConfig",
+      "default": {
+        "bin": "mise",
+        "command_prefix": null,
+        "enabled": false,
+        "env": null,
+        "mode": "exec",
+        "verify": true
+      }
+    },
     "ssh": {
       "description": "SSH connection configuration.",
       "$ref": "#/$defs/SshConfig",
@@ -296,6 +308,61 @@
     },
     "HumanDuration": {
       "type": "string"
+    },
+    "MiseConfig": {
+      "description": "mise integration settings for remote command execution.",
+      "type": "object",
+      "properties": {
+        "bin": {
+          "description": "mise executable to use on the remote host. May be an absolute path or `~`-relative.",
+          "type": "string",
+          "default": "mise"
+        },
+        "command_prefix": {
+          "description": "Literal shell prefix inserted before the remote command.\n\nThis is an escape hatch (e.g. `\"mise x --\"`). When set, it replaces the\nprefix that `mode` would otherwise build. It is inserted verbatim without\nshell quoting, so treat it as trusted configuration.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enabled": {
+          "description": "Run remote commands inside a mise-managed environment.\n\nDisabled by default, so remote execution is unchanged unless you opt in.",
+          "type": "boolean",
+          "default": false
+        },
+        "env": {
+          "description": "Optional mise environment name, forwarded to the remote command as `MISE_ENV`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "mode": {
+          "description": "Wrapping strategy for remote commands.\n\n`exec` prefixes the command with `<bin> exec --`. `prefix` requires\n`command_prefix` and uses it verbatim.",
+          "$ref": "#/$defs/MiseMode",
+          "default": "exec"
+        },
+        "verify": {
+          "description": "Check that `bin` exists on the remote host before wrapping a command.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "MiseMode": {
+      "description": "Strategy for running remote commands inside a mise-managed environment.",
+      "oneOf": [
+        {
+          "description": "Prefix the remote command with `<bin> exec --`.",
+          "type": "string",
+          "const": "exec"
+        },
+        {
+          "description": "Prefix the remote command with the literal `mise.command_prefix` value.",
+          "type": "string",
+          "const": "prefix"
+        }
+      ]
     },
     "SftpPermissions": {
       "description": "Strategy for enforcing file permissions during SFTP upload.",

@@ -1,0 +1,7 @@
+# Edge case: mise wrapping through an explicit command prefix
+
+[mise]
+enabled = true
+mode = "prefix"
+command_prefix = "mise x --"
+verify = true

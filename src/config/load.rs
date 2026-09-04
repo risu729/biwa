@@ -1,5 +1,5 @@
 use super::format::ConfigFormat;
-use super::types::Config;
+use super::types::{Config, MiseMode};
 use crate::Result;
 use crate::env_vars::{EnvVars, parse_env_var_env};
 use crate::state::default_state_dir;
@@ -260,6 +260,23 @@ impl Config {
 				bail!("Invalid clean.quota_thresholds key {key}: must be between 0 and 100");
 			}
 		}
+		self.validate_mise()?;
+		Ok(())
+	}
+
+	/// Validates the mise integration settings.
+	fn validate_mise(&self) -> Result<()> {
+		if !self.mise.enabled {
+			return Ok(());
+		}
+		if self.mise.bin.trim().is_empty() {
+			bail!("Invalid mise.bin: the remote mise executable must not be empty");
+		}
+		if self.mise.mode == MiseMode::Prefix && self.mise.configured_command_prefix().is_none() {
+			bail!(
+				"mise.mode = \"prefix\" requires a non-empty mise.command_prefix (for example `mise x --`)"
+			);
+		}
 		Ok(())
 	}
 
@@ -500,6 +517,14 @@ mod tests {
 		    "pre_sync": null,
 		    "post_sync": null
 		  },
+		  "mise": {
+		    "enabled": false,
+		    "bin": "mise",
+		    "mode": "exec",
+		    "env": null,
+		    "command_prefix": null,
+		    "verify": true
+		  },
 		  "state_dir": null,
 		  "clean": {
 		    "max_age": "30days",
@@ -535,6 +560,126 @@ ssh.user = "u"
 			msg.contains("100") && msg.contains("quota_thresholds"),
 			"unexpected error: {msg}"
 		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_integration_is_disabled_by_default() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
+		let config = load_internal(None, None, None)?;
+
+		assert!(!config.mise.enabled);
+		assert_eq!(config.mise.bin, "mise");
+		assert_eq!(config.mise.mode, MiseMode::Exec);
+		assert_eq!(config.mise.env, None);
+		assert_eq!(config.mise.command_prefix, None);
+		assert!(config.mise.verify);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn load_partial_supports_mise_section() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+		fs::write(
+			dir.path().join("biwa.toml"),
+			r#"
+[mise]
+enabled = true
+bin = "~/.local/bin/mise"
+mode = "prefix"
+env = "dev"
+command_prefix = "mise x --"
+verify = false
+"#,
+		)?;
+
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+
+		assert!(config.mise.enabled);
+		assert_eq!(config.mise.bin, "~/.local/bin/mise");
+		assert_eq!(config.mise.mode, MiseMode::Prefix);
+		assert_eq!(config.mise.env.as_deref(), Some("dev"));
+		assert_eq!(config.mise.command_prefix.as_deref(), Some("mise x --"));
+		assert!(!config.mise.verify);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_settings_can_come_from_environment_variables() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+		let _cleanup_enabled = EnvCleanup::set("BIWA_MISE_ENABLED", "true");
+		let _cleanup_bin = EnvCleanup::set("BIWA_MISE_BIN", "/usr/local/bin/mise");
+		let _cleanup_env = EnvCleanup::set("BIWA_MISE_ENV", "ci");
+
+		let config = load_internal(None, None, None)?;
+
+		assert!(config.mise.enabled);
+		assert_eq!(config.mise.bin, "/usr/local/bin/mise");
+		assert_eq!(config.mise.env.as_deref(), Some("ci"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_prefix_mode_requires_a_command_prefix() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"[mise]\nenabled = true\nmode = \"prefix\"\n",
+		)?;
+
+		let result = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let err = match result {
+			Err(err) => err.to_string(),
+			Ok(_) => bail!("Expected prefix mode without command_prefix to fail"),
+		};
+
+		assert!(
+			err.contains("mise.command_prefix"),
+			"unexpected error: {err}"
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_bin_must_not_be_empty_when_enabled() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"[mise]\nenabled = true\nbin = \"\"\n",
+		)?;
+
+		let result = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref());
+		let err = match result {
+			Err(err) => err.to_string(),
+			Ok(_) => bail!("Expected an empty mise.bin to fail"),
+		};
+
+		assert!(err.contains("mise.bin"), "unexpected error: {err}");
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn disabled_mise_settings_are_not_validated() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"[mise]\nmode = \"prefix\"\nbin = \"\"\n",
+		)?;
+
+		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+
+		assert!(!config.mise.enabled);
 		Ok(())
 	}
 

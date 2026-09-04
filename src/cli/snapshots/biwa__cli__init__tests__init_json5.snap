@@ -178,6 +178,56 @@ expression: content
     //post_sync: ,
   },
 
+  // mise integration for remote command environments.
+  mise: {
+    // Run remote commands inside a mise-managed environment.
+    //
+    // Disabled by default, so remote execution is unchanged unless you opt in.
+    //
+    // Can also be specified via environment variable `BIWA_MISE_ENABLED`.
+    //
+    // Default value: false
+    //enabled: false,
+
+    // mise executable to use on the remote host. May be an absolute path or `~`-relative.
+    //
+    // Can also be specified via environment variable `BIWA_MISE_BIN`.
+    //
+    // Default value: "mise"
+    //bin: "mise",
+
+    // Wrapping strategy for remote commands.
+    //
+    // `exec` prefixes the command with `<bin> exec --`. `prefix` requires
+    // `command_prefix` and uses it verbatim.
+    //
+    // Can also be specified via environment variable `BIWA_MISE_MODE`.
+    //
+    // Default value: "exec"
+    //mode: "exec",
+
+    // Optional mise environment name, forwarded to the remote command as `MISE_ENV`.
+    //
+    // Can also be specified via environment variable `BIWA_MISE_ENV`.
+    //env: ,
+
+    // Literal shell prefix inserted before the remote command.
+    //
+    // This is an escape hatch (e.g. `"mise x --"`). When set, it replaces the
+    // prefix that `mode` would otherwise build. It is inserted verbatim without
+    // shell quoting, so treat it as trusted configuration.
+    //
+    // Can also be specified via environment variable `BIWA_MISE_COMMAND_PREFIX`.
+    //command_prefix: ,
+
+    // Check that `bin` exists on the remote host before wrapping a command.
+    //
+    // Can also be specified via environment variable `BIWA_MISE_VERIFY`.
+    //
+    // Default value: true
+    //verify: true,
+  },
+
   // Cleanup configuration for stale remote directories.
   clean: {
     // Hard age limit: directories older than this are always removed during auto-cleanup.
