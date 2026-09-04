@@ -12,11 +12,12 @@ use dialoguer::{Confirm, Password};
 use gethostname::gethostname;
 use russh::keys::ssh_key::private::Ed25519Keypair;
 use russh::keys::ssh_key::{Cipher, Kdf, LineEnding};
-use russh::keys::{HashAlg, PrivateKey, PublicKey, load_public_key};
+use russh::keys::{HashAlg, PrivateKey, PublicKey};
 use std::fs::{self, OpenOptions};
 use std::io::{IsTerminal as _, Write as _, stdin};
 use std::path::{Path, PathBuf, absolute};
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
+use zeroize::Zeroizing;
 
 /// Remote directory holding the user's SSH configuration.
 const REMOTE_SSH_DIR: &str = "~/.ssh";
@@ -109,8 +110,8 @@ enum InstallOutcome {
 enum AuthProbe {
 	/// Key authentication already works.
 	Works,
-	/// No key file, agent identity, or configured credential is available yet.
-	NoCredentials,
+	/// No key file, agent identity, or configured credential could be used yet.
+	NoCredentials(Report),
 	/// Every available credential was rejected by the server.
 	Rejected(Report),
 }
@@ -132,10 +133,7 @@ impl SetupSsh {
 		// The probe reuses the ordinary public-key resolution, so an agent identity or an
 		// `IdentityFile` entry counts as working authentication even without a local key file.
 		let probe_config = public_key_config(&config, selected_key_path.clone());
-		// Resolving locally first keeps configuration conflicts from surfacing only after the
-		// remote authorized_keys file was already changed.
-		let target = ResolvedSshTarget::resolve(&probe_config.ssh)
-			.wrap_err("Failed to resolve the SSH target for key authentication")?;
+		let target = resolve_key_target(&probe_config)?;
 
 		if self.check {
 			return run_check(&probe_config, &target, selected_key_path.as_deref(), quiet).await;
@@ -147,7 +145,9 @@ impl SetupSsh {
 				self.finish_configuration(&config, selected_key_path.as_deref(), quiet);
 				return Ok(());
 			}
-			AuthProbe::NoCredentials => debug!("No public-key credential is available yet"),
+			AuthProbe::NoCredentials(error) => {
+				debug!(error = %error, "No public-key credential is available yet");
+			}
 			AuthProbe::Rejected(error) => {
 				debug!(error = %error, "Key authentication is not authorized yet");
 			}
@@ -167,13 +167,19 @@ impl SetupSsh {
 			self.create_key_pair(&key_path, key_source, &target, interactive, quiet)?
 		};
 
+		// The key selected for installation may conflict with the OpenSSH `IdentityFile`
+		// entry, which the ambient probe could not see. Checking here keeps that local
+		// conflict from surfacing only after authorized_keys was already changed.
+		let key_config = public_key_config(&config, Some(key_path.clone()));
+		let install_target = resolve_key_target(&key_config)?;
+
 		let authorized_key = authorized_key_line(&public_key)?;
 		if !quiet {
 			eprintln!(
 				"Installing {} on {}@{}",
 				style(key_fingerprint(&public_key)).bold(),
-				target.user,
-				target.hostname
+				install_target.user,
+				install_target.hostname
 			);
 		}
 
@@ -182,18 +188,14 @@ impl SetupSsh {
 		drop(client);
 		report_install_outcome(outcome, quiet);
 
-		match probe_public_key_authentication(
-			&public_key_config(&config, Some(key_path.clone())),
-			&target,
-			quiet,
-		)
-		.await?
-		{
+		match probe_public_key_authentication(&key_config, &install_target, quiet).await? {
 			AuthProbe::Works => {}
-			AuthProbe::NoCredentials => bail!(
-				"The public key was installed, but {} could not be used as a credential",
-				key_path.display()
-			),
+			AuthProbe::NoCredentials(error) => {
+				return Err(error).wrap_err(format!(
+					"The public key was installed, but {} could not be used as a credential",
+					key_path.display()
+				));
+			}
 			AuthProbe::Rejected(error) => {
 				return Err(error).wrap_err(format!(
 					"The public key was installed, but key authentication was still rejected. Check the server's `AuthorizedKeysFile` setting and the permissions of {REMOTE_SSH_DIR}"
@@ -229,9 +231,10 @@ impl SetupSsh {
 		};
 
 		if let Err(error) = write_config_key_path(config, key_path, quiet) {
-			warn!(error = %error, "Failed to update the biwa configuration file");
-			report_manual_config(config, key_path, &format!("{error:#}"), quiet);
-			warn_about_password_mode(config, Some(key_path), quiet);
+			debug!(error = ?error, "Failed to update the biwa configuration file");
+			// Only the top-level context is printed: the chain below it is a parser dump.
+			// The snippet already carries the `ssh.auth` change, so no extra warning follows.
+			report_manual_config(config, key_path, &error.to_string(), quiet);
 		}
 	}
 
@@ -304,16 +307,25 @@ async fn run_check(
 			report_ready(key_path, quiet);
 			Ok(())
 		}
-		AuthProbe::NoCredentials => bail!(
-			"No SSH key or agent identity is available for {}@{}. Run `biwa setup-ssh --generate` to create one",
-			target.user,
-			target.hostname
-		),
+		AuthProbe::NoCredentials(error) => Err(error).wrap_err(format!(
+			"No SSH key or agent identity could be used for {}@{}. Run `biwa setup-ssh --generate` to create one",
+			target.user, target.hostname
+		)),
 		AuthProbe::Rejected(error) => Err(error).wrap_err(format!(
 			"Key authentication for {}@{} is not working yet. Run `biwa setup-ssh` to install the matching public key",
 			target.user, target.hostname
 		)),
 	}
+}
+
+/// Resolves the SSH target for one public-key configuration.
+///
+/// Every remote step runs after this, so a local conflict such as `ssh.key_path`
+/// disagreeing with the OpenSSH `IdentityFile` entry stops the command before the remote
+/// `authorized_keys` file is changed.
+fn resolve_key_target(key_config: &Config) -> Result<ResolvedSshTarget> {
+	ResolvedSshTarget::resolve(&key_config.ssh)
+		.wrap_err("Failed to resolve the SSH target for key authentication")
 }
 
 /// Returns a configuration that authenticates with public keys only.
@@ -383,7 +395,7 @@ async fn probe_public_key_authentication(
 ) -> Result<AuthProbe> {
 	if let Err(error) = resolve_auth(config, target).await {
 		debug!(error = %error, "No public-key credential could be resolved");
-		return Ok(AuthProbe::NoCredentials);
+		return Ok(AuthProbe::NoCredentials(error));
 	}
 
 	match connect(config, quiet).await {
@@ -604,7 +616,11 @@ fn public_key_path(private_key_path: &Path) -> PathBuf {
 /// require its passphrase here.
 fn load_key_pair(private_key_path: &Path) -> Result<PublicKey> {
 	let companion = public_key_path(private_key_path);
-	if let Ok(public_key) = load_public_key(&companion) {
+	// Parsing the file directly keeps the comment, which `load_public_key` discards.
+	if let Some(public_key) = fs::read_to_string(&companion)
+		.ok()
+		.and_then(|contents| PublicKey::from_openssh(contents.trim()).ok())
+	{
 		debug!(path = %companion.display(), "Using the companion public key");
 		return Ok(public_key);
 	}
@@ -643,16 +659,19 @@ fn generate_key_pair(
 	create_key_directory(private_key_path)?;
 
 	let mut private_key = match key_type {
-		KeyType::Ed25519 => PrivateKey::from(Ed25519Keypair::from_seed(&random_bytes::<32>()?)),
+		KeyType::Ed25519 => {
+			let seed = Zeroizing::new(random_bytes::<32>()?);
+			PrivateKey::from(Ed25519Keypair::from_seed(&seed))
+		}
 	};
 	private_key.set_comment(comment);
 	let public_key = private_key.public_key().clone();
 
-	let passphrase = if interactive {
+	let passphrase = Zeroizing::new(if interactive {
 		read_new_passphrase()?
 	} else {
 		String::new()
-	};
+	});
 	let stored_key = if passphrase.is_empty() {
 		private_key
 	} else {
@@ -817,8 +836,11 @@ fn report_manual_config(config: &Config, key_path: &Path, reason: &str, quiet: b
 		return;
 	}
 	eprintln!(
-		"{} Could not update the configuration automatically because {reason}. Add this manually:\n\n{}\n",
-		style("!").yellow().bold(),
+		"{} Could not update the biwa configuration automatically: {reason}",
+		style("!").yellow().bold()
+	);
+	eprintln!(
+		"  Add this to your configuration manually:\n\n{}\n",
 		manual_config_snippet(config.ssh.auth, key_path)
 	);
 }
@@ -952,8 +974,9 @@ fn trailing_comment(assigned: &str) -> Option<&str> {
 
 /// Ensures the rewritten configuration parses and selects the intended value.
 fn verify_toml_ssh_value(contents: &str, key: &str, value: &str) -> Result<()> {
-	let parsed: toml::Value = toml::from_str(contents)
-		.wrap_err("The updated configuration file is not valid TOML; no changes were written")?;
+	let parsed: toml::Value = toml::from_str(contents).wrap_err_with(|| {
+		format!("biwa cannot rewrite ssh.{key} in this file layout, so it was left unchanged")
+	})?;
 	let updated = parsed
 		.get("ssh")
 		.and_then(|ssh| ssh.get(key))
@@ -961,7 +984,7 @@ fn verify_toml_ssh_value(contents: &str, key: &str, value: &str) -> Result<()> {
 	if updated == Some(value) {
 		return Ok(());
 	}
-	bail!("Could not set ssh.{key} without rewriting unrelated configuration")
+	bail!("biwa cannot set ssh.{key} without rewriting unrelated configuration")
 }
 
 #[cfg(test)]
@@ -1177,6 +1200,21 @@ mod tests {
 		assert_eq!(
 			expand_key_path(Path::new("/opt/keys/id_ed25519"))?,
 			PathBuf::from("/opt/keys/id_ed25519")
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn existing_key_pair_keeps_the_public_key_comment() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let key_path = dir.path().join("id_ed25519");
+		write_test_ssh_private_key(&key_path)?;
+		fs::write(public_key_path(&key_path), format!("{PUBLIC_KEY}\n"))?;
+
+		assert_eq!(
+			authorized_key_line(&load_key_pair(&key_path)?)?,
+			PUBLIC_KEY,
+			"the comment stored beside an existing key must reach authorized_keys"
 		);
 		Ok(())
 	}
@@ -1401,7 +1439,7 @@ mod tests {
 	fn toml_rewrite_rejects_ambiguous_inline_tables() {
 		let error = set_toml_ssh_value("ssh = { host = \"cse\" }\n", "key_path", "~/.ssh/key")
 			.expect_err("an inline table cannot be extended by a new table header");
-		assert!(error.to_string().contains("not valid TOML"));
+		assert!(error.to_string().contains("cannot rewrite ssh.key_path"));
 	}
 
 	#[test]

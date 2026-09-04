@@ -10,13 +10,15 @@ use common::{
 	Result, biwa_cmd, biwa_cmd_capable, ssh_port, test_known_hosts_path,
 	write_ssh_private_key_from_seed, write_test_ssh_private_key,
 };
+use core::sync::atomic::{AtomicUsize, Ordering};
 use core::time::Duration;
 use pretty_assertions::assert_eq;
 use russh::keys::PrivateKey;
+use serial_test::serial;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{self, Child, Command, Output, Stdio};
 use std::thread;
 use std::time::Instant;
 
@@ -35,6 +37,7 @@ fn biwa(server: Server, args: &[&str]) -> duct::Expression {
 		Server::Default => biwa_cmd(args),
 		Server::Capable => biwa_cmd_capable(args),
 	}
+	.env_remove("SSH_AUTH_SOCK")
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()
@@ -140,25 +143,57 @@ struct RemoteKeyGuard {
 	server: Server,
 	/// Algorithm and material of the installed key.
 	material: String,
+	/// Remote scratch path used while rewriting the file.
+	scratch: String,
 }
 
 impl RemoteKeyGuard {
 	/// Registers a key for removal. The material never contains shell metacharacters.
-	const fn new(server: Server, material: String) -> Self {
-		Self { server, material }
+	fn new(server: Server, material: String) -> Self {
+		Self {
+			server,
+			material,
+			scratch: unique_remote_name("biwa-test-keys"),
+		}
 	}
 }
 
 impl Drop for RemoteKeyGuard {
 	fn drop(&mut self) {
+		// Parallel guards must not share a scratch file, or one drop discards another's edit.
 		let script = format!(
-			"{{ grep -v -F -e '{}' ~/.ssh/authorized_keys > ~/.ssh/.biwa-test-keys || true; }} && mv ~/.ssh/.biwa-test-keys ~/.ssh/authorized_keys",
-			self.material
+			"{{ grep -v -F -e '{}' ~/.ssh/authorized_keys > {} || true; }} && mv {} ~/.ssh/authorized_keys",
+			self.material, self.scratch, self.scratch
 		);
 		if let Err(error) = remote(self.server, &["sh", "-c", &script]) {
 			eprintln!("failed to remove the installed test key: {error}");
 		}
 	}
+}
+
+/// Restores private permissions on the remote `~/.ssh` directory when the test ends.
+///
+/// The servers are shared, so a failure in the middle of a test must not leave the
+/// directory in a state that stops later public-key authentication.
+struct RemotePermissionsGuard(Server);
+
+impl Drop for RemotePermissionsGuard {
+	fn drop(&mut self) {
+		if let Err(error) = remote(self.0, &["chmod", "700", "~/.ssh"]) {
+			eprintln!("failed to restore the remote ~/.ssh permissions: {error}");
+		}
+	}
+}
+
+/// Returns a remote scratch path unique to this process and call.
+fn unique_remote_name(prefix: &str) -> String {
+	static COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+	format!(
+		"~/.ssh/.{prefix}-{}-{}",
+		process::id(),
+		COUNTER.fetch_add(1, Ordering::Relaxed)
+	)
 }
 
 /// Stops a spawned helper process when the test ends.
@@ -214,6 +249,7 @@ fn start_agent_with_test_key(dir: &Path) -> Result<(ChildGuard, PathBuf)> {
 	Ok((guard, auth_sock))
 }
 
+#[serial]
 #[test]
 fn e2e_setup_ssh_check_accepts_an_agent_identity() -> Result<()> {
 	let dir = tempfile::tempdir()?;
@@ -253,6 +289,7 @@ fn e2e_setup_ssh_check_accepts_an_agent_identity() -> Result<()> {
 	Ok(())
 }
 
+#[serial]
 #[test]
 fn e2e_setup_ssh_generates_installs_and_verifies_a_key() -> Result<()> {
 	let dir = tempfile::tempdir()?;
@@ -326,6 +363,7 @@ fn e2e_setup_ssh_generates_installs_and_verifies_a_key() -> Result<()> {
 	Ok(())
 }
 
+#[serial]
 #[test]
 fn e2e_setup_ssh_reinstalls_without_duplicating_the_entry() -> Result<()> {
 	let dir = tempfile::tempdir()?;
@@ -345,6 +383,7 @@ fn e2e_setup_ssh_reinstalls_without_duplicating_the_entry() -> Result<()> {
 
 	// Loosening the remote directory permissions makes sshd ignore authorized_keys, so the
 	// second run reaches the remote script again with the key already listed.
+	let _permissions = RemotePermissionsGuard(Server::Capable);
 	remote(Server::Capable, &["chmod", "0777", "~/.ssh"])?;
 
 	let second = setup_ssh(
@@ -379,6 +418,68 @@ fn e2e_setup_ssh_reinstalls_without_duplicating_the_entry() -> Result<()> {
 	Ok(())
 }
 
+#[serial]
+#[test]
+fn e2e_setup_ssh_aborts_on_an_identity_conflict_before_installing() -> Result<()> {
+	let home = tempfile::tempdir()?;
+	let ssh_dir = home.path().join(".ssh");
+	fs::create_dir_all(&ssh_dir)?;
+	// An OpenSSH identity that does not match the key setup would install.
+	let identity = ssh_dir.join("other.pub");
+	fs::write(
+		&identity,
+		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqfEeyNrOxuH87ZVirsvRm72W3vrW3qJKbBqjsoKn3Z other\n",
+	)?;
+	fs::write(
+		ssh_dir.join("config"),
+		format!("Host 127.0.0.1\n  IdentityFile {}\n", identity.display()),
+	)?;
+
+	// No --key-path: the conflict only appears once the key to install is selected.
+	let output = duct::cmd(
+		env!("CARGO_BIN_EXE_biwa"),
+		["setup-ssh", "--generate"].as_slice(),
+	)
+	.env("HOME", home.path())
+	.env("BIWA_SSH_HOST", "127.0.0.1")
+	.env("BIWA_SSH_PORT", ssh_port())
+	.env("BIWA_SSH_USER", "testuser")
+	.env("BIWA_SSH_AUTH", "password")
+	.env("BIWA_SSH_PASSWORD", "password123")
+	.env("BIWA_SSH_HOST_KEY_CHECKING", "accept-new")
+	.env("BIWA_SSH_KNOWN_HOSTS", test_known_hosts_path())
+	.env("BIWA_CLEAN_AUTO", "false")
+	.env("BIWA_STATE_DIR", home.path().join("state"))
+	.dir(home.path())
+	.env_remove("SSH_AUTH_SOCK")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.stdin_null()
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(
+		!output.status.success(),
+		"a conflicting identity must stop the command: {stderr}"
+	);
+	assert!(
+		stderr.contains("Conflicting SSH identity configuration"),
+		"stderr was: {stderr}"
+	);
+
+	let generated = ssh_dir.join("id_ed25519.pub");
+	if generated.is_file() {
+		let material = key_material(&fs::read_to_string(&generated)?)?;
+		assert!(
+			!remote_authorized_keys(Server::Default)?.contains(&material),
+			"the key must not be installed when the local configuration conflicts"
+		);
+	}
+	Ok(())
+}
+
+#[serial]
 #[test]
 fn e2e_setup_ssh_enforces_remote_permissions() -> Result<()> {
 	let dir = tempfile::tempdir()?;
@@ -413,6 +514,7 @@ fn e2e_setup_ssh_enforces_remote_permissions() -> Result<()> {
 	Ok(())
 }
 
+#[serial]
 #[test]
 fn e2e_setup_ssh_check_reports_an_unauthorized_key() -> Result<()> {
 	let dir = tempfile::tempdir()?;
@@ -445,6 +547,7 @@ fn e2e_setup_ssh_check_reports_an_unauthorized_key() -> Result<()> {
 	Ok(())
 }
 
+#[serial]
 #[test]
 fn e2e_setup_ssh_check_reports_a_missing_key() -> Result<()> {
 	let dir = tempfile::tempdir()?;
@@ -459,13 +562,18 @@ fn e2e_setup_ssh_check_reports_a_missing_key() -> Result<()> {
 
 	assert!(!output.status.success(), "stderr was: {stderr}");
 	assert!(
-		stderr.contains("No SSH key or agent identity is available"),
+		stderr.contains("No SSH key or agent identity could be used"),
 		"stderr was: {stderr}"
+	);
+	assert!(
+		stderr.contains(&key_path.display().to_string()),
+		"the reason must name the missing key: {stderr}"
 	);
 	assert!(!key_path.exists());
 	Ok(())
 }
 
+#[serial]
 #[test]
 fn e2e_setup_ssh_requires_generate_without_a_terminal() -> Result<()> {
 	let dir = tempfile::tempdir()?;
@@ -484,6 +592,7 @@ fn e2e_setup_ssh_requires_generate_without_a_terminal() -> Result<()> {
 	Ok(())
 }
 
+#[serial]
 #[test]
 fn e2e_setup_ssh_fails_without_installing_on_a_wrong_password() -> Result<()> {
 	let dir = tempfile::tempdir()?;
@@ -524,6 +633,7 @@ fn e2e_setup_ssh_fails_without_installing_on_a_wrong_password() -> Result<()> {
 	Ok(())
 }
 
+#[serial]
 #[test]
 fn e2e_setup_ssh_writes_the_key_into_the_local_config() -> Result<()> {
 	let project = tempfile::tempdir()?;
@@ -565,6 +675,7 @@ fn e2e_setup_ssh_writes_the_key_into_the_local_config() -> Result<()> {
 	Ok(())
 }
 
+#[serial]
 #[test]
 fn e2e_setup_ssh_succeeds_when_the_config_cannot_be_rewritten() -> Result<()> {
 	let project = tempfile::tempdir()?;
@@ -596,7 +707,10 @@ fn e2e_setup_ssh_succeeds_when_the_config_cannot_be_rewritten() -> Result<()> {
 		stderr.contains("Key authentication works"),
 		"stderr was: {stderr}"
 	);
-	assert!(stderr.contains("Add this manually"), "stderr was: {stderr}");
+	assert!(
+		stderr.contains("Add this to your configuration manually"),
+		"stderr was: {stderr}"
+	);
 	assert_eq!(
 		fs::read_to_string(&config_path)?,
 		original,

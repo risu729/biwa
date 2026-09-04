@@ -75,11 +75,12 @@ impl Config {
 
 	/// Resolves the local state directory path.
 	///
-	/// Priority: `BIWA_STATE_DIR` > `state_dir` > platform default.
+	/// Priority: `BIWA_STATE_DIR` > `state_dir` > platform default. The environment value
+	/// bypasses configuration loading, so its home marker is expanded here.
 	#[must_use]
 	pub fn resolved_state_dir(&self) -> PathBuf {
 		if let Ok(path) = env::var("BIWA_STATE_DIR") {
-			return PathBuf::from(path);
+			return expand_tilde(Path::new(&path));
 		}
 		self.state_dir.clone().unwrap_or_else(default_state_dir)
 	}
@@ -224,7 +225,6 @@ impl Config {
 		for path in [
 			config.ssh.key_path.as_mut(),
 			config.ssh.known_hosts.as_mut(),
-			config.state_dir.as_mut(),
 			config.sync.sftp.cache.path.as_mut(),
 		]
 		.into_iter()
@@ -1480,7 +1480,9 @@ child = ["--skip-sync"]
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("host", "user");
 		let _key_path = EnvCleanup::set("BIWA_SSH_KEY_PATH", "~/.ssh/env_key");
 		let _known_hosts = EnvCleanup::set("BIWA_SSH_KNOWN_HOSTS", "~/.ssh/env_known_hosts");
-		let _state_dir = EnvCleanup::set("BIWA_STATE_DIR", "/tmp/biwa-state");
+		// `state_dir` has no configuration field bound to the environment; it is resolved
+		// on demand, and must expand the same way.
+		let _state_dir = EnvCleanup::set("BIWA_STATE_DIR", "~/biwa-state-env");
 		let _cache_path = EnvCleanup::set("BIWA_SYNC_SFTP_CACHE_PATH", "~/.cache/biwa-env");
 
 		let config = load_internal(None, None, None)?;
@@ -1495,6 +1497,7 @@ child = ["--skip-sync"]
 				config.sync.sftp.cache.path,
 				Some(home.join(".cache/biwa-env"))
 			);
+			assert_eq!(config.resolved_state_dir(), home.join("biwa-state-env"));
 		}
 		Ok(())
 	}
