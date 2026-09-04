@@ -9,9 +9,14 @@
 )]
 
 use color_eyre::eyre::eyre;
-use common::{Result, ssh_port};
+use common::Result;
+// Only the signal-driven pull tests build a command by hand, and they need the hook
+// that `biwa` compiles out of release builds.
+#[cfg(all(unix, debug_assertions))]
+use common::ssh_port;
 use core::time::Duration;
 #[cfg(unix)]
+#[cfg(debug_assertions)]
 use nix::sys::signal::Signal;
 use pretty_assertions::{assert_eq, assert_ne};
 use rstest::rstest;
@@ -1065,11 +1070,12 @@ fn e2e_sync_never_transfers_or_deletes_git_metadata() -> Result<()> {
 }
 
 #[cfg(unix)]
+// `biwa` only offers the phase-blocking hook these tests rely on in debug builds.
+#[cfg(debug_assertions)]
 fn run_pull_signal_during_commit(signal: Signal) -> Result<()> {
 	use common::PullPhase;
 	use nix::sys::signal::kill;
 	use nix::unistd::Pid;
-	use std::io::Result as IoResult;
 	use std::process::{Command, Stdio};
 
 	const FILE_COUNT: usize = 32;
@@ -1084,7 +1090,6 @@ fn run_pull_signal_during_commit(signal: Signal) -> Result<()> {
 	}
 
 	let initial = biwa_cmd_tilde(&["sync", "--remote-dir", &remote_dir], dir.path())
-		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", FILE_COUNT.to_string())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -1152,24 +1157,21 @@ fn run_pull_signal_during_commit(signal: Signal) -> Result<()> {
 		);
 	}
 	assert!(
-		!fs::read_dir(dir.path())?
-			.filter_map(IoResult::ok)
-			.any(|entry| entry
-				.file_name()
-				.to_string_lossy()
-				.starts_with(".biwa-pull-stage-")),
+		!common::has_pull_staging_directory(dir.path())?,
 		"pull staging directory remained after rollback"
 	);
 	Ok(())
 }
 
 #[cfg(unix)]
+#[cfg(debug_assertions)]
 #[test]
 fn e2e_pull_sigterm_during_commit_rolls_back_local_tree() -> Result<()> {
 	run_pull_signal_during_commit(Signal::SIGTERM)
 }
 
 #[cfg(unix)]
+#[cfg(debug_assertions)]
 #[test]
 fn e2e_pull_sighup_during_commit_rolls_back_local_tree() -> Result<()> {
 	run_pull_signal_during_commit(Signal::SIGHUP)

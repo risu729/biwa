@@ -748,12 +748,13 @@ fn e2e_run_pull_rejects_local_edits_during_command() -> Result<()> {
 }
 
 #[cfg(unix)]
+// `biwa` only offers the phase-blocking hook this test relies on in debug builds.
+#[cfg(debug_assertions)]
 #[test]
 fn e2e_run_pull_sigint_during_staging_preserves_local_tree() -> Result<()> {
 	use common::PullPhase;
 	use nix::sys::signal::{Signal, kill};
 	use nix::unistd::Pid;
-	use std::io::Result as IoResult;
 
 	const FILE_COUNT: usize = 32;
 	let dir = tempfile::tempdir()?;
@@ -782,7 +783,7 @@ fn e2e_run_pull_sigint_during_staging_preserves_local_tree() -> Result<()> {
 		.stderr(Stdio::piped());
 	let mut child = child.spawn()?;
 	// The pull waits inside download staging until it is signalled, so the signal
-	// always lands mid-staging with at least one file already staged.
+	// always lands once staging is observable rather than after it finished.
 	common::wait_for_pull_phase(dir.path(), PullPhase::DownloadStaging, &mut child)?;
 	let pid = i32::try_from(child.id())?;
 	kill(Pid::from_raw(pid), Signal::SIGINT)?;
@@ -797,14 +798,7 @@ fn e2e_run_pull_sigint_during_staging_preserves_local_tree() -> Result<()> {
 			format!("local-{index:04}")
 		);
 	}
-	assert!(
-		!fs::read_dir(dir.path())?
-			.filter_map(IoResult::ok)
-			.any(|entry| entry
-				.file_name()
-				.to_string_lossy()
-				.starts_with(".biwa-pull-stage-"))
-	);
+	assert!(!common::has_pull_staging_directory(dir.path())?);
 	Ok(())
 }
 

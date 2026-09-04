@@ -19,8 +19,10 @@ use sha2::Digest as _;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 use std::{
-	env, fs, iter,
+	env,
+	fs::{self, DirEntry},
 	io::{Read as _, Result as IoResult},
+	iter,
 	path::{Path, PathBuf},
 	process::Child,
 	thread,
@@ -175,7 +177,26 @@ pub fn write_hooks_config(
 }
 
 /// Reserved top-level prefix of a local pull transaction directory.
-const PULL_STAGE_PREFIX: &str = ".biwa-pull-stage-";
+#[allow(dead_code, reason = "Only pull tests inspect transaction directories.")]
+pub const PULL_STAGE_PREFIX: &str = ".biwa-pull-stage-";
+
+/// Returns whether a directory entry is a local pull transaction directory.
+fn is_pull_stage_entry(entry: &DirEntry) -> bool {
+	entry
+		.file_name()
+		.to_string_lossy()
+		.starts_with(PULL_STAGE_PREFIX)
+}
+
+/// Returns whether a project root still holds a local pull transaction directory.
+///
+/// A finished or rolled back pull always removes its transaction directory.
+#[allow(dead_code, reason = "Only pull tests inspect transaction directories.")]
+pub fn has_pull_staging_directory(project_root: &Path) -> Result<bool> {
+	Ok(fs::read_dir(project_root)?
+		.filter_map(IoResult::ok)
+		.any(|entry| is_pull_stage_entry(&entry)))
+}
 
 /// Local pull transaction phase that a signal-driven test interrupts.
 ///
@@ -217,8 +238,8 @@ impl PullPhase {
 	/// Returns whether a pull transaction directory has visibly entered this phase.
 	fn started(self, staging_root: &Path) -> bool {
 		match self {
-			// The downloads directory exists before the first file is staged, so an
-			// entry inside it is what proves a file has actually been downloaded.
+			// The downloads directory is created before any download starts, so only an
+			// entry inside it proves that a file download is under way.
 			Self::DownloadStaging => fs::read_dir(staging_root.join("downloads"))
 				.is_ok_and(|mut entries| entries.next().is_some()),
 			Self::LocalCommit => staging_root.join("backups").is_dir(),
@@ -232,6 +253,10 @@ impl PullPhase {
 /// until it receives a termination signal. The deadline therefore only has to cover
 /// process startup, the push sync, and the remote command, which are much slower under
 /// coverage instrumentation than the phase itself.
+///
+/// `biwa` compiles that hook out of release builds, so callers must be restricted to
+/// `#[cfg(debug_assertions)]`; otherwise the pull walks straight through `phase` and
+/// this wait can only end in its timeout.
 #[allow(
 	dead_code,
 	reason = "Only signal-driven pull tests interrupt a pull phase."
@@ -248,12 +273,7 @@ pub fn wait_for_pull_phase(project_root: &Path, phase: PullPhase, child: &mut Ch
 	loop {
 		let started = fs::read_dir(project_root)?
 			.filter_map(IoResult::ok)
-			.filter(|entry| {
-				entry
-					.file_name()
-					.to_string_lossy()
-					.starts_with(PULL_STAGE_PREFIX)
-			})
+			.filter(is_pull_stage_entry)
 			.any(|entry| phase.started(&entry.path()));
 		if started {
 			return Ok(());
