@@ -12,7 +12,9 @@ watch = [
 	"tests/fixtures/ssh-capable/Dockerfile"
 ]
 auto = ["start", "stop"]
-ready_output = { pattern = "SSH test servers are ready", timeout = "2m" }
+# the timeout is a ceiling, not a delay; a cold image pull and build on a slow
+# CI runner can take several minutes before the servers accept connections
+ready_output = { pattern = "SSH test servers are ready", timeout = "10m" }
 
 [daemons.docs]
 run = "mise run docs:dev -- --port $PORT --strictPort"
