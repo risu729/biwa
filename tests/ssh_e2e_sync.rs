@@ -15,6 +15,7 @@ use core::time::Duration;
 use nix::sys::signal::Signal;
 use pretty_assertions::{assert_eq, assert_ne};
 use rstest::rstest;
+use std::iter;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 use std::thread::sleep;
@@ -2867,5 +2868,237 @@ fn e2e_pull_verification_rejects_a_stale_cached_remote_hash() -> Result<()> {
 	);
 	assert_eq!(fs::read_to_string(&file_path)?, "local");
 	assert!(!dir.path().join("extra.txt").exists());
+	Ok(())
+}
+
+/// Writes a local `biwa.toml` that configures the given sync hooks.
+fn write_hooks_config(dir: &Path, pre_sync: Option<&str>, post_sync: Option<&str>) -> Result<()> {
+	let config = iter::once("[hooks]".to_owned())
+		.chain(pre_sync.map(|command| format!("pre_sync = '{command}'")))
+		.chain(post_sync.map(|command| format!("post_sync = '{command}'")))
+		.collect::<Vec<_>>()
+		.join("\n");
+	fs::write(dir.join("biwa.toml"), config + "\n")?;
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_runs_local_hooks_around_upload() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	write_hooks_config(
+		dir.path(),
+		Some(r#"sh -c "printf generated > generated.txt; echo pre-sync-marker""#),
+		Some(r#"sh -c "printf done > post-sync.txt""#),
+	)?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	assert!(output.status.success(), "stderr: {stderr}");
+	// Hook output is streamed to stderr so biwa's stdout stays reserved for
+	// remote command output.
+	assert!(stderr.contains("pre-sync-marker"), "stderr: {stderr}");
+	assert!(!stdout.contains("pre-sync-marker"), "stdout: {stdout}");
+	// post_sync runs locally after the upload, so its output is never uploaded.
+	assert_eq!(
+		fs::read_to_string(dir.path().join("post-sync.txt"))?,
+		"done"
+	);
+
+	// The file created by pre_sync is part of the same upload.
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let check = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"cat",
+			&format!("{remote_proj_dir}/generated.txt"),
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		check.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&check.stderr)
+	);
+	assert_eq!(String::from_utf8_lossy(&check.stdout).trim(), "generated");
+
+	let missing = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"sh",
+			"-c",
+			"test ! -e \"$1\"",
+			"sh",
+			&format!("{remote_proj_dir}/post-sync.txt"),
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(missing.status.success(), "post_sync output was uploaded");
+
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_quiet_suppresses_hook_output() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	write_hooks_config(
+		dir.path(),
+		Some(r#"sh -c "echo pre-sync-marker; echo pre-sync-error >&2""#),
+		None,
+	)?;
+
+	let output = biwa_cmd_tilde(&["--quiet", "sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	assert!(output.status.success(), "stderr: {stderr}");
+	assert!(!stderr.contains("pre-sync-marker"), "stderr: {stderr}");
+	assert!(!stderr.contains("pre-sync-error"), "stderr: {stderr}");
+	assert!(!stdout.contains("pre-sync-marker"), "stdout: {stdout}");
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_pre_sync_failure_aborts_before_upload() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("hello.txt"), "world")?;
+	write_hooks_config(
+		dir.path(),
+		Some(r#"sh -c "exit 3""#),
+		Some(r#"sh -c "printf done > post-sync.txt""#),
+	)?;
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(stderr.contains("`hooks.pre_sync` hook"), "stderr: {stderr}");
+	assert!(stderr.contains("exited with code 3"), "stderr: {stderr}");
+	// post_sync must not run when the operation aborted.
+	assert!(!dir.path().join("post-sync.txt").exists());
+
+	let missing = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"-d",
+			"~",
+			"sh",
+			"-c",
+			"test ! -e \"$1\"",
+			"sh",
+			&remote_proj_dir,
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		missing.status.success(),
+		"files were uploaded even though pre_sync failed"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_post_sync_failure_fails_the_command() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("hello.txt"), "world")?;
+	write_hooks_config(dir.path(), None, Some(r#"sh -c "exit 4""#))?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!output.status.success(), "stderr: {stderr}");
+	assert!(
+		stderr.contains("`hooks.post_sync` hook"),
+		"stderr: {stderr}"
+	);
+	assert!(stderr.contains("exited with code 4"), "stderr: {stderr}");
+
+	// The upload itself already completed before the hook failed.
+	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
+	let check = biwa_cmd_tilde(
+		&[
+			"run",
+			"--skip-sync",
+			"cat",
+			&format!("{remote_proj_dir}/hello.txt"),
+		],
+		dir.path(),
+	)
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert_eq!(String::from_utf8_lossy(&check.stdout).trim(), "world");
+	Ok(())
+}
+
+#[test]
+fn e2e_run_hooks_follow_the_sync_phase() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	write_hooks_config(
+		dir.path(),
+		Some(r#"sh -c "printf pre > pre-sync.txt""#),
+		Some(r#"sh -c "printf post > post-sync.txt""#),
+	)?;
+
+	// Skipping the sync phase also skips both sync hooks.
+	let skipped = biwa_cmd_tilde(&["run", "--skip-sync", "true"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		skipped.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&skipped.stderr)
+	);
+	assert!(!dir.path().join("pre-sync.txt").exists());
+	assert!(!dir.path().join("post-sync.txt").exists());
+
+	// The automatic sync phase runs both hooks.
+	let synced = biwa_cmd_tilde(&["run", "true"], dir.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	assert!(
+		synced.status.success(),
+		"stderr: {}",
+		String::from_utf8_lossy(&synced.stderr)
+	);
+	assert_eq!(fs::read_to_string(dir.path().join("pre-sync.txt"))?, "pre");
+	assert_eq!(
+		fs::read_to_string(dir.path().join("post-sync.txt"))?,
+		"post"
+	);
 	Ok(())
 }

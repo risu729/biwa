@@ -195,6 +195,47 @@ It is strongly recommended to use a relative path starting with `~` for your `re
 
 The sync cache speeds up repeated syncs by reusing hashes while a file's metadata fingerprint is unchanged. Both sides check size and modification time; the remote side also checks change time, and the local side checks change time and inode on Unix. See [Hash cache](/sync-behavior#hash-cache) for how invalidation works and when to reset it.
 
+### `[hooks]` — Synchronization Hook Settings
+
+| Key         | Type    | Default | Description                                                  |
+| ----------- | ------- | ------- | ------------------------------------------------------------ |
+| `pre_sync`  | string? | `null`  | Local command run before synchronization uploads files       |
+| `post_sync` | string? | `null`  | Local command run after a successful synchronization         |
+
+Both hooks run **locally**, never on the remote host:
+
+- `pre_sync` runs before `biwa sync` uploads files, and before the automatic sync phase of `biwa run`. Files it generates are part of the same upload.
+- `post_sync` runs after the upload succeeded. It runs before the remote command of `biwa run` starts.
+- If the sync is skipped (`biwa run --skip-sync`, or `-d` / `--remote-dir` without `--sync`, or `sync.auto = false`), neither hook runs.
+- A failing hook aborts the operation. `pre_sync` failures abort before anything is uploaded; `post_sync` failures fail the command after the upload already completed.
+- Hooks run with the resolved [sync root](/sync-behavior#sync-root) as their working directory, so `npm run build` or `cargo build` sees the project directory.
+- Commands are split into arguments with shell word splitting (quotes are honored) and executed directly, so there is no implicit shell expansion. Use `sh -c "..."` when you need pipes, redirection, or variables.
+- Hook output is streamed to biwa's **stderr** so that piping `biwa run` output still yields only the remote command's stdout. `--quiet` and `--silent` suppress hook output.
+- Hooks do not inherit biwa's stdin, so they must not be interactive.
+
+```toml
+# JavaScript project
+[hooks]
+pre_sync = "bun install --frozen-lockfile"
+post_sync = "bun test"
+```
+
+```toml
+# Rust project
+[hooks]
+pre_sync = "cargo build"
+```
+
+```toml
+# Generic build step needing shell features
+[hooks]
+pre_sync = 'sh -c "make build && date > .last-build"'
+```
+
+::: tip Keep hooks to one command
+Hooks are intentionally single one-line commands. For multi-step workflows, define a task with a task runner such as [mise](https://mise.jdx.dev/tasks/) and point the hook at it (for example `pre_sync = "mise run build"`).
+:::
+
 ### `[clean]` — Remote Directory Cleanup Settings
 
 | Key                | Type    | Default | Description                                                                |

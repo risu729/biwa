@@ -182,12 +182,16 @@ expression: content
     //"forward_method": "export",
   },
 
-  // Lifecycle hooks for synchronization.
+  // Local lifecycle hooks for synchronization.
   "hooks": {
-    // Command to run before synchronization.
+    // Local command to run before synchronization uploads files.
+    // Runs in the local sync root and aborts the operation when it fails.
+    // Split into arguments with shell word splitting; use `sh -c "..."` for shell features.
     //"pre_sync": ,
 
-    // Command to run after synchronization.
+    // Local command to run after a successful synchronization.
+    // Runs in the local sync root and aborts the operation when it fails.
+    // Split into arguments with shell word splitting; use `sh -c "..."` for shell features.
     //"post_sync": ,
   },
 

@@ -18,6 +18,8 @@ mod activate;
 mod clean;
 /// Shell completion generation command.
 mod completion;
+/// Local lifecycle hooks executed around synchronization.
+mod hooks;
 /// Configuration initialization command.
 mod init;
 /// Remote-to-local project mirroring command.

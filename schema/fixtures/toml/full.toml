@@ -27,6 +27,8 @@ vars = [
 forward_method = "export"
 
 [hooks]
+pre_sync = "cargo build"
+post_sync = "echo sync complete"
 
 # The [mise] section is read only from global configuration, so it is covered by
 # the edge-mise-* fixtures instead of this project-local one.

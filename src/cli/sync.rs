@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
+use crate::cli::hooks::{SyncHook, run_sync_hook};
 use crate::cli::transfer::{TransferArgs, record_connection_use};
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
@@ -26,12 +27,28 @@ impl Sync {
 		// does not treat an active old project as stale.
 		record_connection_use(&config, &transfer.remote_dir);
 
+		run_sync_hook(
+			SyncHook::PreSync,
+			&config.hooks,
+			&transfer.local_root,
+			quiet,
+		)
+		.await?;
+
 		push_project(
 			&client,
 			&config,
 			&transfer.local_root,
 			&transfer.remote_dir,
 			&transfer.options,
+			quiet,
+		)
+		.await?;
+
+		run_sync_hook(
+			SyncHook::PostSync,
+			&config.hooks,
+			&transfer.local_root,
 			quiet,
 		)
 		.await?;
