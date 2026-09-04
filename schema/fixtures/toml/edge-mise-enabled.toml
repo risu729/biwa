@@ -1,4 +1,4 @@
-# Edge case: mise wrapping enabled with remote availability checking
+# Edge case: mise wrapping enabled (global-only section; rejected in project-local config)
 
 [mise]
 enabled = true

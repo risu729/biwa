@@ -1575,15 +1575,26 @@ fn e2e_run_mise_without_verification_fails_when_the_wrapper_is_missing() -> Resu
 	Ok(())
 }
 
+/// A project-local `[mise]` section must never choose what runs remotely.
+///
+/// Without the restriction, a cloned repository could ship `enabled = true` with
+/// `bin = "sh"` plus its own `exec` file and have it executed on the user's SSH
+/// host, because the wrapper runs after `cd` into the synced project directory.
 #[test]
-fn e2e_run_mise_command_prefix_from_project_config_is_rejected() -> Result<()> {
+fn e2e_run_mise_section_from_project_config_cannot_hijack_remote_commands() -> Result<()> {
+	let marker = ".biwa-test-mise-pwned";
 	let dir = tempfile::tempdir()?;
 	fs::write(
 		dir.path().join("biwa.toml"),
-		"[mise]\nenabled = true\nmode = \"prefix\"\ncommand_prefix = \"touch /tmp/biwa-pwned #\"\n",
+		"[mise]\nenabled = true\nbin = \"sh\"\n",
+	)?;
+	fs::write(
+		dir.path().join("exec"),
+		format!("#!/bin/sh\ntouch \"$HOME/{marker}\"\n"),
 	)?;
 
-	let output = biwa_cmd(&["--quiet", "run", "--skip-sync", "true"])
+	// Sync stays enabled here, exactly as it would be for a freshly cloned repo.
+	let output = biwa_cmd(&["--quiet", "run", "true"])
 		.dir(dir.path())
 		.stdout_capture()
 		.stderr_capture()
@@ -1593,8 +1604,29 @@ fn e2e_run_mise_command_prefix_from_project_config_is_rejected() -> Result<()> {
 	let stderr = String::from_utf8_lossy(&output.stderr);
 	assert!(!output.status.success(), "stderr: {stderr}");
 	assert!(
-		stderr.contains("mise.command_prefix is not allowed in project-local configuration"),
+		stderr.contains("The [mise] section is not allowed in project-local configuration"),
 		"stderr: {stderr}"
+	);
+	assert!(
+		stderr.contains("mise.enabled, mise.bin"),
+		"the error must name the offending keys; stderr: {stderr}"
+	);
+
+	let payload_check = biwa_cmd(&[
+		"--quiet",
+		"run",
+		"--skip-sync",
+		"sh",
+		"-c",
+		&format!("test ! -e \"$HOME/{marker}\""),
+	])
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+	assert!(
+		payload_check.status.success(),
+		"the project-local [mise] payload must never run on the remote host"
 	);
 	Ok(())
 }
@@ -1883,34 +1915,17 @@ fn e2e_run_config_from_schema_fixture(
 		.and_then(OsStr::to_str)
 		.unwrap_or_default();
 
-	if fixture_name == "edge-mise-enabled.toml" {
-		// The SSH test containers do not ship mise, so the fixture must fail with
-		// the setup message instead of silently running the command unwrapped.
+	if fixture_name.starts_with("edge-mise-") {
+		// These fixtures are copied in as a project-local config, where the whole
+		// [mise] section is refused; it is only honored from global config.
 		let stderr = String::from_utf8_lossy(&output.stderr);
 		assert!(
 			!output.status.success(),
-			"fixture {}: expected the missing remote mise to fail",
+			"fixture {}: expected a project-local [mise] section to be rejected",
 			fixture.display()
 		);
 		assert!(
-			stderr.contains("`mise` (from `mise.bin`) was not found on the remote host"),
-			"fixture {}: expected a mise setup error, got: {stderr}",
-			fixture.display()
-		);
-		return Ok(());
-	}
-
-	if fixture_name == "edge-mise-command-prefix.toml" {
-		// The fixture is copied in as a project-local config, where the verbatim
-		// remote prefix is refused; it is only honored from global config.
-		let stderr = String::from_utf8_lossy(&output.stderr);
-		assert!(
-			!output.status.success(),
-			"fixture {}: expected a project-local mise.command_prefix to be rejected",
-			fixture.display()
-		);
-		assert!(
-			stderr.contains("mise.command_prefix is not allowed in project-local configuration"),
+			stderr.contains("The [mise] section is not allowed in project-local configuration"),
 			"fixture {}: expected a global-only config error, got: {stderr}",
 			fixture.display()
 		);

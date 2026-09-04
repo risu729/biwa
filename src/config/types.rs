@@ -205,6 +205,8 @@ pub struct Config {
 	#[schemars(default)]
 	pub hooks: HooksConfig,
 	/// mise integration for remote command environments.
+	///
+	/// Read only from global configuration or `BIWA_MISE_*` environment variables.
 	#[config(nested)]
 	#[schemars(default)]
 	pub mise: MiseConfig,
@@ -487,6 +489,10 @@ pub enum MiseMode {
 }
 
 /// mise integration settings for remote command execution.
+///
+/// This section selects the program that wraps every remote command, so it is
+/// read only from global configuration or `BIWA_MISE_*` environment variables.
+/// A project-local configuration file that sets any of these keys is rejected.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct MiseConfig {
 	/// Run remote commands inside a mise-managed environment.
@@ -495,7 +501,9 @@ pub struct MiseConfig {
 	#[config(default = false, env = "BIWA_MISE_ENABLED")]
 	#[schemars(default)]
 	pub enabled: bool,
-	/// mise executable to use on the remote host. May be an absolute path or `~`-relative.
+	/// mise executable to use on the remote host.
+	///
+	/// Must be a bare command name, an absolute path, or a `~`-relative path.
 	#[config(default = "mise", env = "BIWA_MISE_BIN")]
 	#[schemars(default = "crate::config::types::schema_defaults::mise_bin")]
 	pub bin: String,
@@ -513,10 +521,13 @@ pub struct MiseConfig {
 	///
 	/// This is an escape hatch (e.g. `"mise x --"`). When set, it replaces the
 	/// prefix that `mode` would otherwise build. It is inserted verbatim without
-	/// shell quoting, so treat it as trusted configuration.
+	/// shell quoting.
 	#[config(env = "BIWA_MISE_COMMAND_PREFIX")]
 	pub command_prefix: Option<String>,
-	/// Check that `bin` exists on the remote host before wrapping a command.
+	/// Check that the configured wrapper exists on the remote host before running a command.
+	///
+	/// The check follows the configuration: `bin` in `exec` mode, or the first
+	/// word of `command_prefix` when a prefix is set.
 	#[config(default = true, env = "BIWA_MISE_VERIFY")]
 	#[schemars(default = "crate::config::types::schema_defaults::bool_true")]
 	pub verify: bool,

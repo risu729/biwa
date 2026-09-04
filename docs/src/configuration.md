@@ -107,12 +107,15 @@ Relative `known_hosts` paths follow the same rules described above: project root
 | `bin`            | string  | `"mise"` | mise executable on the remote host (bare name, absolute path, or `~`-relative path) |
 | `mode`           | string  | `"exec"` | Wrapping strategy: `"exec"` or `"prefix"`                            |
 | `env`            | string? | `null`   | mise environment name, forwarded to the remote command as `MISE_ENV` |
-| `command_prefix` | string? | `null`   | Literal shell prefix used instead of the prefix built from `mode` (global configuration only) |
+| `command_prefix` | string? | `null`   | Literal shell prefix used instead of the prefix built from `mode`    |
 | `verify`         | boolean | `true`   | Check that the configured wrapper exists on the remote host before running a command |
 
-The integration is off by default, so remote execution is unchanged until you opt in.
+The integration is off by default, so remote execution is unchanged until you
+opt in. These settings are read only from global configuration or `BIWA_MISE_*`
+environment variables:
 
 ```toml
+# ~/biwa.toml (global configuration only)
 [mise]
 enabled = true
 mode = "exec"
@@ -127,11 +130,12 @@ The wrapper prefixes the command, so `biwa run 'a && b'` runs only `a` inside
 the mise environment; use `biwa run sh -c 'a && b'` to run the whole compound
 command under mise.
 
-::: danger `command_prefix` is global-only
-`command_prefix` is inserted into the remote command without shell quoting, so
-biwa reads it only from global configuration or `BIWA_MISE_COMMAND_PREFIX` and
-rejects it in project-local configuration. Otherwise a config file committed to
-a cloned repository could choose the command that runs on your SSH host. See
+::: danger The `[mise]` section is global-only
+`[mise]` selects the program that wraps every remote command, so biwa reads the
+whole section only from global configuration or `BIWA_MISE_*` environment
+variables and rejects it in project-local configuration. Otherwise a config file
+committed to a cloned repository could choose what runs on your SSH host — with
+`command_prefix`, or simply with `enabled` plus `bin`. See
 [mise integration](/env-vars#modes).
 :::
 

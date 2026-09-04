@@ -105,9 +105,12 @@ UNSW CSE does not support SSH `setenv`, so use `env.forward_method = "export"` t
 Direct env forwarding sends values from your local machine. If the remote host
 should instead resolve tools and variables itself — from a project-local
 `mise.toml` / `.tool-versions` — enable the [mise](https://mise.jdx.dev)
-integration and biwa wraps each remote command with mise:
+integration and biwa wraps each remote command with mise. The section is read
+only from global configuration or `BIWA_MISE_*` environment variables (see the
+warning below):
 
 ```toml
+# ~/biwa.toml (global configuration only)
 [mise]
 enabled = true
 mode = "exec"
@@ -160,17 +163,19 @@ inside the mise environment.
 
   `mode = "prefix"` without a `command_prefix` is a configuration error.
 
-::: danger `command_prefix` is global-only
-`mise.command_prefix` is inserted into the remote command **without shell
-quoting**, so it can run anything on your SSH host. biwa discovers config files
-by walking up from the current directory, which would otherwise let a config
-file committed to a cloned repository choose that command.
+::: danger The `[mise]` section is global-only
+Every key in `[mise]` helps choose the program that wraps your remote commands.
+`command_prefix` is inserted **without shell quoting**, and `enabled` plus `bin`
+are enough on their own: `bin = "sh"` turns the wrapper into `sh exec -- …`,
+which runs a file named `exec` from the synced project. Since biwa discovers
+config files by walking up from the current directory, a `biwa.toml` committed
+to a cloned repository could otherwise pick what runs on your SSH host.
 
-biwa therefore honors `command_prefix` only from global configuration
-(`~/biwa.toml`, `~/.biwa.<ext>`, `$XDG_CONFIG_HOME/biwa/config.<ext>`) or the
-`BIWA_MISE_COMMAND_PREFIX` environment variable. A project-local config that
-sets it is rejected with an error, the same way `[direct]` settings are limited
-to global configuration.
+biwa therefore reads the whole `[mise]` section only from global configuration
+(`~/biwa.toml`, `~/.biwa.<ext>`, `$XDG_CONFIG_HOME/biwa/config.<ext>`) or
+`BIWA_MISE_*` environment variables. A project-local config that sets any
+`[mise]` key is rejected with an error naming the offending keys, the same way
+`[direct]` settings are limited to global configuration.
 :::
 
 The wrapper prefixes the whole command, exactly like running `env` or `nice` in

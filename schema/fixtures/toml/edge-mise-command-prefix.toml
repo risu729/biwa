@@ -1,4 +1,4 @@
-# Edge case: explicit mise command prefix (global-only key; rejected in project-local config)
+# Edge case: explicit mise command prefix (global-only section; rejected in project-local config)
 
 [mise]
 enabled = true

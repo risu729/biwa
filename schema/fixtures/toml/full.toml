@@ -28,9 +28,5 @@ forward_method = "export"
 
 [hooks]
 
-[mise]
-enabled = false
-bin = "mise"
-mode = "exec"
-env = "dev"
-verify = true
+# The [mise] section is read only from global configuration, so it is covered by
+# the edge-mise-* fixtures instead of this project-local one.

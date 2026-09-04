@@ -179,6 +179,8 @@ expression: content
   },
 
   // mise integration for remote command environments.
+  //
+  // Read only from global configuration or `BIWA_MISE_*` environment variables.
   "mise": {
     // Run remote commands inside a mise-managed environment.
     //
@@ -189,7 +191,9 @@ expression: content
     // Default value: false
     //"enabled": false,
 
-    // mise executable to use on the remote host. May be an absolute path or `~`-relative.
+    // mise executable to use on the remote host.
+    //
+    // Must be a bare command name, an absolute path, or a `~`-relative path.
     //
     // Can also be specified via environment variable `BIWA_MISE_BIN`.
     //
@@ -215,12 +219,15 @@ expression: content
     //
     // This is an escape hatch (e.g. `"mise x --"`). When set, it replaces the
     // prefix that `mode` would otherwise build. It is inserted verbatim without
-    // shell quoting, so treat it as trusted configuration.
+    // shell quoting.
     //
     // Can also be specified via environment variable `BIWA_MISE_COMMAND_PREFIX`.
     //"command_prefix": ,
 
-    // Check that `bin` exists on the remote host before wrapping a command.
+    // Check that the configured wrapper exists on the remote host before running a command.
+    //
+    // The check follows the configuration: `bin` in `exec` mode, or the first
+    // word of `command_prefix` when a prefix is set.
     //
     // Can also be specified via environment variable `BIWA_MISE_VERIFY`.
     //

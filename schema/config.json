@@ -38,7 +38,7 @@
       }
     },
     "mise": {
-      "description": "mise integration for remote command environments.",
+      "description": "mise integration for remote command environments.\n\nRead only from global configuration or `BIWA_MISE_*` environment variables.",
       "$ref": "#/$defs/MiseConfig",
       "default": {
         "bin": "mise",
@@ -310,16 +310,16 @@
       "type": "string"
     },
     "MiseConfig": {
-      "description": "mise integration settings for remote command execution.",
+      "description": "mise integration settings for remote command execution.\n\nThis section selects the program that wraps every remote command, so it is\nread only from global configuration or `BIWA_MISE_*` environment variables.\nA project-local configuration file that sets any of these keys is rejected.",
       "type": "object",
       "properties": {
         "bin": {
-          "description": "mise executable to use on the remote host. May be an absolute path or `~`-relative.",
+          "description": "mise executable to use on the remote host.\n\nMust be a bare command name, an absolute path, or a `~`-relative path.",
           "type": "string",
           "default": "mise"
         },
         "command_prefix": {
-          "description": "Literal shell prefix inserted before the remote command.\n\nThis is an escape hatch (e.g. `\"mise x --\"`). When set, it replaces the\nprefix that `mode` would otherwise build. It is inserted verbatim without\nshell quoting, so treat it as trusted configuration.",
+          "description": "Literal shell prefix inserted before the remote command.\n\nThis is an escape hatch (e.g. `\"mise x --\"`). When set, it replaces the\nprefix that `mode` would otherwise build. It is inserted verbatim without\nshell quoting.",
           "type": [
             "string",
             "null"
@@ -343,7 +343,7 @@
           "default": "exec"
         },
         "verify": {
-          "description": "Check that `bin` exists on the remote host before wrapping a command.",
+          "description": "Check that the configured wrapper exists on the remote host before running a command.\n\nThe check follows the configuration: `bin` in `exec` mode, or the first\nword of `command_prefix` when a prefix is set.",
           "type": "boolean",
           "default": true
         }

@@ -322,8 +322,30 @@ fn build_mise_prefix(mise: &MiseConfig) -> Result<Option<String>> {
 struct MiseProbeTarget {
 	/// Shell word looked up on the remote host.
 	word: String,
+	/// Executable name as configured, for error messages.
+	display: String,
 	/// Configuration key the word was taken from, for error messages.
 	source: &'static str,
+}
+
+/// Returns the executable named by the first word of a raw command prefix.
+///
+/// The prefix is raw shell input rather than a list of arguments, so it may not
+/// lex at all, and it may contain expansions only the remote shell can resolve.
+/// The probe is a convenience check, so anything unresolvable skips it instead
+/// of guessing and reporting a misleading failure.
+fn command_prefix_probe_word(prefix: &str) -> Option<String> {
+	let word = shell_words::split(prefix).ok()?.into_iter().next()?;
+	if word.is_empty() {
+		return None;
+	}
+	// `shell_quote_path` re-expands a leading `$HOME`; any other expansion would
+	// be quoted into a literal and could not be looked up.
+	let home_relative = word == "$HOME" || word.starts_with("$HOME/");
+	if word.contains('$') && !home_relative {
+		return None;
+	}
+	Some(word)
 }
 
 /// Returns the executable to look up remotely for the configured wrapper.
@@ -333,21 +355,22 @@ struct MiseProbeTarget {
 /// which is unused in that case.
 fn mise_probe_target(mise: &MiseConfig) -> Option<MiseProbeTarget> {
 	if let Some(prefix) = mise.configured_command_prefix() {
-		// The prefix is already shell syntax, so its first word is used verbatim.
-		return prefix
-			.split_whitespace()
-			.next()
-			.map(|word| MiseProbeTarget {
-				word: word.to_owned(),
-				source: "mise.command_prefix",
-			});
+		return command_prefix_probe_word(prefix).map(|word| MiseProbeTarget {
+			word: shell_quote_path(&word),
+			display: word,
+			source: "mise.command_prefix",
+		});
 	}
 
 	match mise.mode {
-		MiseMode::Exec => Some(MiseProbeTarget {
-			word: shell_quote_path(mise.bin.trim()),
-			source: "mise.bin",
-		}),
+		MiseMode::Exec => {
+			let bin = mise.bin.trim();
+			Some(MiseProbeTarget {
+				word: shell_quote_path(bin),
+				display: bin.to_owned(),
+				source: "mise.bin",
+			})
+		}
 		// Prefix mode without a command prefix is rejected before execution.
 		MiseMode::Prefix => None,
 	}
@@ -363,13 +386,13 @@ async fn ensure_remote_mise_available(client: &Client, mise: &MiseConfig) -> Res
 	let result = client.execute(&probe).await.wrap_err_with(|| {
 		format!(
 			"Failed to check for `{}` (from `{}`) on the remote host",
-			target.word, target.source
+			target.display, target.source
 		)
 	})?;
 
 	if result.exit_status == 0 {
 		debug!(
-			probe_target = target.word,
+			probe_target = target.display,
 			source = target.source,
 			"Found mise on the remote host"
 		);
@@ -378,7 +401,7 @@ async fn ensure_remote_mise_available(client: &Client, mise: &MiseConfig) -> Res
 
 	bail!(
 		"`{}` (from `{}`) was not found on the remote host, but the mise integration is enabled. Install it remotely (e.g. `BIWA_MISE_ENABLED=false biwa run --skip-sync 'curl https://mise.run | sh'`), point `mise.bin` at its absolute path, skip this check with `mise.verify = false`, or disable the integration with `mise.enabled = false`",
-		target.word,
+		target.display,
 		target.source
 	)
 }
@@ -1194,6 +1217,7 @@ mod tests {
 			}),
 			Some(MiseProbeTarget {
 				word: "\"$HOME\"/.local/bin/mise".to_owned(),
+				display: "~/.local/bin/mise".to_owned(),
 				source: "mise.bin",
 			})
 		);
@@ -1206,6 +1230,7 @@ mod tests {
 			}),
 			Some(MiseProbeTarget {
 				word: "/opt/tools/mise".to_owned(),
+				display: "/opt/tools/mise".to_owned(),
 				source: "mise.command_prefix",
 			})
 		);
@@ -1217,8 +1242,45 @@ mod tests {
 			}),
 			Some(MiseProbeTarget {
 				word: "\"$HOME\"/bin/mise".to_owned(),
+				display: "$HOME/bin/mise".to_owned(),
 				source: "mise.command_prefix",
 			})
+		);
+	}
+
+	#[test]
+	fn mise_probe_target_keeps_quoted_prefix_paths_intact() {
+		assert_eq!(
+			mise_probe_target(&MiseConfig {
+				command_prefix: Some("\"/opt/my tools/mise\" x --".to_owned()),
+				..mise_config(MiseMode::Prefix)
+			}),
+			Some(MiseProbeTarget {
+				word: "'/opt/my tools/mise'".to_owned(),
+				display: "/opt/my tools/mise".to_owned(),
+				source: "mise.command_prefix",
+			}),
+			"a quoted path must not be split mid-quote into an invalid probe"
+		);
+	}
+
+	#[test]
+	fn mise_probe_target_skips_unresolvable_prefixes() {
+		// Unbalanced quotes do not lex, so there is no word to look up.
+		assert_eq!(
+			mise_probe_target(&MiseConfig {
+				command_prefix: Some("\"/opt/my tools/mise x --".to_owned()),
+				..mise_config(MiseMode::Prefix)
+			}),
+			None
+		);
+		// Only the remote shell could resolve this expansion.
+		assert_eq!(
+			mise_probe_target(&MiseConfig {
+				command_prefix: Some("$MISE_BIN x --".to_owned()),
+				..mise_config(MiseMode::Prefix)
+			}),
+			None
 		);
 	}
 
