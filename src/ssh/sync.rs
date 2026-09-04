@@ -4655,8 +4655,10 @@ mod tests {
 
 	#[test]
 	fn empty_directory_sets_produce_no_remote_work() {
-		// An empty batch must not emit `mkdir -p --` with no operands, which
-		// would fail on the remote shell.
+		// Callers feed these straight into remote execution, so an empty input
+		// has to stay empty rather than turning into a command with no operands.
+		// The operand invariant itself is pinned by
+		// `build_mkdir_commands_chunks_large_directory_sets`.
 		assert!(collect_leaf_directories(&[]).is_empty());
 		assert!(build_mkdir_commands("0077", "~/project", &[]).is_empty());
 	}
@@ -4846,6 +4848,17 @@ mod tests {
 				.iter()
 				.all(|command| command.len() <= MAX_REMOTE_MKDIR_COMMAND_LEN)
 		);
+		// `mkdir -p --` with no operands fails on the remote shell, so no batch
+		// may be emitted empty — including the one opened by a length split.
+		for command in &commands {
+			let operands = command
+				.strip_prefix("umask 0077 && mkdir -p --")
+				.expect("every batch keeps the umask prefix");
+			assert!(
+				!operands.trim().is_empty(),
+				"batch had no operands: {command}"
+			);
+		}
 	}
 
 	#[test]

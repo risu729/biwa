@@ -559,6 +559,7 @@ fn default_data_dir() -> PathBuf {
 mod tests {
 	use super::*;
 	use alloc::vec::Vec;
+	use core::time::Duration;
 	use pretty_assertions::assert_eq;
 	use schemars::schema_for;
 
@@ -652,6 +653,27 @@ mod tests {
 	fn umask_out_of_range_rejected() {
 		let r: Result<Umask, _> = serde_json::from_str(r#""1000""#);
 		let _: serde_json::Error = r.unwrap_err();
+	}
+
+	#[test]
+	fn effective_thresholds_merge_max_age_as_the_zero_percent_entry() {
+		let mut clean = Config::default().clean;
+		clean.max_age = Duration::from_hours(24).into();
+		clean.quota_thresholds = BTreeMap::from([
+			(0, Duration::from_hours(999).into()),
+			(80, Duration::from_hours(120).into()),
+		]);
+
+		let thresholds = clean.effective_thresholds();
+		// An explicit 0% entry must lose to `max_age`, which owns that slot.
+		assert_eq!(
+			thresholds.get(&0).map(HumanDuration::as_duration),
+			Some(Duration::from_hours(24))
+		);
+		assert_eq!(
+			thresholds.get(&80).map(HumanDuration::as_duration),
+			Some(Duration::from_hours(120))
+		);
 	}
 
 	#[test]
