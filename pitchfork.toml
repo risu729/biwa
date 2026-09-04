@@ -6,11 +6,7 @@ general.mise = true
 [daemons.ssh-server]
 run = "./tasks/start-ssh-server"
 port = { expect = [2222, 2223], bump = true }
-watch = [
-	"docker-compose.yml",
-	"tasks/start-ssh-server",
-	"tests/fixtures/ssh-capable/Dockerfile"
-]
+watch = ["docker-compose.yml", "tasks/start-ssh-server", "tests/fixtures/ssh-capable/Dockerfile"]
 auto = ["start", "stop"]
 ready_output = { pattern = "SSH test servers are ready", timeout = "2m" }
 
