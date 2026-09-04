@@ -70,6 +70,25 @@ mod tests {
 	}
 
 	#[test]
+	fn shell_value_enum_maps_to_the_matching_usage_shell() {
+		// A swapped arm would silently emit another shell's completion script.
+		use super::Shell;
+		use pretty_assertions::assert_eq;
+		use usage_rs::complete;
+
+		for (shell, expected) in [
+			(Shell::Bash, complete::Shell::Bash),
+			(Shell::Fish, complete::Shell::Fish),
+			(Shell::Zsh, complete::Shell::Zsh),
+		] {
+			assert_eq!(
+				Cli::completion_script(shell.into()),
+				Cli::completion_script(expected)
+			);
+		}
+	}
+
+	#[test]
 	fn completion_scripts_are_self_contained() {
 		use usage_rs::complete;
 

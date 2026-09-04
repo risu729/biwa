@@ -42,6 +42,7 @@ pub(super) struct TransferArgs {
 }
 
 /// A fully resolved local and remote transfer target.
+#[derive(Debug)]
 pub(super) struct ResolvedTransfer {
 	/// Local project root.
 	pub local_root: PathBuf,
@@ -419,6 +420,89 @@ mod tests {
 		}
 		let error = normalize_remote_dir("").unwrap_err();
 		assert!(error.to_string().contains("must not be empty"));
+		Ok(())
+	}
+
+	#[test]
+	fn resolve_uses_the_normalized_explicit_remote_dir() -> Result<()> {
+		// `--remote-dir` must bypass the derived `{remote_root}/{project}` path
+		// even when the transfer still pushes local files.
+		let dir = tempdir()?;
+		let args = TransferArgs {
+			sync_root: Some(dir.path().to_path_buf()),
+			remote_dir: Some("~/explicit//target/".to_owned()),
+			..Default::default()
+		};
+
+		let resolved = args.resolve(&Config::default())?;
+		assert_eq!(resolved.remote_dir, "~/explicit/target");
+		Ok(())
+	}
+
+	#[test]
+	fn resolve_rejects_traversal_in_the_explicit_remote_dir() -> Result<()> {
+		let dir = tempdir()?;
+		let args = TransferArgs {
+			sync_root: Some(dir.path().to_path_buf()),
+			remote_dir: Some("~/project/../../etc".to_owned()),
+			..Default::default()
+		};
+
+		let error = args
+			.resolve(&Config::default())
+			.expect_err("parent traversal must not reach the remote");
+		assert!(
+			error.to_string().contains("parent traversal"),
+			"error: {error}"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn resolve_pull_creates_a_missing_root_privately() -> Result<()> {
+		// The default remote directory is derived from the canonical local root,
+		// so pull has to create it first — and it must not be world-readable.
+		let dir = tempdir()?;
+		let root = dir.path().join("missing-project");
+		let args = TransferArgs {
+			sync_root: Some(root.clone()),
+			..Default::default()
+		};
+
+		let resolved = args.resolve_pull(&Config::default())?;
+
+		assert!(root.is_dir());
+		assert_eq!(resolved.local_root, canonicalize(&root)?);
+		assert!(
+			resolved.remote_dir.contains("missing-project-"),
+			"remote dir was: {}",
+			resolved.remote_dir
+		);
+		#[cfg(unix)]
+		assert_eq!(
+			fs::metadata(&root)?.permissions().mode() & 0o777,
+			0o700,
+			"a freshly created pull root must stay private"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn resolve_pull_keeps_a_missing_root_absent_for_explicit_remote_dirs() -> Result<()> {
+		// With an explicit remote directory the local path is never hashed, so
+		// pull must not create directories before the transfer is planned.
+		let dir = tempdir()?;
+		let root = dir.path().join("missing-project");
+		let args = TransferArgs {
+			sync_root: Some(root.clone()),
+			remote_dir: Some("~/explicit".to_owned()),
+			..Default::default()
+		};
+
+		let resolved = args.resolve_pull(&Config::default())?;
+
+		assert!(!root.exists());
+		assert_eq!(resolved.remote_dir, "~/explicit");
 		Ok(())
 	}
 
