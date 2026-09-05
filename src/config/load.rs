@@ -118,8 +118,14 @@ impl Config {
 				let config_root = path;
 
 				if let Some((config_path, format)) = find_single_config(&local_candidates)? {
-					let partial = Self::load_partial(&config_path, format, config_root)?;
+					let mut partial = Self::load_partial(&config_path, format, config_root)?;
 					reject_global_only_keys(&config_path, &partial)?;
+					// Project configuration is auto-discovered and must not authorize local execution.
+					if partial.hooks.pre_sync.is_some() || partial.hooks.post_sync.is_some() {
+						warn!(path = %config_path.display(), "Ignoring project-local hooks; configure hooks globally");
+						partial.hooks.pre_sync = None;
+						partial.hooks.post_sync = None;
+					}
 					required_presence.observe_layer(&partial);
 					info!(
 						path = %config_path.display(),
@@ -254,6 +260,14 @@ impl Config {
 				if bin_dir.as_os_str().as_bytes().contains(&b':') {
 					bail!("Invalid direct.bin_dir: path must not contain `:`");
 				}
+			}
+		}
+		for (key, command) in [
+			("hooks.pre_sync", self.hooks.pre_sync.as_deref()),
+			("hooks.post_sync", self.hooks.post_sync.as_deref()),
+		] {
+			if command.is_some_and(|command| command.trim().is_empty()) {
+				bail!("Invalid {key}: command must not be empty");
 			}
 		}
 		for key in self.clean.quota_thresholds.keys() {
@@ -870,6 +884,50 @@ verify = false
 
 	#[serial]
 	#[test]
+	fn rejects_empty_hook_commands() -> Result<()> {
+		let dir = tempdir()?;
+		fs::write(
+			dir.path().join("biwa.toml"),
+			"ssh.host = 'h'\nssh.user = 'u'\nhooks.post_sync = '   '\n",
+		)?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("h", "u");
+
+		let error = load_internal(Some(dir.path().to_path_buf()).as_ref(), None, None).unwrap_err();
+		assert!(
+			error
+				.to_string()
+				.contains("Invalid hooks.post_sync: command must not be empty"),
+			"unexpected error: {error}"
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn project_hooks_cannot_override_or_extend_global_hooks() -> Result<()> {
+		let dir = tempdir()?;
+		let home = dir.path().to_path_buf();
+		let project = home.join("project");
+		let nested = project.join("nested");
+		fs::create_dir_all(&nested)?;
+		fs::write(home.join("biwa.toml"), "hooks.pre_sync = 'trusted'\n")?;
+		fs::write(project.join("biwa.toml"), "hooks.pre_sync = 'untrusted'\n")?;
+		fs::write(nested.join(".biwa.toml"), "hooks.post_sync = 'untrusted'\n")?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("h", "u");
+
+		let config = load_internal(Some(&home), None, Some(&nested))?;
+		assert_eq!(config.hooks.pre_sync.as_deref(), Some("trusted"));
+		assert!(config.hooks.post_sync.is_none());
+
+		fs::remove_file(home.join("biwa.toml"))?;
+		let config = load_internal(Some(&home), None, Some(&nested))?;
+		assert!(config.hooks.pre_sync.is_none());
+		assert!(config.hooks.post_sync.is_none());
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
 	fn env_vars_can_be_loaded_from_biwa_env_vars() -> Result<()> {
 		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
 
@@ -1100,7 +1158,7 @@ verify = false
 		let file_path = dir.path().join(format!("biwa.{ext}"));
 		fs::write(&file_path, content)?;
 
-		let config = load_internal(None, None, Some(dir.path().to_path_buf()).as_ref())?;
+		let config = load_internal(Some(dir.path().to_path_buf()).as_ref(), None, None)?;
 		assert_eq!(config.hooks.pre_sync.as_deref(), Some(expected));
 		Ok(())
 	}

@@ -195,6 +195,56 @@ It is strongly recommended to use a relative path starting with `~` for your `re
 
 The sync cache speeds up repeated syncs by reusing hashes while a file's metadata fingerprint is unchanged. Both sides check size and modification time; the remote side also checks change time, and the local side checks change time and inode on Unix. See [Hash cache](/sync-behavior#hash-cache) for how invalidation works and when to reset it.
 
+### `[hooks]` — Synchronization Hook Settings
+
+| Key         | Type    | Default | Description                                                  |
+| ----------- | ------- | ------- | ------------------------------------------------------------ |
+| `pre_sync`  | string? | `null`  | Local command run before synchronization uploads files       |
+| `post_sync` | string? | `null`  | Local command run after a successful synchronization         |
+
+Hooks are loaded **only from global configuration** (`~/biwa.*`, `~/.biwa.*`, or the platform configuration directory's `biwa/config.*`). Hooks in automatically discovered project or ancestor configuration are ignored with a warning, so a cloned repository cannot authorize local commands. Configure hooks only for commands you trust to run in the current project's sync root; task runners such as `bun`, `cargo`, and `mise` can themselves execute project code.
+
+Both hooks run **locally**, never on the remote host:
+
+- `pre_sync` runs before `biwa sync` uploads files, and before the automatic sync phase of `biwa run`. Files it generates are part of the same upload.
+- `post_sync` runs after the upload succeeded. It runs before the remote command of `biwa run` starts.
+- If the sync is skipped (`biwa run --skip-sync`, or `-d` / `--remote-dir` without `--sync`, or `sync.auto = false`), neither hook runs. `biwa pull` never runs sync hooks either — they are tied to the push, not to every transfer.
+- A failing hook aborts the operation. `pre_sync` failures abort before anything is uploaded; `post_sync` failures fail the command after the upload already completed, and never run when the upload itself failed.
+- Hooks run with the resolved [sync root](/sync-behavior#sync-root) as their working directory, so `npm run build` or `cargo build` sees the project directory.
+- Hooks run after the SSH connection is established, so an unreachable host fails before a build starts.
+- Commands are split into arguments with shell word splitting (quotes are honored) and executed directly, so there is no implicit shell expansion. Use `sh -c "..."` when you need pipes, redirection, or variables. An empty hook command is rejected when the configuration loads.
+- Hook output is streamed to biwa's **stderr** so that piping `biwa run` output still yields only the remote command's stdout. `--quiet` suppresses hook stdout but keeps hook stderr, so a failing hook can still explain itself; `--silent` suppresses both.
+- Hooks do not inherit biwa's stdin, so they must not be interactive.
+
+::: warning Round trips (`--pull` / `--pull-always`)
+The verified pushed snapshot stays the pull baseline. If a file in the transfer scope is **created, modified, or removed** while `post_sync` runs — by the hook or by an editor save — the pull refuses with `Local files changed …` and preserves the local change.
+
+Keep local post-sync output outside the transfer scope using `.gitignore`, `.biwaignore`, `sync.exclude`, or `--exclude`. Excluded artifacts survive the pull. Generate files that should be uploaded in `pre_sync` instead.
+:::
+
+```toml
+# In your global configuration, for JavaScript projects
+[hooks]
+pre_sync = "bun install --frozen-lockfile"
+post_sync = "bun test"
+```
+
+```toml
+# In your global configuration, for Rust projects
+[hooks]
+pre_sync = "cargo build"
+```
+
+```toml
+# In your global configuration, for a build step needing shell features
+[hooks]
+pre_sync = 'sh -c "make build && date > .last-build"'
+```
+
+::: tip Keep hooks to one command
+Hooks are intentionally single one-line commands. For multi-step workflows, define a task with a task runner such as [mise](https://mise.jdx.dev/tasks/) and point the hook at it (for example `pre_sync = "mise run build"`).
+:::
+
 ### `[clean]` — Remote Directory Cleanup Settings
 
 | Key                | Type    | Default | Description                                                                |

@@ -18,6 +18,8 @@ mod activate;
 mod clean;
 /// Shell completion generation command.
 mod completion;
+/// Local lifecycle hooks executed around synchronization.
+mod hooks;
 /// Configuration initialization command.
 mod init;
 /// Remote-to-local project mirroring command.
@@ -166,7 +168,7 @@ pub async fn run() -> Result<()> {
 	match cli.command {
 		Some(Commands::Activate(cmd)) => cmd.run()?,
 		Some(Commands::Run(cmd)) => cmd.run(output_mode.quiet, output_mode.silent).await?,
-		Some(Commands::Sync(cmd)) => cmd.run(output_mode.quiet).await?,
+		Some(Commands::Sync(cmd)) => cmd.run(output_mode.quiet, output_mode.silent).await?,
 		Some(Commands::Pull(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Clean(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Init(cmd)) => cmd.run()?,

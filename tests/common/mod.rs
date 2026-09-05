@@ -17,7 +17,7 @@ use russh::keys::{
 use sha2::Digest as _;
 use std::sync::LazyLock;
 use std::{
-	env,
+	env, fs, iter,
 	path::{Path, PathBuf},
 };
 
@@ -147,6 +147,26 @@ fn ssh_capable_port() -> &'static str {
 		env::var("BIWA_TEST_SSH_CAPABLE_PORT").unwrap_or_else(|_| "2223".to_owned())
 	});
 	PORT.as_str()
+}
+
+/// Writes isolated global hooks; set the child process `XDG_CONFIG_HOME` to the returned directory.
+#[allow(
+	dead_code,
+	reason = "Only the sync hook integration tests configure hooks."
+)]
+pub fn write_hooks_config(
+	pre_sync: Option<&str>,
+	post_sync: Option<&str>,
+) -> Result<tempfile::TempDir> {
+	let config = iter::once("[hooks]".to_owned())
+		.chain(pre_sync.map(|command| format!("pre_sync = '{command}'")))
+		.chain(post_sync.map(|command| format!("post_sync = '{command}'")))
+		.collect::<Vec<_>>()
+		.join("\n");
+	let dir = tempfile::tempdir()?;
+	fs::create_dir_all(dir.path().join("biwa"))?;
+	fs::write(dir.path().join("biwa/config.toml"), config + "\n")?;
+	Ok(dir)
 }
 
 /// Computes the absolute path to the remote project directory.

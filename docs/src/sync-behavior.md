@@ -126,6 +126,24 @@ biwa run -d /tmp/my-project --pull make generated
 When used with `biwa sync` or `biwa pull`, `--remote-dir` replaces the automatically computed `remote_root + project_name` path.
 To prevent accidental data overwrites when executing standard commands across different remote paths, **using `-d` with `biwa run` automatically disables project synchronization (`--skip-sync`)**. Pass `--sync`, `--pull`, or `--pull-always` to opt into the corresponding transfer workflow.
 
+## Sync hooks
+
+`hooks.pre_sync` and `hooks.post_sync` run **local** commands around the push phase:
+
+```toml
+[hooks]
+pre_sync = "cargo build"
+post_sync = "echo sync complete"
+```
+
+`pre_sync` runs before files are uploaded — by `biwa sync` and by the automatic sync phase of `biwa run` — so generated artifacts are included in the same upload. `post_sync` runs after a successful upload, before the remote command of `biwa run` starts. Both hooks are skipped whenever the sync phase itself is skipped (`--skip-sync`, `-d` without `--sync`, or `sync.auto = false`), and `biwa pull` never runs them because it does not push. A failing hook aborts the operation, and `post_sync` never runs when the upload failed.
+
+Hooks are loaded only from global configuration. Project-local hooks are ignored with a warning. Configure commands you trust to run in each project's sync root; task runners can themselves execute project code.
+
+For round trips (`--pull` / `--pull-always`), all local changes made after the push — including new files created while `post_sync` runs — trigger the local drift guard, so the pull preserves them and refuses to overwrite the project. Exclude local post-sync artifacts from the transfer scope, or generate uploaded files in `pre_sync`.
+
+See the [`[hooks]` configuration reference](/configuration) for the full behavior, including working directory, argument parsing, and output handling.
+
 ## Hash cache
 
 Biwa compares SHA-256 content hashes to decide which files need transferring. Computing them means reading every local file and running `sha256sum` over every remote file, so biwa caches both sides between runs and re-hashes only what changed.

@@ -200,7 +200,7 @@ pub struct Config {
 	#[config(nested)]
 	#[schemars(default)]
 	pub env: EnvConfig,
-	/// Lifecycle hooks for synchronization.
+	/// Local lifecycle hooks for synchronization.
 	#[config(nested)]
 	#[schemars(default)]
 	pub hooks: HooksConfig,
@@ -472,12 +472,17 @@ impl Default for EnvConfig {
 	}
 }
 
-/// Hook settings.
+/// Hook settings loaded only from global configuration.
+/// Project-local hook settings are ignored.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HooksConfig {
-	/// Command to run before synchronization.
+	/// Local command to run before synchronization uploads files.
+	/// Runs in the local sync root and aborts the operation when it fails.
+	/// Split into arguments with shell word splitting; use `sh -c "..."` for shell features.
 	pub pre_sync: Option<String>,
-	/// Command to run after synchronization.
+	/// Local command to run after a successful synchronization.
+	/// Runs in the local sync root and aborts the operation when it fails.
+	/// Split into arguments with shell word splitting; use `sh -c "..."` for shell features.
 	pub post_sync: Option<String>,
 }
 

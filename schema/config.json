@@ -30,7 +30,7 @@
       }
     },
     "hooks": {
-      "description": "Lifecycle hooks for synchronization.",
+      "description": "Local lifecycle hooks for synchronization.",
       "$ref": "#/$defs/HooksConfig",
       "default": {
         "post_sync": null,
@@ -268,18 +268,18 @@
       ]
     },
     "HooksConfig": {
-      "description": "Hook settings.",
+      "description": "Hook settings loaded only from global configuration.\nProject-local hook settings are ignored.",
       "type": "object",
       "properties": {
         "post_sync": {
-          "description": "Command to run after synchronization.",
+          "description": "Local command to run after a successful synchronization.\nRuns in the local sync root and aborts the operation when it fails.\nSplit into arguments with shell word splitting; use `sh -c \"...\"` for shell features.",
           "type": [
             "string",
             "null"
           ]
         },
         "pre_sync": {
-          "description": "Command to run before synchronization.",
+          "description": "Local command to run before synchronization uploads files.\nRuns in the local sync root and aborts the operation when it fails.\nSplit into arguments with shell word splitting; use `sh -c \"...\"` for shell features.",
           "type": [
             "string",
             "null"

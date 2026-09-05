@@ -1,5 +1,6 @@
 use crate::Result;
 use crate::cli::clean::spawn_background_cleanup;
+use crate::cli::hooks::{HookOutput, SyncHook, run_sync_hook};
 use crate::cli::transfer::{TransferArgs, record_connection_use};
 use crate::config::types::Config;
 use crate::ssh::exec::connect;
@@ -17,14 +18,23 @@ pub(super) struct Sync {
 
 impl Sync {
 	/// Run the push logic.
-	pub async fn run(self, quiet: bool) -> Result<()> {
+	pub async fn run(self, quiet: bool, silent: bool) -> Result<()> {
 		let config = Config::load()?;
 		let transfer = self.args.resolve(&config)?;
 		let client = connect(&config, quiet).await?;
+		let hook_output = HookOutput { quiet, silent };
 
 		// Mark the directory as in use before remote work starts so background cleanup
 		// does not treat an active old project as stale.
 		record_connection_use(&config, &transfer.remote_dir);
+
+		run_sync_hook(
+			SyncHook::PreSync,
+			&config.hooks,
+			&transfer.local_root,
+			hook_output,
+		)
+		.await?;
 
 		push_project(
 			&client,
@@ -35,6 +45,19 @@ impl Sync {
 			quiet,
 		)
 		.await?;
+
+		if let Err(error) = run_sync_hook(
+			SyncHook::PostSync,
+			&config.hooks,
+			&transfer.local_root,
+			hook_output,
+		)
+		.await
+		{
+			// The upload already completed, so keep the directory marked as in use.
+			record_connection_use(&config, &transfer.remote_dir);
+			return Err(error);
+		}
 
 		record_connection_use(&config, &transfer.remote_dir);
 
