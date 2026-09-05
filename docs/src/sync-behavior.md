@@ -142,7 +142,7 @@ As on the local side, the change time is what makes a rewrite unmissable: no rem
 
 Remote fingerprints are nonetheless weaker than local ones — there is no inode component, and the timestamps are whatever the remote filesystem reports — so two extra rules apply:
 
-- Remote files whose modification or change time is within two seconds of the remote clock are never cached, so a rewrite landing on the same filesystem timestamp tick cannot slip through. On a networked filesystem the inventory's clock is the login node's rather than the file server's, which makes this window a safety margin rather than a guarantee; the change time above is the actual defence.
+- Remote files whose modification or change time is within two seconds of the remote clock, or ahead of it, are always re-hashed and kept out of the cache. This check also applies to existing cache entries after a clock correction. Fractional timestamps are rounded up when compared with the whole-second remote clock, preserving the full two-second window. On a networked filesystem the inventory's clock is the login node's rather than the file server's, which makes this window a safety margin rather than a guarantee; the change time above is the actual defence.
 - Once a day, biwa ignores the cached remote hashes and hashes the whole remote directory again, bounding how long any drift that did slip through can persist. Set `sync.sftp.cache.auto_revalidate = false` to trust cached remote hashes until their fingerprint changes.
 
 A remote file whose metadata cannot serve as a cache key — a timestamp before 1970, for instance — is never cached and is simply hashed on every run. It still syncs exactly as it would without the cache.

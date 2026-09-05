@@ -349,8 +349,8 @@ pub struct SyncSftpCacheConfig {
 	/// Reuse cached local and remote file hashes while a file's metadata fingerprint is unchanged.
 	///
 	/// The local fingerprint covers size and modification time, plus change time
-	/// and inode on Unix. The remote fingerprint covers size and modification
-	/// time only.
+	/// and inode on Unix. The remote fingerprint covers size, modification time,
+	/// and change time.
 	#[config(default = true, env = "BIWA_SYNC_SFTP_CACHE_ENABLED")]
 	#[schemars(default = "crate::config::types::schema_defaults::bool_true")]
 	pub enabled: bool,
@@ -361,10 +361,10 @@ pub struct SyncSftpCacheConfig {
 	pub path: Option<PathBuf>,
 	/// Periodically re-hash every remote file instead of trusting cached remote hashes.
 	///
-	/// Remote fingerprints cannot detect content that changed without moving the
-	/// size or modification time, so biwa re-hashes the whole remote directory
-	/// once a day. Disabling this trusts cached remote hashes until their
-	/// fingerprint changes.
+	/// Remote fingerprints have no inode component and depend on the remote
+	/// filesystem reporting timestamp changes faithfully, so biwa re-hashes the
+	/// whole remote directory once a day. Disabling this trusts cached remote
+	/// hashes until their fingerprint changes.
 	#[config(default = true, env = "BIWA_SYNC_SFTP_CACHE_AUTO_REVALIDATE")]
 	#[schemars(default = "crate::config::types::schema_defaults::bool_true")]
 	pub auto_revalidate: bool,

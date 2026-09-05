@@ -2571,8 +2571,8 @@ fn sha256_hex(content: &str) -> String {
 /// to the crate; keep the two in step.
 const REMOTE_SETTLE_WINDOW: Duration = Duration::from_secs(2);
 
-/// Extra time waited so a whole-second timestamp cannot land on the boundary.
-const REMOTE_SETTLE_HEADROOM: Duration = Duration::from_millis(500);
+/// Extra time covering fractional timestamps against a whole-second remote clock.
+const REMOTE_SETTLE_HEADROOM: Duration = Duration::from_secs(1);
 
 /// Waits until remote timestamps written just now can key a cache entry.
 ///

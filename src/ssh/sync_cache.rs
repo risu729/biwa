@@ -179,16 +179,20 @@ impl RemoteFingerprint {
 		})
 	}
 
-	/// Returns the whole-second part of a validated timestamp token.
+	/// Returns a validated timestamp rounded up to the next whole second.
 	///
 	/// A value that does not fit in an [`i64`] is reported as the maximum, which
 	/// makes [`is_settled`](Self::is_settled) reject it.
-	fn timestamp_secs(token: &str) -> i64 {
-		token
-			.split_once('.')
-			.map_or(token, |(seconds, _)| seconds)
-			.parse::<i64>()
-			.unwrap_or(i64::MAX)
+	fn timestamp_ceiling_secs(token: &str) -> i64 {
+		let (seconds, fraction) = token.split_once('.').unwrap_or((token, ""));
+		let seconds = seconds.parse::<i64>().unwrap_or(i64::MAX);
+		// The inventory clock has no fraction. Rounding a file timestamp down
+		// would make the exclusion window end up to one second too early.
+		if fraction.bytes().any(|byte| byte != b'0') {
+			seconds.saturating_add(1)
+		} else {
+			seconds
+		}
 	}
 
 	/// Returns whether both timestamps are old enough to key a cached hash.
@@ -208,7 +212,8 @@ impl RemoteFingerprint {
 		[self.mtime.as_str(), self.ctime.as_str()]
 			.into_iter()
 			.all(|token| {
-				let Some(age) = remote_clock_secs.checked_sub(Self::timestamp_secs(token)) else {
+				let Some(age) = remote_clock_secs.checked_sub(Self::timestamp_ceiling_secs(token))
+				else {
 					return false;
 				};
 				// A negative age means the timestamp is ahead of the remote clock.
@@ -795,13 +800,13 @@ mod tests {
 		assert_eq!(fingerprint.mtime, "1700000000.1234567890");
 		assert_eq!(fingerprint.ctime, "1700000001.5");
 		assert_eq!(
-			RemoteFingerprint::timestamp_secs(&fingerprint.mtime),
-			1_700_000_000
+			RemoteFingerprint::timestamp_ceiling_secs(&fingerprint.mtime),
+			1_700_000_001
 		);
 		// A timestamp without a fractional part stays usable.
 		let whole = RemoteFingerprint::parse("0", "1700000000", "1700000000").unwrap();
 		assert_eq!(
-			RemoteFingerprint::timestamp_secs(&whole.mtime),
+			RemoteFingerprint::timestamp_ceiling_secs(&whole.mtime),
 			1_700_000_000
 		);
 	}
@@ -834,7 +839,10 @@ mod tests {
 	fn remote_fingerprint_is_settled_only_outside_the_racy_window() {
 		let fingerprint = RemoteFingerprint::parse("10", "1700000000.5", "1700000000.5").unwrap();
 
-		assert!(fingerprint.is_settled(1_700_000_002));
+		// At this whole-second clock value the timestamp is only 1.5 seconds
+		// old, so dropping its fractional part must not open the window early.
+		assert!(!fingerprint.is_settled(1_700_000_002));
+		assert!(fingerprint.is_settled(1_700_000_003));
 		assert!(!fingerprint.is_settled(1_700_000_001));
 		// A timestamp ahead of the remote clock is never trusted.
 		assert!(!fingerprint.is_settled(1_699_999_000));
@@ -843,6 +851,21 @@ mod tests {
 		let restored = RemoteFingerprint::parse("10", "1700000000.5", "1700000002.5").unwrap();
 		assert!(!restored.is_settled(1_700_000_003));
 		assert!(restored.is_settled(1_700_000_005));
+		let whole = RemoteFingerprint::parse("10", "1700000000", "1700000000.000").unwrap();
+		assert!(whole.is_settled(1_700_000_002));
+		let tiny_fraction =
+			RemoteFingerprint::parse("10", "1700000000.000000001", "1700000000").unwrap();
+		assert!(!tiny_fraction.is_settled(1_700_000_002));
+		assert!(tiny_fraction.is_settled(1_700_000_003));
+	}
+
+	#[test]
+	fn remote_fingerprint_rejects_ages_that_overflow() {
+		for timestamp in ["9223372036854775807.5", "9223372036854775808"] {
+			let fingerprint = RemoteFingerprint::parse("10", timestamp, timestamp).unwrap();
+			assert!(!fingerprint.is_settled(i64::MAX));
+			assert!(!fingerprint.is_settled(i64::MIN));
+		}
 	}
 
 	#[test]

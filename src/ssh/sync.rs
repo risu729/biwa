@@ -973,14 +973,16 @@ async fn run_remote_inventory(
 
 /// Returns whether a cached entry matches an inventoried file's metadata.
 ///
-/// A file without a usable fingerprint never matches, so it is always hashed
-/// again rather than resolved from the cache.
+/// A file without a usable, settled fingerprint never matches, so it is always
+/// hashed again. Recheck the current clock even for existing cache entries: a
+/// clock correction can put their timestamps back inside the exclusion window.
 fn cached_remote_hash<'cache>(
 	cached: Option<&'cache BTreeMap<String, CachedRemoteState>>,
 	path: &str,
 	fingerprint: Option<&RemoteFingerprint>,
+	clock: i64,
 ) -> Option<&'cache str> {
-	let fingerprint = fingerprint?;
+	let fingerprint = fingerprint.filter(|fingerprint| fingerprint.is_settled(clock))?;
 	cached?
 		.get(path)
 		.filter(|entry| &entry.fingerprint == fingerprint)
@@ -997,7 +999,7 @@ fn pending_hash_paths(
 		.iter()
 		.filter(|(path, fingerprint)| {
 			!inventory.hashes.contains_key(*path)
-				&& cached_remote_hash(cached, path, fingerprint.as_ref()).is_none()
+				&& cached_remote_hash(cached, path, fingerprint.as_ref(), inventory.clock).is_none()
 		})
 		.map(|(path, _)| path.clone())
 		.collect()
@@ -1087,7 +1089,7 @@ fn build_remote_state(
 		let hash = if let Some(hash) = hashes.remove(&path) {
 			scan.hashed = scan.hashed.saturating_add(1);
 			hash
-		} else if let Some(hash) = cached_remote_hash(cached, &path, fingerprint.as_ref()) {
+		} else if let Some(hash) = cached_remote_hash(cached, &path, fingerprint.as_ref(), clock) {
 			scan.hits = scan.hits.saturating_add(1);
 			hash.to_owned()
 		} else {
@@ -4360,6 +4362,25 @@ mod tests {
 				"new.txt".to_owned()
 			]
 		);
+	}
+
+	#[test]
+	fn pending_hash_paths_rechecks_the_settle_window_for_cached_entries() {
+		let cached = BTreeMap::from([("cached.txt".to_owned(), remote_scan_cache_entry("stale"))]);
+		for clock in [1_700_000_000, 1_700_000_002] {
+			// A remote clock correction can put previously cached timestamps
+			// ahead of the clock or back inside the racy timestamp window.
+			let inventory = RemoteInventory {
+				clock,
+				metadata: BTreeMap::from([("cached.txt".to_owned(), Some(remote_fingerprint(5)))]),
+				..RemoteInventory::default()
+			};
+			assert_eq!(
+				pending_hash_paths(&inventory, Some(&cached)),
+				vec!["cached.txt".to_owned()],
+				"remote clock: {clock}"
+			);
+		}
 	}
 
 	#[test]

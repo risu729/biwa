@@ -134,8 +134,8 @@ expression: content
 # Reuse cached local and remote file hashes while a file's metadata fingerprint is unchanged.
 #
 # The local fingerprint covers size and modification time, plus change time
-# and inode on Unix. The remote fingerprint covers size and modification
-# time only.
+# and inode on Unix. The remote fingerprint covers size, modification time,
+# and change time.
 #
 # Can also be specified via environment variable `BIWA_SYNC_SFTP_CACHE_ENABLED`.
 #
@@ -151,10 +151,10 @@ expression: content
 
 # Periodically re-hash every remote file instead of trusting cached remote hashes.
 #
-# Remote fingerprints cannot detect content that changed without moving the
-# size or modification time, so biwa re-hashes the whole remote directory
-# once a day. Disabling this trusts cached remote hashes until their
-# fingerprint changes.
+# Remote fingerprints have no inode component and depend on the remote
+# filesystem reporting timestamp changes faithfully, so biwa re-hashes the
+# whole remote directory once a day. Disabling this trusts cached remote
+# hashes until their fingerprint changes.
 #
 # Can also be specified via environment variable `BIWA_SYNC_SFTP_CACHE_AUTO_REVALIDATE`.
 #
