@@ -1,6 +1,6 @@
 name biwa
 bin biwa
-version "1.0.0"
+version "2.0.0"
 about "CLI to execute commands on UNSW CSE servers from local"
 unknown_flags error
 arg_required_else_help #true
