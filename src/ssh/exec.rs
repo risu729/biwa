@@ -1497,6 +1497,55 @@ mod tests {
 
 	#[serial]
 	#[test]
+	fn resolve_env_vars_reports_a_missing_inherited_variable() {
+		// An exact inherit rule is kept even when the variable is absent, so the
+		// failure has to name the variable instead of silently forwarding nothing.
+		let _cleanup = EnvCleanup::remove("BIWA_TEST_ABSENT");
+
+		let error = resolve_env_vars(
+			&Config::default(),
+			&[EnvVarRule::Spec(EnvVarSpec::inherit("BIWA_TEST_ABSENT"))],
+		)
+		.expect_err("an absent inherited variable must fail loudly");
+
+		assert_eq!(
+			error.to_string(),
+			"Environment variable `BIWA_TEST_ABSENT` is not set locally"
+		);
+	}
+
+	#[serial]
+	#[test]
+	fn local_terminal_type_falls_back_to_xterm() {
+		let _cleanup = EnvCleanup::set("TERM", "screen-256color");
+		assert_eq!(local_terminal_type(), "screen-256color");
+
+		let _blank = EnvCleanup::set("TERM", "   ");
+		assert_eq!(local_terminal_type(), "xterm");
+
+		let _missing = EnvCleanup::remove("TERM");
+		assert_eq!(local_terminal_type(), "xterm");
+	}
+
+	#[serial]
+	#[test]
+	fn terminal_dimension_rejects_unusable_values() {
+		// A zero or unparsable dimension would make the PTY request meaningless,
+		// so only positive integers may override the default.
+		let _cleanup = EnvCleanup::set("BIWA_TEST_COLUMNS", "120");
+		assert_eq!(terminal_dimension("BIWA_TEST_COLUMNS", 80), 120);
+
+		for unusable in ["0", "-1", "wide", ""] {
+			let _unusable = EnvCleanup::set("BIWA_TEST_COLUMNS", unusable);
+			assert_eq!(terminal_dimension("BIWA_TEST_COLUMNS", 80), 80);
+		}
+
+		let _missing = EnvCleanup::remove("BIWA_TEST_COLUMNS");
+		assert_eq!(terminal_dimension("BIWA_TEST_COLUMNS", 24), 24);
+	}
+
+	#[serial]
+	#[test]
 	fn resolve_env_vars_supports_patterns_and_negation() -> Result<()> {
 		let config = Config {
 			env: EnvConfig {

@@ -379,6 +379,77 @@ mod tests {
 	}
 
 	#[test]
+	fn cli_silent() {
+		let cli = Cli::parse_unchecked(["biwa", "-s", "ls"]);
+		assert!(cli.silent);
+		assert!(!cli.quiet);
+		assert_eq!(cli.run_command_args, vec!["ls"]);
+
+		let cli = Cli::parse_unchecked(["biwa", "--silent", "run", "ls"]);
+		assert!(cli.silent);
+		assert!(matches!(cli.command, Some(Commands::Run(_))));
+	}
+
+	#[test]
+	#[serial]
+	fn output_mode_silent_flag_implies_quiet() {
+		let _quiet_cleanup = EnvCleanup::remove("BIWA_LOG_QUIET");
+		let _silent_cleanup = EnvCleanup::remove("BIWA_LOG_SILENT");
+
+		let cli = Cli::parse_unchecked(["biwa", "--silent", "run", "ls"]);
+		assert_eq!(
+			OutputMode::resolve(&cli),
+			OutputMode {
+				quiet: true,
+				silent: true
+			}
+		);
+	}
+
+	#[test]
+	#[serial]
+	fn output_mode_quiet_flag_does_not_imply_silent() {
+		// `--quiet` only hides biwa's own logs; remote stdout/stderr must survive.
+		let _quiet_cleanup = EnvCleanup::remove("BIWA_LOG_QUIET");
+		let _silent_cleanup = EnvCleanup::remove("BIWA_LOG_SILENT");
+
+		let cli = Cli::parse_unchecked(["biwa", "--quiet", "run", "ls"]);
+		assert_eq!(
+			OutputMode::resolve(&cli),
+			OutputMode {
+				quiet: true,
+				silent: false
+			}
+		);
+	}
+
+	#[test]
+	#[serial]
+	fn output_mode_cli_flags_add_to_falsy_env_defaults() {
+		// Falsy env values must not veto an explicitly requested flag.
+		let _quiet_cleanup = EnvCleanup::set("BIWA_LOG_QUIET", "false");
+		let _silent_cleanup = EnvCleanup::set("BIWA_LOG_SILENT", "0");
+
+		let cli = Cli::parse_unchecked(["biwa", "-s", "run", "ls"]);
+		assert_eq!(
+			OutputMode::resolve(&cli),
+			OutputMode {
+				quiet: true,
+				silent: true
+			}
+		);
+	}
+
+	#[test]
+	fn log_level_tracks_verbosity_count() {
+		assert_eq!(log_level(0), Level::WARN);
+		assert_eq!(log_level(1), Level::INFO);
+		assert_eq!(log_level(2), Level::DEBUG);
+		assert_eq!(log_level(3), Level::TRACE);
+		assert_eq!(log_level(u8::MAX), Level::TRACE);
+	}
+
+	#[test]
 	#[serial]
 	fn output_mode_defaults_to_cli_flags_only_when_env_is_unset() {
 		let _quiet_cleanup = EnvCleanup::remove("BIWA_LOG_QUIET");

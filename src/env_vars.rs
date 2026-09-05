@@ -699,6 +699,34 @@ vars = ["NODE_*", "!*PATH", "NODE_ENV"]"#,
 	}
 
 	#[test]
+	fn resolve_env_var_rules_skips_non_posix_pattern_matches() {
+		// Names reach the remote inside `export <name>=...`, so a matched local
+		// variable with a shell-unsafe name must be dropped, not forwarded.
+		let available = vec![
+			"BASH_FUNC_evil%%".to_owned(),
+			"NODE ENV".to_owned(),
+			"NODE_ENV".to_owned(),
+		];
+
+		assert_eq!(
+			resolve_env_var_rules(vec![EnvVarRule::InheritPattern("*".to_owned())], &available,),
+			vec![EnvVarSpec::inherit("NODE_ENV")]
+		);
+	}
+
+	#[test]
+	fn env_var_rules_reject_invalid_names_and_patterns() {
+		for invalid in ["", "  ", "1NODE", "NODE-ENV", "NODE ENV=1", "=value"] {
+			let _rejected = parse_cli_env_vars(&[invalid.to_owned()])
+				.expect_err("invalid environment variable entries must be rejected");
+		}
+		for invalid in ["NODE-*", "*%", "!NODE-*"] {
+			let _rejected = parse_cli_env_vars(&[invalid.to_owned()])
+				.expect_err("invalid environment variable patterns must be rejected");
+		}
+	}
+
+	#[test]
 	fn marks_environment_dependent_variables() {
 		assert!(is_environment_dependent_env_var("PATH"));
 		assert!(is_environment_dependent_env_var("LD_LIBRARY_PATH"));

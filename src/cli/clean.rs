@@ -655,9 +655,9 @@ fn configure_daemon_env(cmd: &mut Command, config: &Config, state_dir: &Path) {
 #[cfg(test)]
 mod tests {
 	use super::{
-		CleanTarget, background_cleanup_skip_reason, clean_target, collect_tracked_default_dirs,
-		configure_daemon_env, join_remote_child, purge_cleanup_paths, remote_dir_is_older_than,
-		resolve_current_project_root, state_dir_from_env_or_default,
+		CleanTarget, applicable_cleanup_threshold, background_cleanup_skip_reason, clean_target,
+		collect_tracked_default_dirs, configure_daemon_env, join_remote_child, purge_cleanup_paths,
+		remote_dir_is_older_than, resolve_current_project_root, state_dir_from_env_or_default,
 	};
 	use crate::config::types::{AuthMode, Config};
 	use crate::ssh::clean::RemoteDirEntry;
@@ -805,6 +805,43 @@ mod tests {
 			Duration::from_secs(0),
 			now
 		));
+	}
+
+	#[test]
+	fn applicable_cleanup_threshold_picks_the_highest_reached_quota_step() {
+		let mut config = Config::default();
+		config.clean.max_age = Duration::from_hours(30 * 24).into();
+		config.clean.quota_thresholds = BTreeMap::from([
+			(80, Duration::from_hours(5 * 24).into()),
+			(95, Duration::from_hours(24).into()),
+		]);
+
+		assert_eq!(
+			applicable_cleanup_threshold(&config, true, 96.0),
+			Some(Duration::from_hours(24))
+		);
+		assert_eq!(
+			applicable_cleanup_threshold(&config, true, 80.0),
+			Some(Duration::from_hours(5 * 24))
+		);
+		// Below every quota step, only the unconditional `max_age` applies.
+		assert_eq!(
+			applicable_cleanup_threshold(&config, true, 12.5),
+			Some(Duration::from_hours(30 * 24))
+		);
+	}
+
+	#[test]
+	fn applicable_cleanup_threshold_ignores_quota_steps_without_quota_data() {
+		// Without a quota reading, the aggressive steps must not be guessed at.
+		let mut config = Config::default();
+		config.clean.max_age = Duration::from_hours(30 * 24).into();
+		config.clean.quota_thresholds = BTreeMap::from([(80, Duration::from_hours(24).into())]);
+
+		assert_eq!(
+			applicable_cleanup_threshold(&config, false, 0.0),
+			Some(Duration::from_hours(30 * 24))
+		);
 	}
 
 	#[test]

@@ -518,6 +518,38 @@ mod tests {
 		assert!(!write_pid_file(dir.path()).unwrap());
 	}
 
+	#[cfg(target_os = "linux")]
+	#[test]
+	#[serial]
+	fn kill_daemon_never_signals_an_unrelated_live_pid() {
+		// PIDs get reused, so a live process that is not `biwa clean --auto`
+		// must only cost us the stale PID file — never a SIGTERM.
+		//
+		// The PID under test is this test binary's own. If the command-line
+		// check regresses, this test does not fail: the whole unit-test binary
+		// dies with `signal: 15 (SIGTERM)` instead. Treat that opaque failure as
+		// a broken `process_matches_cleanup_daemon` guard.
+		let dir = tempfile::tempdir().unwrap();
+		fs::write(pid_file_path(dir.path()), process::id().to_string()).unwrap();
+
+		kill_daemon(dir.path());
+
+		assert!(!pid_file_path(dir.path()).exists());
+		// Reaching this line proves the test process was not signaled.
+		assert!(!is_daemon_running(dir.path()));
+	}
+
+	#[test]
+	#[serial]
+	fn kill_daemon_clears_a_stale_pid_file() {
+		let dir = tempfile::tempdir().unwrap();
+		fs::write(pid_file_path(dir.path()), i32::MAX.to_string()).unwrap();
+
+		kill_daemon(dir.path());
+
+		assert!(!pid_file_path(dir.path()).exists());
+	}
+
 	#[test]
 	#[serial]
 	fn write_pid_file_replaces_stale_pid() {

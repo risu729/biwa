@@ -5319,6 +5319,168 @@ mod tests {
 	}
 
 	#[test]
+	fn ensure_no_reserved_pull_paths_rejects_top_level_staging_namespace() {
+		// A remote entry inside the private staging namespace could hijack the
+		// local pull transaction, so every entry kind must be rejected.
+		let error = ensure_no_reserved_pull_paths(&RemoteState {
+			file_hashes: HashMap::from([(
+				format!("{LOCAL_PULL_STAGE_PREFIX}beef/file.txt"),
+				"hash".to_owned(),
+			)]),
+			directories: HashSet::from([format!("{LOCAL_PULL_STAGE_PREFIX}beef")]),
+			symlinks: HashSet::from([format!("{LOCAL_PULL_STAGE_PREFIX}aaaa")]),
+		})
+		.unwrap_err();
+
+		assert!(
+			error.to_string().contains(&format!(
+				"reserved pull transaction namespace: {LOCAL_PULL_STAGE_PREFIX}aaaa, \
+				 {LOCAL_PULL_STAGE_PREFIX}beef, {LOCAL_PULL_STAGE_PREFIX}beef/file.txt"
+			)),
+			"error: {error}"
+		);
+	}
+
+	#[test]
+	fn ensure_no_reserved_pull_paths_only_guards_the_first_component() {
+		// Staging directories are only ever created at the sync root, so a
+		// nested lookalike is ordinary project content and must be allowed.
+		ensure_no_reserved_pull_paths(&RemoteState::default()).unwrap();
+		ensure_no_reserved_pull_paths(&RemoteState {
+			file_hashes: HashMap::from([(
+				format!("docs/{LOCAL_PULL_STAGE_PREFIX}beef/note.md"),
+				"hash".to_owned(),
+			)]),
+			directories: HashSet::new(),
+			symlinks: HashSet::new(),
+		})
+		.unwrap();
+	}
+
+	#[test]
+	fn ensure_no_round_trip_symlink_collisions_rejects_entries_under_preserved_links() {
+		let baseline = LocalSnapshot {
+			entries: BTreeMap::from([
+				(
+					"link".to_owned(),
+					LocalSnapshotEntry::Symlink {
+						target: PathBuf::from("/elsewhere"),
+					},
+				),
+				(
+					"dir".to_owned(),
+					LocalSnapshotEntry::Directory { mode: Some(0o755) },
+				),
+			]),
+		};
+
+		// The link itself and anything below it would be written through the
+		// preserved symlink, so both must be refused.
+		for remote in [
+			RemoteState {
+				file_hashes: HashMap::from([("link".to_owned(), "hash".to_owned())]),
+				directories: HashSet::new(),
+				symlinks: HashSet::new(),
+			},
+			RemoteState {
+				file_hashes: HashMap::from([("link/inner.txt".to_owned(), "hash".to_owned())]),
+				directories: HashSet::from(["link".to_owned()]),
+				symlinks: HashSet::new(),
+			},
+		] {
+			let error = ensure_no_round_trip_symlink_collisions(&remote, &baseline).unwrap_err();
+			assert!(
+				error
+					.to_string()
+					.contains("Remote results collide with preserved local symlinks: link"),
+				"error: {error}"
+			);
+		}
+	}
+
+	#[test]
+	fn ensure_no_round_trip_symlink_collisions_respects_component_boundaries() {
+		let baseline = LocalSnapshot {
+			entries: BTreeMap::from([(
+				"link".to_owned(),
+				LocalSnapshotEntry::Symlink {
+					target: PathBuf::from("/elsewhere"),
+				},
+			)]),
+		};
+
+		// `linked.txt` shares a string prefix with `link` but is a sibling path.
+		ensure_no_round_trip_symlink_collisions(
+			&RemoteState {
+				file_hashes: HashMap::from([("linked.txt".to_owned(), "hash".to_owned())]),
+				directories: HashSet::from(["linkdir".to_owned()]),
+				symlinks: HashSet::new(),
+			},
+			&baseline,
+		)
+		.unwrap();
+		ensure_no_round_trip_symlink_collisions(&RemoteState::default(), &baseline).unwrap();
+	}
+
+	#[test]
+	fn normalize_remote_dir_preserves_bare_home_roots() -> Result<()> {
+		// A home-relative root must keep its expandable prefix instead of
+		// collapsing to `.`, which would resolve against the SFTP cwd.
+		for (input, expected) in [
+			("~", "~"),
+			("~/", "~"),
+			("~/./", "~"),
+			("$HOME", "$HOME"),
+			("$HOME/", "$HOME"),
+			("$HOME///.", "$HOME"),
+		] {
+			assert_eq!(normalize_remote_dir(input)?, expected);
+		}
+		Ok(())
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_non_hex_host_hash() {
+		// `clean --auto` derives the host hash locally; a malformed value must
+		// never widen the set of directories considered deletable.
+		let root = Path::new("~/r");
+		assert!(!is_default_biwa_remote_dir(
+			"~/r/project-a1b2c3d4-deadbeef",
+			root,
+			"not-hex!"
+		));
+		assert!(!is_default_biwa_remote_dir(
+			"~/r/project-a1b2c3d4-deadbeef",
+			root,
+			""
+		));
+	}
+
+	#[test]
+	fn is_default_biwa_remote_dir_rejects_legacy_two_part_layout() {
+		// `clean --purge` accepts the legacy layout, but `clean --auto` must not
+		// delete a directory whose host hash cannot be confirmed.
+		let root = Path::new("~/r");
+		assert!(is_biwa_remote_dir("~/r/project-deadbeef", root));
+		assert!(!is_default_biwa_remote_dir(
+			"~/r/project-deadbeef",
+			root,
+			"a1b2c3d4"
+		));
+		assert!(!is_default_biwa_remote_dir("~/r/project", root, "a1b2c3d4"));
+	}
+
+	#[test]
+	fn empty_directory_sets_produce_no_remote_work() {
+		// Callers feed these straight into remote execution, so an empty input
+		// has to stay empty rather than turning into a command with no operands.
+		// The operand invariant itself is pinned by
+		// `build_mkdir_commands_chunks_large_directory_sets`.
+		assert!(collect_leaf_directories(&[]).is_empty());
+		assert!(build_mkdir_commands("0077", "~/project", &[]).is_empty());
+	}
+
+	#[test]
 	fn filter_remote_state_for_pull_respects_include_and_exclude() {
 		let dir = tempdir().unwrap();
 		fs::write(dir.path().join(".gitignore"), "src/ignored.txt\n").unwrap();
@@ -5503,6 +5665,17 @@ mod tests {
 				.iter()
 				.all(|command| command.len() <= MAX_REMOTE_MKDIR_COMMAND_LEN)
 		);
+		// `mkdir -p --` with no operands fails on the remote shell, so no batch
+		// may be emitted empty — including the one opened by a length split.
+		for command in &commands {
+			let operands = command
+				.strip_prefix("umask 0077 && mkdir -p --")
+				.expect("every batch keeps the umask prefix");
+			assert!(
+				!operands.trim().is_empty(),
+				"batch had no operands: {command}"
+			);
+		}
 	}
 
 	#[test]
