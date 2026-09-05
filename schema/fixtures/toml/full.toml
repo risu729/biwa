@@ -27,3 +27,6 @@ vars = [
 forward_method = "export"
 
 [hooks]
+
+# The [mise] section is read only from global configuration, so it is covered by
+# the edge-mise-* fixtures instead of this project-local one.

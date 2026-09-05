@@ -21,6 +21,14 @@ expression: content
     "post_sync": null,
     "pre_sync": null
   },
+  "mise": {
+    "bin": "mise",
+    "command_prefix": null,
+    "enabled": false,
+    "env": null,
+    "mode": "exec",
+    "verify": true
+  },
   "ssh": {
     "auth": "public-key",
     "host": "cse.unsw.edu.au",

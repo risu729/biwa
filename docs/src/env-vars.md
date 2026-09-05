@@ -100,6 +100,122 @@ CLI `--env` values override config-defined env vars with the same name.
 UNSW CSE does not support SSH `setenv`, so use `env.forward_method = "export"` there.
 :::
 
+## mise Integration
+
+Direct env forwarding sends values from your local machine. If the remote host
+should instead resolve tools and variables itself — from a project-local
+`mise.toml` / `.tool-versions` — enable the [mise](https://mise.jdx.dev)
+integration and biwa wraps each remote command with mise. The section is read
+only from global configuration or `BIWA_MISE_*` environment variables (see the
+warning below):
+
+```toml
+# ~/biwa.toml (global configuration only)
+[mise]
+enabled = true
+mode = "exec"
+```
+
+```bash
+biwa run node --version
+biwa run bun test
+biwa run --env NODE_ENV=production npm run build
+```
+
+Use direct forwarding for values that only exist on your machine (secrets, CI
+tokens, per-run overrides), and mise for tool versions and project-wide
+variables that belong to the remote checkout.
+
+### Wrapping Order
+
+Remote commands are always assembled in this order:
+
+```sh
+umask 077 && mkdir -p -- <remote dir> && cd <remote dir> && export NODE_ENV=production && mise exec -- npm run build
+```
+
+1. `umask` from `ssh.umask`.
+2. `mkdir -p` and `cd` into the remote project directory, so mise discovers the
+   synced project's `mise.toml`.
+3. Environment forwarding (`export` statements, or SSH `setenv` requests before
+   the command when `env.forward_method = "setenv"`).
+4. `export MISE_ENV=<mise.env>`, when `mise.env` is set.
+5. The mise wrapper.
+6. Your command with shell-quoted arguments.
+
+Forwarded variables are therefore visible to mise itself and are inherited by
+the command it runs; explicit `mise.toml` values win over the forwarded ones
+inside the mise environment.
+
+### Modes
+
+- `exec` (default) — prefixes the command with `<mise.bin> exec --`.
+- `prefix` — prefixes the command with `mise.command_prefix` verbatim. Setting
+  `command_prefix` also overrides the prefix in `exec` mode, so it works as a
+  general escape hatch:
+
+  ```toml
+  # ~/biwa.toml (global configuration only)
+  [mise]
+  enabled = true
+  command_prefix = "mise x --"
+  ```
+
+  `mode = "prefix"` without a `command_prefix` is a configuration error.
+
+::: danger The `[mise]` section is global-only
+Every key in `[mise]` helps choose the program that wraps your remote commands.
+`command_prefix` is inserted **without shell quoting**, and `enabled` plus `bin`
+are enough on their own: `bin = "sh"` turns the wrapper into `sh exec -- …`,
+which runs a file named `exec` from the synced project. Since biwa discovers
+config files by walking up from the current directory, a `biwa.toml` committed
+to a cloned repository could otherwise pick what runs on your SSH host.
+
+biwa therefore reads the whole `[mise]` section only from global configuration
+(`~/biwa.toml`, `~/.biwa.<ext>`, `$XDG_CONFIG_HOME/biwa/config.<ext>`) or
+`BIWA_MISE_*` environment variables. A project-local config that sets any
+`[mise]` key is rejected with an error naming the offending keys, the same way
+`[direct]` settings are limited to global configuration.
+:::
+
+The wrapper prefixes the whole command, exactly like running `env` or `nice` in
+front of it, so shell operators inside a command string (`|`, `&&`, redirects)
+still bind in the remote shell rather than inside mise. In other words,
+`biwa run 'a && b'` runs only `a` under mise; wrap compound commands yourself to
+run all of them inside the environment:
+
+```bash
+biwa run sh -c 'a && b'
+```
+
+::: info Shell activation
+`mode = "activate"` (`eval "$(mise activate ...)"`) is not implemented. Remote
+commands run through a non-interactive shell where activation hooks do not
+fire reliably; `exec` provides the same tool and environment resolution without
+depending on shell integration.
+:::
+
+### Remote Setup
+
+mise has to exist on the remote host. Bootstrap it once with the integration
+turned off, so the bootstrap command itself is neither blocked by the
+availability check nor wrapped by the missing wrapper:
+
+```bash
+BIWA_MISE_ENABLED=false biwa run --skip-sync 'curl https://mise.run | sh'
+BIWA_MISE_ENABLED=false biwa run --skip-sync 'mise --version'
+```
+
+Before wrapping a command, biwa checks that the configured wrapper exists
+remotely and fails with setup instructions when it does not. The check follows
+the configuration: it looks up `mise.bin` in `exec` mode, and the first word of
+`mise.command_prefix` when a prefix is configured, so an unused `bin` never
+causes a false failure. If the remote installation is not on the
+non-interactive `PATH`, set `bin` to its absolute path (for example
+`bin = "~/.local/bin/mise"`); `bin` must be a bare command name, an absolute
+path, or a `~`-relative path. Set `verify = false` to skip the extra check and
+its round trip.
+
 ## Environment-Dependent Variables
 
 biwa warns when you inherit machine-specific variables such as:

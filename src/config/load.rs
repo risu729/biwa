@@ -1,5 +1,5 @@
 use super::format::ConfigFormat;
-use super::types::Config;
+use super::types::{Config, MiseMode};
 use crate::Result;
 use crate::env_vars::{EnvVars, parse_env_var_env};
 use crate::state::default_state_dir;
@@ -119,6 +119,7 @@ impl Config {
 
 				if let Some((config_path, format)) = find_single_config(&local_candidates)? {
 					let partial = Self::load_partial(&config_path, format, config_root)?;
+					reject_global_only_keys(&config_path, &partial)?;
 					required_presence.observe_layer(&partial);
 					info!(
 						path = %config_path.display(),
@@ -260,6 +261,35 @@ impl Config {
 				bail!("Invalid clean.quota_thresholds key {key}: must be between 0 and 100");
 			}
 		}
+		self.validate_mise()?;
+		Ok(())
+	}
+
+	/// Validates the mise integration settings.
+	fn validate_mise(&self) -> Result<()> {
+		if !self.mise.enabled {
+			return Ok(());
+		}
+		let bin = self.mise.bin.trim();
+		if bin.is_empty() {
+			bail!("Invalid mise.bin: the remote mise executable must not be empty");
+		}
+		// Keep the configured executable independent of whichever project is synced.
+		// Project-relative wrappers remain available through command_prefix.
+		if bin.contains('/')
+			&& !bin.starts_with('/')
+			&& !bin.starts_with('~')
+			&& !bin.starts_with("$HOME")
+		{
+			bail!(
+				"Invalid mise.bin `{bin}`: use a bare command name (`mise`), an absolute path, or a `~`-relative path"
+			);
+		}
+		if self.mise.mode == MiseMode::Prefix && self.mise.configured_command_prefix().is_none() {
+			bail!(
+				"mise.mode = \"prefix\" requires a non-empty mise.command_prefix (for example `mise x --`)"
+			);
+		}
 		Ok(())
 	}
 
@@ -278,6 +308,47 @@ impl Config {
 			}
 		}
 	}
+}
+
+/// Returns the `[mise]` keys present in a configuration layer.
+fn mise_keys_in_layer(partial: &<Config as confique::Config>::Layer) -> Vec<&'static str> {
+	let mise = &partial.mise;
+	let present = [
+		("mise.enabled", mise.enabled.is_some()),
+		("mise.bin", mise.bin.is_some()),
+		("mise.mode", mise.mode.is_some()),
+		("mise.env", mise.env.is_some()),
+		("mise.command_prefix", mise.command_prefix.is_some()),
+		("mise.verify", mise.verify.is_some()),
+	];
+	present
+		.into_iter()
+		.filter_map(|(key, is_set)| is_set.then_some(key))
+		.collect()
+}
+
+/// Rejects settings that must never come from a project-local configuration layer.
+///
+/// The whole `[mise]` section selects the program that wraps every remote
+/// command: `command_prefix` is inserted verbatim, and `enabled` plus `bin` are
+/// enough on their own (for example `bin = "sh"` with a file named `exec` in the
+/// synced project). Configuration is discovered by walking up from the current
+/// directory, so a config file committed to a cloned repository could otherwise
+/// choose what runs on the user's SSH host. The section is honored from global
+/// configuration and `BIWA_MISE_*` only, mirroring how `[direct]` is restricted.
+fn reject_global_only_keys(
+	path: &Path,
+	partial: &<Config as confique::Config>::Layer,
+) -> Result<()> {
+	let keys = mise_keys_in_layer(partial);
+	if !keys.is_empty() {
+		bail!(
+			"The [mise] section is not allowed in project-local configuration ({}): found {}. It selects the program that wraps every remote command, so it is only honored from global configuration (e.g. ~/biwa.toml, ~/.config/biwa/config.toml) or BIWA_MISE_* environment variables.",
+			path.display(),
+			keys.join(", ")
+		);
+	}
+	Ok(())
 }
 
 /// Rejects the removed file-based password field before Serde can ignore it as unknown input.
@@ -500,6 +571,14 @@ mod tests {
 		    "pre_sync": null,
 		    "post_sync": null
 		  },
+		  "mise": {
+		    "enabled": false,
+		    "bin": "mise",
+		    "mode": "exec",
+		    "env": null,
+		    "command_prefix": null,
+		    "verify": true
+		  },
 		  "state_dir": null,
 		  "clean": {
 		    "max_age": "30days",
@@ -535,6 +614,256 @@ ssh.user = "u"
 			msg.contains("100") && msg.contains("quota_thresholds"),
 			"unexpected error: {msg}"
 		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_integration_is_disabled_by_default() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
+		let config = load_internal(None, None, None)?;
+
+		assert!(!config.mise.enabled);
+		assert_eq!(config.mise.bin, "mise");
+		assert_eq!(config.mise.mode, MiseMode::Exec);
+		assert_eq!(config.mise.env, None);
+		assert_eq!(config.mise.command_prefix, None);
+		assert!(config.mise.verify);
+		Ok(())
+	}
+
+	/// Loads configuration with `contents` as the global `~/biwa.toml`.
+	///
+	/// The whole `[mise]` section is global-only, so its tests configure it here
+	/// rather than in a project-local layer.
+	fn load_with_global_config(dir: &Path, contents: &str) -> Result<Config> {
+		let home = dir.join("home");
+		let project = home.join("project");
+		fs::create_dir_all(&project)?;
+		fs::write(home.join("biwa.toml"), contents)?;
+		load_internal(Some(&home), None, Some(&project))
+	}
+
+	/// Loads configuration with `contents` as a project-local `biwa.toml`.
+	fn load_with_local_config(dir: &Path, contents: &str) -> Result<Config> {
+		fs::write(dir.join("biwa.toml"), contents)?;
+		load_internal(None, None, Some(dir.to_path_buf()).as_ref())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_section_is_read_from_global_config() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
+		let config = load_with_global_config(
+			dir.path(),
+			r#"
+[mise]
+enabled = true
+bin = "~/.local/bin/mise"
+mode = "exec"
+env = "dev"
+verify = false
+"#,
+		)?;
+
+		assert!(config.mise.enabled);
+		assert_eq!(config.mise.bin, "~/.local/bin/mise");
+		assert_eq!(config.mise.mode, MiseMode::Exec);
+		assert_eq!(config.mise.env.as_deref(), Some("dev"));
+		assert!(!config.mise.verify);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_command_prefix_is_accepted_from_global_config() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+		let _cleanup_prefix = EnvCleanup::remove("BIWA_MISE_COMMAND_PREFIX");
+
+		let config = load_with_global_config(
+			dir.path(),
+			"[mise]\nenabled = true\nmode = \"prefix\"\ncommand_prefix = \"mise x --\"\n",
+		)?;
+
+		assert_eq!(config.mise.command_prefix.as_deref(), Some("mise x --"));
+		assert_eq!(config.mise.mode, MiseMode::Prefix);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_section_is_rejected_in_project_local_config() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+		let cases = [
+			(
+				"command_prefix = \"touch /tmp/pwned #\"",
+				"mise.command_prefix",
+			),
+			// `enabled` plus `bin` alone can point the wrapper at a file inside
+			// the synced project, so no single key may come from a cloned
+			// repository.
+			("enabled = true\nbin = \"sh\"", "mise.enabled, mise.bin"),
+			("mode = \"prefix\"", "mise.mode"),
+			("env = \"dev\"", "mise.env"),
+			("verify = false", "mise.verify"),
+		];
+
+		for (section_body, expected_keys) in cases {
+			let dir = tempdir()?;
+			let result = load_with_local_config(dir.path(), &format!("[mise]\n{section_body}\n"));
+			let err = match result {
+				Err(err) => err.to_string(),
+				Ok(_) => bail!("Expected a project-local [mise] section to be rejected"),
+			};
+
+			assert!(
+				err.contains("The [mise] section is not allowed in project-local configuration"),
+				"unexpected error for `{section_body}`: {err}"
+			);
+			assert!(
+				err.contains(expected_keys),
+				"error must name the offending keys ({expected_keys}): {err}"
+			);
+		}
+		Ok(())
+	}
+
+	/// Guards the hand-maintained key list against a new `[mise]` field silently
+	/// escaping the project-local restriction.
+	#[serial]
+	#[test]
+	fn mise_keys_in_layer_covers_every_mise_field() -> Result<()> {
+		use crate::config::types::MiseConfig;
+
+		let dir = tempdir()?;
+		let path = dir.path().join("biwa.toml");
+		fs::write(
+			&path,
+			r#"
+[mise]
+enabled = true
+bin = "mise"
+mode = "prefix"
+env = "dev"
+command_prefix = "mise x --"
+verify = false
+"#,
+		)?;
+		let partial = Config::load_partial(&path, ConfigFormat::Toml, dir.path())?;
+
+		let value = serde_json::to_value(MiseConfig::default())?;
+		let Some(field_count) = value.as_object().map(serde_json::Map::len) else {
+			bail!("MiseConfig must serialize to an object")
+		};
+
+		assert_eq!(
+			mise_keys_in_layer(&partial).len(),
+			field_count,
+			"every [mise] field must be listed in mise_keys_in_layer, otherwise a project-local config could set it"
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn empty_mise_section_in_project_local_config_is_accepted() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
+		let config = load_with_local_config(dir.path(), "[mise]\n")?;
+
+		assert!(!config.mise.enabled);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_settings_can_come_from_environment_variables() -> Result<()> {
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+		let _cleanup_enabled = EnvCleanup::set("BIWA_MISE_ENABLED", "true");
+		let _cleanup_bin = EnvCleanup::set("BIWA_MISE_BIN", "/usr/local/bin/mise");
+		let _cleanup_env = EnvCleanup::set("BIWA_MISE_ENV", "ci");
+		let _cleanup_mode = EnvCleanup::set("BIWA_MISE_MODE", "prefix");
+		let _cleanup_prefix = EnvCleanup::set("BIWA_MISE_COMMAND_PREFIX", "mise x --");
+
+		let config = load_internal(None, None, None)?;
+
+		assert!(config.mise.enabled);
+		assert_eq!(config.mise.bin, "/usr/local/bin/mise");
+		assert_eq!(config.mise.env.as_deref(), Some("ci"));
+		assert_eq!(config.mise.mode, MiseMode::Prefix);
+		assert_eq!(config.mise.command_prefix.as_deref(), Some("mise x --"));
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_bin_must_not_be_a_relative_path() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
+		let result =
+			load_with_global_config(dir.path(), "[mise]\nenabled = true\nbin = \"./bin/mise\"\n");
+		let err = match result {
+			Err(err) => err.to_string(),
+			Ok(_) => bail!("Expected a relative mise.bin to fail"),
+		};
+
+		assert!(err.contains("mise.bin"), "unexpected error: {err}");
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_prefix_mode_requires_a_command_prefix() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+		let _cleanup_prefix = EnvCleanup::remove("BIWA_MISE_COMMAND_PREFIX");
+
+		let result =
+			load_with_global_config(dir.path(), "[mise]\nenabled = true\nmode = \"prefix\"\n");
+		let err = match result {
+			Err(err) => err.to_string(),
+			Ok(_) => bail!("Expected prefix mode without command_prefix to fail"),
+		};
+
+		assert!(
+			err.contains("mise.command_prefix"),
+			"unexpected error: {err}"
+		);
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn mise_bin_must_not_be_empty_when_enabled() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
+		let result = load_with_global_config(dir.path(), "[mise]\nenabled = true\nbin = \"\"\n");
+		let err = match result {
+			Err(err) => err.to_string(),
+			Ok(_) => bail!("Expected an empty mise.bin to fail"),
+		};
+
+		assert!(err.contains("mise.bin"), "unexpected error: {err}");
+		Ok(())
+	}
+
+	#[serial]
+	#[test]
+	fn disabled_mise_settings_are_not_validated() -> Result<()> {
+		let dir = tempdir()?;
+		let (_cleanup_host, _cleanup_user) = set_required_ssh_env("test-host", "test-user");
+
+		let config =
+			load_with_global_config(dir.path(), "[mise]\nmode = \"prefix\"\nbin = \"\"\n")?;
+
+		assert!(!config.mise.enabled);
 		Ok(())
 	}
 

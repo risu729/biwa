@@ -1,0 +1,8 @@
+# Edge case: mise wrapping enabled (global-only section; rejected in project-local config)
+
+[mise]
+enabled = true
+bin = "mise"
+mode = "exec"
+env = "dev"
+verify = true
