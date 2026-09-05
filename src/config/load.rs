@@ -1066,7 +1066,6 @@ verify = false
 	}
 
 	#[rstest]
-	#[serial]
 	#[case::toml(
 		"ssh.host = 'toml'\nssh.user = 'user'\nhooks.pre_sync = 'toml'",
 		"toml",
@@ -1087,6 +1086,11 @@ verify = false
 		"yaml",
 		"yaml"
 	)]
+	// `#[serial]` must come after every `#[case]`: `rstest` attaches attributes that
+	// precede a `#[case]` to that single case only, and forwards just the trailing ones
+	// to every generated case. Placing it before `#[rstest]` fails to compile because
+	// `serial_test` drops the function arguments.
+	#[serial]
 	fn format_extensions(
 		#[case] content: &str,
 		#[case] ext: &str,
