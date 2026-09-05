@@ -47,7 +47,7 @@ tokio-util = { version = "=0.7.19", features = ["io"] }
 toml = "=1.1.5"
 tracing = "=0.1.44"
 tracing-subscriber = "=0.3.23"
-usage_rs = { package = "usage-rs", version = "=6.6.1", features = ["completions"] }
+usage_rs = { package = "usage-rs", version = "=6.7.1", features = ["completions"] }
 zeroize = "=1.9.0"
 
 # TODO: Restore the inline dependency after Renovate supports TOML 1.1.
