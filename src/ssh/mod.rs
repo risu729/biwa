@@ -9,7 +9,7 @@ pub mod client;
 pub mod exec;
 /// SSH file synchronization.
 pub mod sync;
-/// Local sync state caching for incremental synchronization.
+/// Local and remote sync state caching for incremental synchronization.
 mod sync_cache;
 /// Helpers shared by SSH synchronization modules.
 mod sync_paths;

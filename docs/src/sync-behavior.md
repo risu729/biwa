@@ -126,21 +126,44 @@ biwa run -d /tmp/my-project --pull make generated
 When used with `biwa sync` or `biwa pull`, `--remote-dir` replaces the automatically computed `remote_root + project_name` path.
 To prevent accidental data overwrites when executing standard commands across different remote paths, **using `-d` with `biwa run` automatically disables project synchronization (`--skip-sync`)**. Pass `--sync`, `--pull`, or `--pull-always` to opt into the corresponding transfer workflow.
 
-## Local hash cache
+## Hash cache
 
-Biwa compares SHA-256 content hashes to decide which files need transferring. To avoid re-reading every local file on every sync, biwa caches local file hashes between runs, keyed by each file's size and modification time — plus its change time (ctime) and inode on Unix, which the kernel bumps on every write, so timestamp-restoring tools or clock-skewed network filesystems cannot smuggle changed content past the cache. A cached hash is reused only when the whole fingerprint matches exactly; any other file — new, resized, or touched — is re-hashed from its content. Files modified within the last two seconds are never cached, so rapid successive edits cannot slip through coarse filesystem timestamps.
+Biwa compares SHA-256 content hashes to decide which files need transferring. Computing them means reading every local file and running `sha256sum` over every remote file, so biwa caches both sides between runs and re-hashes only what changed.
 
-Correctness rules:
+### Local hashes
+
+Local hashes are keyed by each file's size and modification time — plus its change time (ctime) and inode on Unix, which the kernel bumps on every write, so timestamp-restoring tools or clock-skewed network filesystems cannot smuggle changed content past the cache. A cached hash is reused only when the whole fingerprint matches exactly; any other file — new, resized, or touched — is re-hashed from its content. Files modified within the last two seconds are never cached, so rapid successive edits cannot slip through coarse filesystem timestamps.
+
+### Remote hashes
+
+The remote inventory always lists every remote directory, symlink, and file with its size, modification time, and change time. When a cached hash exists for a remote file whose whole fingerprint is unchanged, that hash is reused; every other remote file is hashed by a second, targeted `sha256sum` run over just those paths. A sync of an unchanged project therefore hashes nothing remotely, and a sync after a few edits hashes only the files that moved.
+
+As on the local side, the change time is what makes a rewrite unmissable: no remote process can write a file without the kernel stamping a new ctime, so a tool that restores modification times still cannot hide its edit from the fingerprint.
+
+Remote fingerprints are nonetheless weaker than local ones — there is no inode component, and the timestamps are whatever the remote filesystem reports — so two extra rules apply:
+
+- Remote files whose modification or change time is within two seconds of the remote clock, or ahead of it, are always re-hashed and kept out of the cache. This check also applies to existing cache entries after a clock correction. Fractional timestamps are rounded up when compared with the whole-second remote clock, preserving the full two-second window. On a networked filesystem the inventory's clock is the login node's rather than the file server's, which makes this window a safety margin rather than a guarantee; the change time above is the actual defence.
+- Once a day, biwa ignores the cached remote hashes and hashes the whole remote directory again, bounding how long any drift that did slip through can persist. Set `sync.sftp.cache.auto_revalidate = false` to trust cached remote hashes until their fingerprint changes.
+
+A remote file whose metadata cannot serve as a cache key — a timestamp before 1970, for instance — is never cached and is simply hashed on every run. It still syncs exactly as it would without the cache.
+
+### Correctness rules
 
 - The cache is scoped to the combination of SSH host, port, user, local sync root, and remote directory, so different projects and targets never share cached state.
 - A missing, corrupt, or incompatible cache file is ignored and the sync falls back to hashing everything. A bad cache never fails or corrupts a sync.
-- The cache is updated only after a fully successful sync. Files changed by a pull are dropped from the cache and re-hashed on the next run.
-- Remote state is never cached: every sync still fetches a fresh remote inventory, so out-of-band remote changes are always detected.
+- The cache is updated only after a fully successful sync. Files changed by a pull, and remote files changed by a push, are dropped from the cache and hashed again on the next run.
+- Which files exist on either side is never cached. Every sync lists both trees in full, so creations, deletions, and symlinks are always detected from live state and a stale cache can never cause a wrong deletion.
+- The verification pass a pull runs before it touches local files always hashes the whole remote directory, ignoring the cache. Any pull that would change something therefore re-proves the remote state, and a mismatch aborts the pull before any local file is modified.
+- `sync.sftp.max_files_to_sync` still counts the same files as before; caching changes only how their hashes are obtained.
 
 The cache is stored under the `sync_cache` subdirectory of your [XDG state directory](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) by default; set `sync.sftp.cache.path` to override it. Disable caching entirely with `sync.sftp.cache.enabled = false` (or `BIWA_SYNC_SFTP_CACHE_ENABLED=false`).
 
 ::: tip Suspect a stale cache?
-A cached hash can only go stale if a file's content changes while its entire metadata fingerprint — size, modification time, change time, and inode — stays identical, which no ordinary write can achieve. If you still suspect stale state, run `biwa sync --force` to re-hash everything, re-upload all files, and rebuild the cache from scratch.
+Run `biwa sync --force`. It ignores the cache, re-hashes everything on both sides, re-uploads all files, and rebuilds the cache from scratch, so it doubles as the cache reset command. Deleting the `sync_cache` directory has the same effect on the next sync.
+:::
+
+::: tip Working with very large projects
+Caching helps most when hashing dominates: a project with thousands of files, or a remote filesystem where `sha256sum` is slow (networked home directories such as UNSW CSE). The first sync still pays the full cost; every later sync of an unchanged tree only lists both trees.
 :::
 
 ## Remote directory cleanup

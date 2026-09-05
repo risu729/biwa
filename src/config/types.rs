@@ -355,13 +355,14 @@ pub enum SftpPermissions {
 	Setstat,
 }
 
-/// Local sync state cache settings for the SFTP engine.
+/// Sync state cache settings for the SFTP engine.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SyncSftpCacheConfig {
-	/// Reuse cached local file hashes while a file's metadata fingerprint is unchanged.
+	/// Reuse cached local and remote file hashes while a file's metadata fingerprint is unchanged.
 	///
-	/// The fingerprint covers size and modification time, plus change time and
-	/// inode on Unix.
+	/// The local fingerprint covers size and modification time, plus change time
+	/// and inode on Unix. The remote fingerprint covers size, modification time,
+	/// and change time.
 	#[config(default = true, env = "BIWA_SYNC_SFTP_CACHE_ENABLED")]
 	#[schemars(default = "crate::config::types::schema_defaults::bool_true")]
 	pub enabled: bool,
@@ -370,6 +371,15 @@ pub struct SyncSftpCacheConfig {
 	/// If unset, biwa uses the `sync_cache` subdirectory of the state directory.
 	#[config(env = "BIWA_SYNC_SFTP_CACHE_PATH")]
 	pub path: Option<PathBuf>,
+	/// Periodically re-hash every remote file instead of trusting cached remote hashes.
+	///
+	/// Remote fingerprints have no inode component and depend on the remote
+	/// filesystem reporting timestamp changes faithfully, so biwa re-hashes the
+	/// whole remote directory once a day. Disabling this trusts cached remote
+	/// hashes until their fingerprint changes.
+	#[config(default = true, env = "BIWA_SYNC_SFTP_CACHE_AUTO_REVALIDATE")]
+	#[schemars(default = "crate::config::types::schema_defaults::bool_true")]
+	pub auto_revalidate: bool,
 }
 
 impl Default for SyncSftpCacheConfig {
@@ -389,7 +399,7 @@ pub struct SyncSftpConfig {
 	#[config(default = "recreate", env = "BIWA_SYNC_SFTP_PERMISSIONS")]
 	#[schemars(default)]
 	pub permissions: SftpPermissions,
-	/// Local sync state cache settings.
+	/// Sync state cache settings.
 	#[config(nested)]
 	#[schemars(default)]
 	pub cache: SyncSftpCacheConfig,

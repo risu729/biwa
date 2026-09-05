@@ -187,12 +187,13 @@ It is strongly recommended to use a relative path starting with `~` for your `re
 
 ##### `[sync.sftp.cache]` — Sync Cache Settings
 
-| Key       | Type    | Default            | Description                                                                     |
-| --------- | ------- | ------------------ | ------------------------------------------------------------------------------- |
-| `enabled` | boolean | `true`             | Reuse cached local file hashes while a file's metadata fingerprint is unchanged |
-| `path`    | string? | State subdirectory | Directory to store sync cache files in                                          |
+| Key               | Type    | Default            | Description                                                                              |
+| ----------------- | ------- | ------------------ | ---------------------------------------------------------------------------------------- |
+| `enabled`         | boolean | `true`             | Reuse cached local and remote file hashes while a file's metadata fingerprint is unchanged |
+| `path`            | string? | State subdirectory | Directory to store sync cache files in                                                   |
+| `auto_revalidate` | boolean | `true`             | Re-hash every remote file once a day instead of trusting cached remote hashes             |
 
-The sync cache speeds up repeated syncs by skipping re-hashing of local files whose size and modification time have not changed. See [Local hash cache](/sync-behavior#local-hash-cache) for how invalidation works and when to reset it.
+The sync cache speeds up repeated syncs by reusing hashes while a file's metadata fingerprint is unchanged. Both sides check size and modification time; the remote side also checks change time, and the local side checks change time and inode on Unix. See [Hash cache](/sync-behavior#hash-cache) for how invalidation works and when to reset it.
 
 ### `[clean]` — Remote Directory Cleanup Settings
 
