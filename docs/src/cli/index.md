@@ -32,4 +32,5 @@
 - [`biwa pull [FLAGS]`](/cli/pull.md)
 - [`biwa clean [FLAGS] [ACTION]`](/cli/clean.md)
 - [`biwa init [-f --force] [--format <FORMAT>]`](/cli/init.md)
+- [`biwa setup-ssh [FLAGS]`](/cli/setup-ssh.md)
 - [`biwa completion <SHELL>`](/cli/completion.md)

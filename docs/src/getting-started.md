@@ -83,7 +83,7 @@ host = "cse"
 ```
 
 ::: tip SSH Key Authentication
-SSH key authentication is recommended over password authentication. See the [SSH Key Setup](/ssh-key-setup) guide for instructions.
+SSH key authentication is recommended over password authentication. Run `biwa setup-ssh` to migrate from a password in one step, or see the [SSH Key Setup](/ssh-key-setup) guide for the manual instructions.
 :::
 
 ## First Run

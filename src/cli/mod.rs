@@ -28,6 +28,8 @@ mod pull;
 mod run;
 /// Configuration schema generation command.
 mod schema;
+/// Automated SSH key authentication setup command.
+mod setup_ssh;
 /// File synchronization command.
 mod sync;
 /// Shared project transfer arguments and target resolution.
@@ -103,6 +105,8 @@ enum Commands {
 	Clean(clean::Clean),
 	/// Initialize a biwa configuration file.
 	Init(init::Init),
+	/// Set up SSH key authentication on the configured host.
+	SetupSsh(setup_ssh::SetupSsh),
 	/// Generate the JSON schema for the configuration.
 	Schema(schema::Schema),
 	/// Generate shell completion scripts.
@@ -172,6 +176,7 @@ pub async fn run() -> Result<()> {
 		Some(Commands::Pull(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Clean(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Init(cmd)) => cmd.run()?,
+		Some(Commands::SetupSsh(cmd)) => cmd.run(output_mode.quiet).await?,
 		Some(Commands::Schema(cmd)) => cmd.run()?,
 		Some(Commands::Completion(cmd)) => cmd.run()?,
 		Some(Commands::Usage(cmd)) => cmd.run()?,

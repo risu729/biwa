@@ -52,6 +52,7 @@ export default withMermaid(
 						{ link: "/cli/run", text: "biwa run" },
 						{ link: "/cli/sync", text: "biwa sync" },
 						{ link: "/cli/init", text: "biwa init" },
+						{ link: "/cli/setup-ssh", text: "biwa setup-ssh" },
 						{ link: "/cli/completion", text: "biwa completion" },
 					],
 					text: "CLI Reference",

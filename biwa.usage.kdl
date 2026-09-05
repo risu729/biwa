@@ -110,6 +110,22 @@ cmd init help="Initialize a biwa configuration file." effect=write {
     }
     flag "-h --help" help="Print help" action=help builtin=#true
 }
+cmd setup-ssh help="Set up SSH key authentication on the configured host." effect=write {
+    flag --key-path help="Private key to install. Defaults to `ssh.key_path` or a standard key path." {
+        arg <KEY_PATH>
+    }
+    flag --generate help="Create a new key pair when the selected private key does not exist." conflicts=--check
+    flag --key-type help="Key algorithm used when generating a new key pair." default=ed25519 {
+        arg <KEY_TYPE> {
+            choices {
+                choice ed25519 help="Ed25519 key, the recommended algorithm."
+            }
+        }
+    }
+    flag --check help="Verify key authentication without changing anything."
+    flag --write-config help="Write the selected key into the nearest local biwa configuration file." conflicts=--check
+    flag "-h --help" help="Print help" action=help builtin=#true
+}
 cmd schema help="Generate the JSON schema for the configuration." hide=#true effect=read {
     flag "-h --help" help="Print help" action=help builtin=#true
 }

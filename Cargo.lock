@@ -187,6 +187,7 @@ dependencies = [
  "tracing-subscriber",
  "usage-lib",
  "usage-rs",
+ "zeroize",
 ]
 
 [[package]]
