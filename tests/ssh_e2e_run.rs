@@ -479,27 +479,29 @@ fn e2e_run_pull_skips_pull_after_nonzero_exit() -> Result<()> {
 fn e2e_run_pull_round_trip_allows_sync_hooks() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("input.txt"), "local")?;
-	common::write_hooks_config(
-		dir.path(),
+	let hook_config = common::write_hooks_config(
 		Some(r#"sh -c "printf pre > pre-marker.txt""#),
 		Some(r#"sh -c "printf post > post-marker.txt""#),
 	)?;
 
 	let output = biwa_cmd(&[
 		"run",
+		"--exclude",
+		"post-marker.txt",
 		"--pull",
 		"sh",
 		"-c",
 		"test \"$(cat pre-marker.txt)\" = pre && printf remote > result.txt",
 	])
 	.dir(dir.path())
+	.env("XDG_CONFIG_HOME", hook_config.path())
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()
 	.run()?;
 	let stderr = String::from_utf8_lossy(&output.stderr);
 
-	// A post-sync hook that touches the sync root must not look like local drift.
+	// Excluded post-sync artifacts do not change the round-trip transfer scope.
 	assert!(!stderr.contains("Local files changed"), "stderr: {stderr}");
 	assert!(output.status.success(), "stderr: {stderr}");
 	// The pre-sync hook's file was uploaded and survives the round trip.
@@ -508,9 +510,11 @@ fn e2e_run_pull_round_trip_allows_sync_hooks() -> Result<()> {
 		"pre"
 	);
 	pretty_assertions::assert_eq!(fs::read_to_string(dir.path().join("result.txt"))?, "remote");
-	// The post-sync hook ran after the push, so the pull mirrors its file away
-	// like any other local-only entry in scope.
-	assert!(!dir.path().join("post-marker.txt").exists());
+	// Excluded local output survives the pull.
+	pretty_assertions::assert_eq!(
+		fs::read_to_string(dir.path().join("post-marker.txt"))?,
+		"post"
+	);
 	Ok(())
 }
 
@@ -519,16 +523,14 @@ fn e2e_run_pull_refuses_edits_made_while_the_post_sync_hook_ran() -> Result<()> 
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("input.txt"), "local")?;
 	// The hook rewrites a file that already existed at push time, standing in for
-	// any local edit landing during the hook's window. Only paths the hook *adds*
-	// join the pull baseline, so this must still be reported as drift.
-	common::write_hooks_config(
-		dir.path(),
-		None,
-		Some(r#"sh -c "printf edited > input.txt""#),
-	)?;
+	// any local edit landing during the hook's window. The verified pushed
+	// baseline must still report this as drift.
+	let hook_config =
+		common::write_hooks_config(None, Some(r#"sh -c "printf edited > input.txt""#))?;
 
 	let output = biwa_cmd(&["run", "--pull", "sh", "-c", "printf remote > input.txt"])
 		.dir(dir.path())
+		.env("XDG_CONFIG_HOME", hook_config.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -544,23 +546,50 @@ fn e2e_run_pull_refuses_edits_made_while_the_post_sync_hook_ran() -> Result<()> 
 }
 
 #[test]
+fn e2e_run_pull_preserves_new_files_created_during_the_post_sync_hook() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	fs::write(dir.path().join("input.txt"), "local")?;
+	// A new file can equally come from an editor save while the hook runs.
+	let hook_config =
+		common::write_hooks_config(None, Some(r#"sh -c "printf unsaved > new.txt""#))?;
+
+	for pull_flag in ["--pull", "--pull-always"] {
+		let output = biwa_cmd(&["run", pull_flag, "sh", "-c", "printf remote > result.txt"])
+			.dir(dir.path())
+			.env("XDG_CONFIG_HOME", hook_config.path())
+			.stdout_capture()
+			.stderr_capture()
+			.unchecked()
+			.run()?;
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		assert!(!output.status.success(), "stderr: {stderr}");
+		assert!(stderr.contains("Local files changed"), "stderr: {stderr}");
+		assert!(stderr.contains("new.txt"), "stderr: {stderr}");
+		pretty_assertions::assert_eq!(fs::read_to_string(dir.path().join("new.txt"))?, "unsaved");
+		assert!(!dir.path().join("result.txt").exists());
+		fs::remove_file(dir.path().join("new.txt"))?;
+	}
+	Ok(())
+}
+
+#[test]
 fn e2e_run_pull_always_allows_sync_hooks() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("input.txt"), "local")?;
-	common::write_hooks_config(
-		dir.path(),
-		None,
-		Some(r#"sh -c "printf post > post-marker.txt""#),
-	)?;
+	let hook_config =
+		common::write_hooks_config(None, Some(r#"sh -c "printf post > post-marker.txt""#))?;
 
 	let output = biwa_cmd(&[
 		"run",
+		"--exclude",
+		"post-marker.txt",
 		"--pull-always",
 		"sh",
 		"-c",
 		"printf partial > result.txt; exit 7",
 	])
 	.dir(dir.path())
+	.env("XDG_CONFIG_HOME", hook_config.path())
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()

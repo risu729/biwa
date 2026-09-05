@@ -9,8 +9,7 @@ use crate::{
 	ssh::exec::{ExecuteCommandOptions, connect, execute_command_status},
 	ssh::sync::{
 		LocalSnapshot, Options, ensure_local_snapshot_unchanged,
-		ensure_remote_matches_local_snapshot, merge_hook_additions, pull_project, push_project,
-		snapshot_local_project,
+		ensure_remote_matches_local_snapshot, pull_project, push_project, snapshot_local_project,
 	},
 };
 use color_eyre::eyre::{Context as _, bail};
@@ -243,20 +242,9 @@ async fn push_phase(
 		return Err(error);
 	}
 
-	// A post-sync hook may legitimately add files to the sync root, so those paths
-	// are folded into the pull baseline; otherwise they would be reported as local
-	// drift and the round-trip pull would refuse to run. Paths that already existed
-	// at push time keep their pushed state, so an edit made while the hook ran is
-	// still caught by the drift guard instead of being overwritten by the pull.
-	let Some(baseline) = pushed else {
-		return Ok(None);
-	};
-	if config.hooks.post_sync.is_none() {
-		return Ok(Some(baseline));
-	}
-	let after_hook =
-		snapshot_local_project(&transfer.local_root, config, &transfer.options).await?;
-	Ok(Some(merge_hook_additions(baseline, after_hook)))
+	// Keep the verified pushed baseline: new paths may come from a concurrent
+	// editor save, so accepting them here would let the pull delete unsaved work.
+	Ok(pushed)
 }
 
 /// Shared execution path for remote commands (used by both `biwa run` and implicit `biwa <args>`).
@@ -399,10 +387,103 @@ impl Run {
 
 #[cfg(test)]
 mod tests {
+	use super::{RunTransferMode, push_phase};
+	use crate::Result;
+	use crate::cli::hooks::HookOutput;
+	use crate::cli::transfer::ResolvedTransfer;
 	use crate::cli::{Cli, Commands};
-	use crate::ssh::sync::Options;
+	use crate::config::types::{Config, HostKeyChecking};
+	use crate::ssh::client::auth::Method;
+	use crate::ssh::client::{Client, HostKeyVerification};
+	use crate::ssh::sync::{Options, ensure_local_snapshot_unchanged, snapshot_local_project};
 	use pretty_assertions::{assert_eq, assert_matches};
 	use std::path::Path;
+	use std::{env, fs};
+
+	#[serial_test::serial]
+	#[tokio::test]
+	async fn push_phase_keeps_hook_additions_out_of_the_verified_baseline() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let local_root = dir.path().join("project");
+		fs::create_dir_all(&local_root)?;
+		let port = env::var("BIWA_TEST_SSH_PORT")
+			.unwrap_or_else(|_| "2222".to_owned())
+			.parse()?;
+		let client = Client::connect(
+			("127.0.0.1", port),
+			"testuser",
+			Method::Password("password123".to_owned()),
+			HostKeyVerification::new(
+				"127.0.0.1".to_owned(),
+				port,
+				HostKeyChecking::AcceptNew,
+				Some(dir.path().join("known_hosts")),
+			),
+		)
+		.await?;
+		let remote = client.execute("mktemp -d").await?;
+		assert_eq!(remote.exit_status, 0);
+		let transfer = ResolvedTransfer {
+			local_root,
+			remote_dir: remote.stdout.trim().to_owned(),
+			options: Options::default(),
+		};
+		let mut config = Config {
+			state_dir: Some(dir.path().join("state")),
+			..Config::default()
+		};
+		config.sync.sftp.cache.enabled = false;
+		config.hooks.pre_sync = Some("sh -c 'printf generated > generated.txt'".to_owned());
+		config.hooks.post_sync = Some("sh -c 'printf edited > editor.txt'".to_owned());
+		let output = HookOutput {
+			quiet: true,
+			silent: true,
+		};
+		let result: Result<()> = async {
+			let baseline = push_phase(
+				&client,
+				&config,
+				&transfer,
+				RunTransferMode::PullOnSuccess,
+				output,
+			)
+			.await?
+			.expect("round trip captures a baseline");
+			let after =
+				snapshot_local_project(&transfer.local_root, &config, &transfer.options).await?;
+			let error =
+				ensure_local_snapshot_unchanged(&baseline, &after, "during post-sync").unwrap_err();
+			assert!(error.to_string().contains("editor.txt"));
+			assert_eq!(
+				fs::read_to_string(transfer.local_root.join("editor.txt"))?,
+				"edited"
+			);
+			fs::remove_file(transfer.local_root.join("generated.txt"))?;
+			fs::remove_file(transfer.local_root.join("editor.txt"))?;
+			assert!(
+				push_phase(&client, &config, &transfer, RunTransferMode::Skip, output)
+					.await?
+					.is_none()
+			);
+			assert!(!transfer.local_root.join("generated.txt").exists());
+			assert!(!transfer.local_root.join("editor.txt").exists());
+			config.hooks.post_sync = Some("sh -c 'exit 3'".to_owned());
+			let error = push_phase(&client, &config, &transfer, RunTransferMode::Push, output)
+				.await
+				.unwrap_err();
+			assert!(error.to_string().contains("exited with code 3"));
+			Ok(())
+		}
+		.await;
+		let cleanup = client
+			.execute(&format!(
+				"rm -rf -- {}",
+				shell_words::quote(&transfer.remote_dir)
+			))
+			.await?;
+		assert_eq!(cleanup.exit_status, 0);
+		result
+	}
 
 	#[test]
 	fn run_command() {

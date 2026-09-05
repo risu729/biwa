@@ -138,11 +138,9 @@ post_sync = "echo sync complete"
 
 `pre_sync` runs before files are uploaded — by `biwa sync` and by the automatic sync phase of `biwa run` — so generated artifacts are included in the same upload. `post_sync` runs after a successful upload, before the remote command of `biwa run` starts. Both hooks are skipped whenever the sync phase itself is skipped (`--skip-sync`, `-d` without `--sync`, or `sync.auto = false`), and `biwa pull` never runs them because it does not push. A failing hook aborts the operation, and `post_sync` never runs when the upload failed.
 
-::: danger Hooks execute local commands from project configuration
-Because configuration is discovered from the current directory and its ancestors, an untrusted repository containing a `biwa.toml` with `[hooks]` can run arbitrary commands on your machine as soon as you run biwa inside it. Review a project's biwa configuration before running biwa in a repository you did not write.
-:::
+Hooks are loaded only from global configuration. Project-local hooks are ignored with a warning. Configure commands you trust to run in each project's sync root; task runners can themselves execute project code.
 
-In a round trip (`biwa run --pull` / `--pull-always`), files created by `post_sync` inside the transfer scope are pulled away again, because they exist locally but not remotely. Exclude such artifacts from the sync scope if they need to survive the pull. A file that already existed at push time and is modified or removed while `post_sync` runs still trips the round-trip drift guard, so the pull refuses rather than overwriting it.
+For round trips (`--pull` / `--pull-always`), all local changes made after the push — including new files created while `post_sync` runs — trigger the local drift guard, so the pull preserves them and refuses to overwrite the project. Exclude local post-sync artifacts from the transfer scope, or generate uploaded files in `pre_sync`.
 
 See the [`[hooks]` configuration reference](/configuration) for the full behavior, including working directory, argument parsing, and output handling.
 

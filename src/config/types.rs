@@ -472,7 +472,8 @@ impl Default for EnvConfig {
 	}
 }
 
-/// Hook settings.
+/// Hook settings loaded only from global configuration.
+/// Project-local hook settings are ignored.
 #[derive(confique::Config, Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HooksConfig {
 	/// Local command to run before synchronization uploads files.

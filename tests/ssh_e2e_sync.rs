@@ -2873,13 +2873,13 @@ fn e2e_pull_verification_rejects_a_stale_cached_remote_hash() -> Result<()> {
 #[test]
 fn e2e_sync_runs_local_hooks_around_upload() -> Result<()> {
 	let dir = tempfile::tempdir()?;
-	common::write_hooks_config(
-		dir.path(),
+	let hook_config = common::write_hooks_config(
 		Some(r#"sh -c "printf generated > generated.txt; echo pre-sync-marker""#),
 		Some(r#"sh -c "printf done > post-sync.txt""#),
 	)?;
 
 	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.env("XDG_CONFIG_HOME", hook_config.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -2908,6 +2908,7 @@ fn e2e_sync_runs_local_hooks_around_upload() -> Result<()> {
 		],
 		dir.path(),
 	)
+	.env("XDG_CONFIG_HOME", hook_config.path())
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()
@@ -2931,6 +2932,7 @@ fn e2e_sync_runs_local_hooks_around_upload() -> Result<()> {
 		],
 		dir.path(),
 	)
+	.env("XDG_CONFIG_HOME", hook_config.path())
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()
@@ -2943,8 +2945,7 @@ fn e2e_sync_runs_local_hooks_around_upload() -> Result<()> {
 #[test]
 fn e2e_sync_hook_output_follows_quiet_and_silent() -> Result<()> {
 	let dir = tempfile::tempdir()?;
-	common::write_hooks_config(
-		dir.path(),
+	let hook_config = common::write_hooks_config(
 		Some(r#"sh -c "echo pre-sync-marker; echo pre-sync-error >&2""#),
 		None,
 	)?;
@@ -2952,6 +2953,7 @@ fn e2e_sync_hook_output_follows_quiet_and_silent() -> Result<()> {
 	// --quiet hides hook stdout but keeps hook stderr, so a failing hook can
 	// still explain itself.
 	let quiet = biwa_cmd_tilde(&["--quiet", "sync"], dir.path())
+		.env("XDG_CONFIG_HOME", hook_config.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -2965,6 +2967,7 @@ fn e2e_sync_hook_output_follows_quiet_and_silent() -> Result<()> {
 
 	// --silent hides both hook streams.
 	let silent = biwa_cmd_tilde(&["--silent", "sync"], dir.path())
+		.env("XDG_CONFIG_HOME", hook_config.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -2982,14 +2985,14 @@ fn e2e_sync_hook_output_follows_quiet_and_silent() -> Result<()> {
 fn e2e_sync_pre_sync_failure_aborts_before_upload() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("hello.txt"), "world")?;
-	common::write_hooks_config(
-		dir.path(),
+	let hook_config = common::write_hooks_config(
 		Some(r#"sh -c "exit 3""#),
 		Some(r#"sh -c "printf done > post-sync.txt""#),
 	)?;
 	let remote_proj_dir = common::get_remote_project_dir(dir.path())?;
 
 	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.env("XDG_CONFIG_HOME", hook_config.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -3015,6 +3018,7 @@ fn e2e_sync_pre_sync_failure_aborts_before_upload() -> Result<()> {
 		],
 		dir.path(),
 	)
+	.env("XDG_CONFIG_HOME", hook_config.path())
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()
@@ -3030,9 +3034,10 @@ fn e2e_sync_pre_sync_failure_aborts_before_upload() -> Result<()> {
 fn e2e_sync_post_sync_failure_fails_the_command() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("hello.txt"), "world")?;
-	common::write_hooks_config(dir.path(), None, Some(r#"sh -c "exit 4""#))?;
+	let hook_config = common::write_hooks_config(None, Some(r#"sh -c "exit 4""#))?;
 
 	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.env("XDG_CONFIG_HOME", hook_config.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -3056,6 +3061,7 @@ fn e2e_sync_post_sync_failure_fails_the_command() -> Result<()> {
 		],
 		dir.path(),
 	)
+	.env("XDG_CONFIG_HOME", hook_config.path())
 	.stdout_capture()
 	.stderr_capture()
 	.unchecked()
@@ -3069,8 +3075,7 @@ fn e2e_sync_push_failure_skips_post_sync_hook() -> Result<()> {
 	let dir = tempfile::tempdir()?;
 	fs::write(dir.path().join("first.txt"), "first")?;
 	fs::write(dir.path().join("second.txt"), "second")?;
-	common::write_hooks_config(
-		dir.path(),
+	let hook_config = common::write_hooks_config(
 		Some(r#"sh -c "printf pre > pre-sync.txt""#),
 		Some(r#"sh -c "printf post > post-sync.txt""#),
 	)?;
@@ -3078,6 +3083,7 @@ fn e2e_sync_push_failure_skips_post_sync_hook() -> Result<()> {
 	// The file limit makes the upload itself fail after the pre-sync hook ran.
 	let output = biwa_cmd_tilde(&["sync"], dir.path())
 		.env("BIWA_SYNC_SFTP_MAX_FILES_TO_SYNC", "1")
+		.env("XDG_CONFIG_HOME", hook_config.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -3099,14 +3105,14 @@ fn e2e_sync_push_failure_skips_post_sync_hook() -> Result<()> {
 #[test]
 fn e2e_run_hooks_follow_the_sync_phase() -> Result<()> {
 	let dir = tempfile::tempdir()?;
-	common::write_hooks_config(
-		dir.path(),
+	let hook_config = common::write_hooks_config(
 		Some(r#"sh -c "printf pre > pre-sync.txt""#),
 		Some(r#"sh -c "printf post > post-sync.txt""#),
 	)?;
 
 	// Skipping the sync phase also skips both sync hooks.
 	let skipped = biwa_cmd_tilde(&["run", "--skip-sync", "true"], dir.path())
+		.env("XDG_CONFIG_HOME", hook_config.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -3121,6 +3127,7 @@ fn e2e_run_hooks_follow_the_sync_phase() -> Result<()> {
 
 	// The automatic sync phase runs both hooks.
 	let synced = biwa_cmd_tilde(&["run", "true"], dir.path())
+		.env("XDG_CONFIG_HOME", hook_config.path())
 		.stdout_capture()
 		.stderr_capture()
 		.unchecked()
@@ -3134,6 +3141,41 @@ fn e2e_run_hooks_follow_the_sync_phase() -> Result<()> {
 	assert_eq!(
 		fs::read_to_string(dir.path().join("post-sync.txt"))?,
 		"post"
+	);
+	Ok(())
+}
+
+#[test]
+fn e2e_sync_ignores_hostile_project_hooks() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let hook_config =
+		common::write_hooks_config(Some(r#"sh -c "printf trusted > trusted.txt""#), None)?;
+	fs::write(
+		dir.path().join("biwa.toml"),
+		r#"[hooks]
+pre_sync = 'sh -c "printf hostile > hostile-pre.txt"'
+post_sync = 'sh -c "printf hostile > hostile-post.txt"'
+"#,
+	)?;
+
+	let output = biwa_cmd_tilde(&["sync"], dir.path())
+		.env("XDG_CONFIG_HOME", hook_config.path())
+		.stdout_capture()
+		.stderr_capture()
+		.unchecked()
+		.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	let stdout = String::from_utf8_lossy(&output.stdout);
+	assert!(
+		stdout.contains("Ignoring project-local hooks"),
+		"stdout: {stdout}"
+	);
+	assert!(!dir.path().join("hostile-pre.txt").exists());
+	assert!(!dir.path().join("hostile-post.txt").exists());
+	assert_eq!(
+		fs::read_to_string(dir.path().join("trusted.txt"))?,
+		"trusted"
 	);
 	Ok(())
 }

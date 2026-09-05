@@ -202,11 +202,7 @@ The sync cache speeds up repeated syncs by reusing hashes while a file's metadat
 | `pre_sync`  | string? | `null`  | Local command run before synchronization uploads files       |
 | `post_sync` | string? | `null`  | Local command run after a successful synchronization         |
 
-::: danger Hooks run arbitrary local commands from configuration
-A hook is a command biwa executes **on your own machine**, and configuration is discovered automatically from the current directory and its ancestors. Cloning an untrusted repository that ships a `biwa.toml` with a `[hooks]` section and then running any biwa command in it therefore executes that command locally, without a confirmation prompt.
-
-Treat a project-local biwa configuration like any other executable content in the repository: read `biwa.toml` (or `.biwa.*` / `.config/biwa.*`) before running biwa inside a project you did not write, or keep hooks in your global configuration only.
-:::
+Hooks are loaded **only from global configuration** (`~/biwa.*`, `~/.biwa.*`, or the platform configuration directory's `biwa/config.*`). Hooks in automatically discovered project or ancestor configuration are ignored with a warning, so a cloned repository cannot authorize local commands. Configure hooks only for commands you trust to run in the current project's sync root; task runners such as `bun`, `cargo`, and `mise` can themselves execute project code.
 
 Both hooks run **locally**, never on the remote host:
 
@@ -221,26 +217,26 @@ Both hooks run **locally**, never on the remote host:
 - Hooks do not inherit biwa's stdin, so they must not be interactive.
 
 ::: warning Round trips (`--pull` / `--pull-always`)
-With `biwa run --pull` or `--pull-always`, files **created** by `post_sync` inside the transfer scope never existed remotely, so the pull mirrors them away like any other local-only entry. Keep post-sync artifacts out of the sync scope (for example via `.gitignore`, `.biwaignore`, `sync.exclude`, or `--exclude`) when they must survive the pull.
+The verified pushed snapshot stays the pull baseline. If a file in the transfer scope is **created, modified, or removed** while `post_sync` runs — by the hook or by an editor save — the pull refuses with `Local files changed …` and preserves the local change.
 
-Files that already existed when the project was pushed are a different case: if such a file is **modified or removed** while `post_sync` runs — by the hook itself or by an editor save landing at that moment — the round-trip pull refuses with `Local files changed …` instead of overwriting it. Use `post_sync` hooks that only produce new files in round-trip workflows.
+Keep local post-sync output outside the transfer scope using `.gitignore`, `.biwaignore`, `sync.exclude`, or `--exclude`. Excluded artifacts survive the pull. Generate files that should be uploaded in `pre_sync` instead.
 :::
 
 ```toml
-# JavaScript project
+# In your global configuration, for JavaScript projects
 [hooks]
 pre_sync = "bun install --frozen-lockfile"
 post_sync = "bun test"
 ```
 
 ```toml
-# Rust project
+# In your global configuration, for Rust projects
 [hooks]
 pre_sync = "cargo build"
 ```
 
 ```toml
-# Generic build step needing shell features
+# In your global configuration, for a build step needing shell features
 [hooks]
 pre_sync = 'sh -c "make build && date > .last-build"'
 ```

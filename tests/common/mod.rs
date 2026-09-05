@@ -149,23 +149,24 @@ fn ssh_capable_port() -> &'static str {
 	PORT.as_str()
 }
 
-/// Writes a local `biwa.toml` in `dir` that configures the given sync hooks.
+/// Writes isolated global hooks; set the child process `XDG_CONFIG_HOME` to the returned directory.
 #[allow(
 	dead_code,
 	reason = "Only the sync hook integration tests configure hooks."
 )]
 pub fn write_hooks_config(
-	dir: &Path,
 	pre_sync: Option<&str>,
 	post_sync: Option<&str>,
-) -> Result<()> {
+) -> Result<tempfile::TempDir> {
 	let config = iter::once("[hooks]".to_owned())
 		.chain(pre_sync.map(|command| format!("pre_sync = '{command}'")))
 		.chain(post_sync.map(|command| format!("post_sync = '{command}'")))
 		.collect::<Vec<_>>()
 		.join("\n");
-	fs::write(dir.join("biwa.toml"), config + "\n")?;
-	Ok(())
+	let dir = tempfile::tempdir()?;
+	fs::create_dir_all(dir.path().join("biwa"))?;
+	fs::write(dir.path().join("biwa/config.toml"), config + "\n")?;
+	Ok(dir)
 }
 
 /// Computes the absolute path to the remote project directory.

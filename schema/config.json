@@ -268,7 +268,7 @@
       ]
     },
     "HooksConfig": {
-      "description": "Hook settings.",
+      "description": "Hook settings loaded only from global configuration.\nProject-local hook settings are ignored.",
       "type": "object",
       "properties": {
         "post_sync": {
