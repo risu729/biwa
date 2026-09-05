@@ -481,6 +481,39 @@ fn e2e_setup_ssh_aborts_on_an_identity_conflict_before_installing() -> Result<()
 
 #[serial]
 #[test]
+fn e2e_setup_ssh_rejects_a_mismatched_companion_without_installing_it() -> Result<()> {
+	let dir = tempfile::tempdir()?;
+	let key_path = dir.path().join("id_ed25519");
+	let unrelated_path = dir.path().join("unrelated_key");
+	write_ssh_private_key_from_seed(&key_path, &[0x4d; 32])?;
+	write_ssh_private_key_from_seed(&unrelated_path, &[0x5e; 32])?;
+	let unrelated = PrivateKey::read_openssh_file(&unrelated_path)?;
+	fs::write(
+		format!("{}.pub", key_path.display()),
+		unrelated.public_key().to_openssh()?,
+	)?;
+	let before = remote_authorized_keys(Server::Default)?;
+	let _guard = RemoteKeyGuard::new(Server::Default, private_key_material(&unrelated_path)?);
+
+	let output = setup_ssh(
+		Server::Default,
+		&["--key-path", &key_path.to_string_lossy()],
+	)
+	.run()?;
+	let stderr = String::from_utf8_lossy(&output.stderr);
+
+	assert!(!output.status.success(), "stderr was: {stderr}");
+	assert!(stderr.contains("does not match"), "stderr was: {stderr}");
+	assert_eq!(
+		remote_authorized_keys(Server::Default)?,
+		before,
+		"a stale public key must be rejected before authorized_keys changes"
+	);
+	Ok(())
+}
+
+#[serial]
+#[test]
 fn e2e_setup_ssh_installs_only_the_first_public_key_entry() -> Result<()> {
 	const UNRELATED: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIWBVymg7tyFs+jzE07UpfXkQEibpPg23d2KCVnIvxLN unrelated";
 

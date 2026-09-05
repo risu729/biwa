@@ -2,7 +2,7 @@ use crate::Result;
 use crate::config::format::ConfigFormat;
 use crate::config::types::{AuthMode, Config};
 use crate::ssh::auth::resolve_auth;
-use crate::ssh::client::auth::{AuthenticationFailed, AuthenticationFailureKind};
+use crate::ssh::client::auth::{AuthenticationFailed, AuthenticationFailureKind, load_private_key};
 use crate::ssh::client::{Client, HostKeyVerificationFailed};
 use crate::ssh::exec::connect;
 use crate::ssh::target::ResolvedSshTarget;
@@ -636,10 +636,22 @@ fn public_key_path(private_key_path: &Path) -> PathBuf {
 
 /// Loads the public key that pairs with an existing private key.
 ///
-/// The private key itself is only parsed, never decrypted, so an encrypted key does not
-/// require its passphrase here.
+/// OpenSSH private keys expose the public key without decryption. Other formats use
+/// the ordinary credential loader, prompting for a passphrase when necessary.
 fn load_key_pair(private_key_path: &Path) -> Result<PublicKey> {
 	let companion = public_key_path(private_key_path);
+	let private_key = PrivateKey::read_openssh_file(private_key_path)
+		.map_err(Report::from)
+		.or_else(|_error| {
+			load_private_key(private_key_path, stdin().is_terminal(), false)
+				.map(|(private_key, _cacheable)| private_key)
+		})
+		.wrap_err_with(|| {
+			format!(
+				"Failed to read the SSH private key {}. Select another key with --key-path",
+				private_key_path.display()
+			)
+		})?;
 	// Parsing the file directly keeps the comment, which `load_public_key` discards. Only
 	// the first line is read: a comment may contain spaces, so anything after it would be
 	// folded into the comment and turn one selected key into several authorized entries.
@@ -647,17 +659,16 @@ fn load_key_pair(private_key_path: &Path) -> Result<PublicKey> {
 		.ok()
 		.and_then(|contents| PublicKey::from_openssh(contents.lines().next()?.trim()).ok())
 	{
+		if public_key.key_data() != private_key.public_key().key_data() {
+			bail!(
+				"The public key {} does not match the private key {}. Regenerate the companion public key or select another key with --key-path",
+				companion.display(),
+				private_key_path.display()
+			);
+		}
 		debug!(path = %companion.display(), "Using the companion public key");
 		return Ok(public_key);
 	}
-
-	let private_key = PrivateKey::read_openssh_file(private_key_path).wrap_err_with(|| {
-		format!(
-			"Failed to read the SSH private key {}. Create {} or select another key with --key-path",
-			private_key_path.display(),
-			companion.display()
-		)
-	})?;
 	Ok(private_key.public_key().clone())
 }
 
@@ -960,7 +971,7 @@ fn set_toml_ssh_value(contents: &str, key: &str, value: &str) -> Result<String> 
 	if contents.is_empty() || contents.ends_with('\n') {
 		updated.push_str(line_ending);
 	}
-	verify_toml_ssh_value(&updated, key, value)?;
+	verify_toml_ssh_value(contents, &updated, key, value)?;
 	Ok(updated)
 }
 
@@ -998,16 +1009,22 @@ fn trailing_comment(assigned: &str) -> Option<&str> {
 	None
 }
 
-/// Ensures the rewritten configuration parses and selects the intended value.
-fn verify_toml_ssh_value(contents: &str, key: &str, value: &str) -> Result<()> {
-	let parsed: toml::Value = toml::from_str(contents).wrap_err_with(|| {
+/// Ensures the rewritten configuration changes only the intended value.
+fn verify_toml_ssh_value(original: &str, contents: &str, key: &str, value: &str) -> Result<()> {
+	let mut expected: toml::Table =
+		toml::from_str(original).wrap_err("Failed to parse the original TOML configuration")?;
+	let ssh = expected
+		.entry("ssh")
+		.or_insert_with(|| toml::Value::Table(toml::Table::new()))
+		.as_table_mut()
+		.ok_or_else(|| Report::msg("The ssh configuration must be a TOML table"))?;
+	ssh.insert(key.to_owned(), toml::Value::String(value.to_owned()));
+	let parsed: toml::Table = toml::from_str(contents).wrap_err_with(|| {
 		format!("biwa cannot rewrite ssh.{key} in this file layout, so it was left unchanged")
 	})?;
-	let updated = parsed
-		.get("ssh")
-		.and_then(|ssh| ssh.get(key))
-		.and_then(toml::Value::as_str);
-	if updated == Some(value) {
+	// A line resembling an SSH assignment can occur inside a multiline string. Checking
+	// the whole document prevents accepting that edit when the actual key was already set.
+	if parsed == expected {
 		return Ok(());
 	}
 	bail!("biwa cannot set ssh.{key} without rewriting unrelated configuration")
@@ -1019,6 +1036,7 @@ mod tests {
 	use crate::cli::{Cli, Commands};
 	use crate::testing::write_test_ssh_private_key;
 	use pretty_assertions::assert_eq;
+	use russh::keys::encode_pkcs8_pem;
 
 	const PUBLIC_KEY: &str =
 		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGYh1Ntz2neFcfgNyBAx3kFJwSURKqRrnAuLiQ5M296T biwa";
@@ -1234,13 +1252,65 @@ mod tests {
 	fn existing_key_pair_keeps_the_public_key_comment() -> Result<()> {
 		let dir = tempfile::tempdir()?;
 		let key_path = dir.path().join("id_ed25519");
-		write_test_ssh_private_key(&key_path)?;
-		fs::write(public_key_path(&key_path), format!("{PUBLIC_KEY}\n"))?;
+		let mut expected = write_test_ssh_private_key(&key_path)?;
+		expected.set_comment("a different companion comment");
+		let expected_line = expected.to_openssh()?;
+		fs::write(public_key_path(&key_path), format!("{expected_line}\n"))?;
 
 		assert_eq!(
 			authorized_key_line(&load_key_pair(&key_path)?)?,
-			PUBLIC_KEY,
+			expected_line,
 			"the comment stored beside an existing key must reach authorized_keys"
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn existing_key_pair_rejects_an_unrelated_companion() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let key_path = dir.path().join("id_ed25519");
+		write_test_ssh_private_key(&key_path)?;
+		fs::write(public_key_path(&key_path), format!("{PUBLIC_KEY}\n"))?;
+
+		let error =
+			load_key_pair(&key_path).expect_err("an unrelated companion must never be installed");
+		assert!(error.to_string().contains("does not match"));
+		Ok(())
+	}
+
+	#[test]
+	fn companion_public_key_does_not_hide_an_invalid_private_key() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let key_path = dir.path().join("id_ed25519");
+		fs::write(&key_path, "not a private key")?;
+		fs::write(public_key_path(&key_path), format!("{PUBLIC_KEY}\n"))?;
+
+		let error = load_key_pair(&key_path)
+			.expect_err("the selected private key must remain the source of the identity");
+		assert!(
+			error
+				.to_string()
+				.contains("Failed to read the SSH private key")
+		);
+		Ok(())
+	}
+
+	#[test]
+	fn existing_pkcs8_key_pair_uses_the_ordinary_credential_loader() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let key_path = dir.path().join("id_ed25519");
+		let private_key = PrivateKey::from(Ed25519Keypair::from_seed(&[7_u8; 32]));
+		let mut encoded = Zeroizing::new(Vec::new());
+		encode_pkcs8_pem(&private_key, &mut *encoded)?;
+		fs::write(&key_path, &*encoded)?;
+		fs::write(
+			public_key_path(&key_path),
+			private_key.public_key().to_openssh()?,
+		)?;
+
+		assert_eq!(
+			load_key_pair(&key_path)?.key_data(),
+			private_key.public_key().key_data()
 		);
 		Ok(())
 	}
@@ -1367,6 +1437,15 @@ mod tests {
 		assert_eq!(
 			load_key_pair(&key_path)?.key_data(),
 			private_key.public_key().key_data()
+		);
+		fs::write(
+			public_key_path(&key_path),
+			private_key.public_key().to_openssh()?,
+		)?;
+		assert_eq!(
+			load_key_pair(&key_path)?.key_data(),
+			private_key.public_key().key_data(),
+			"matching an encrypted OpenSSH key must not require its passphrase"
 		);
 		Ok(())
 	}
@@ -1499,6 +1578,18 @@ mod tests {
 		let error = set_toml_ssh_value("ssh = { host = \"cse\" }\n", "key_path", "~/.ssh/key")
 			.expect_err("an inline table cannot be extended by a new table header");
 		assert!(error.to_string().contains("cannot rewrite ssh.key_path"));
+	}
+
+	#[test]
+	fn toml_rewrite_rejects_changes_inside_multiline_strings() {
+		for delimiter in ["\"\"\"", "'''"] {
+			let original = format!(
+				"description = {delimiter}\n[ssh]\nkey_path = \"example\"\n{delimiter}\n[ssh]\nkey_path = \"~/.ssh/key\"\n"
+			);
+			let error = set_toml_ssh_value(&original, "key_path", "~/.ssh/key")
+				.expect_err("an already correct key must not hide changes to another value");
+			assert!(error.to_string().contains("unrelated configuration"));
+		}
 	}
 
 	#[test]

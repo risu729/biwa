@@ -265,7 +265,7 @@ fn require_success(result: &AuthResult, method: &str) -> Result<()> {
 
 /// Loads a private key, prompting only when this concrete candidate is reached and interaction is
 /// allowed.
-fn load_private_key(
+pub fn load_private_key(
 	path: &Path,
 	allow_prompt: bool,
 	fallback_on_load_failure: bool,
