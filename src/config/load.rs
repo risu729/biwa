@@ -274,9 +274,8 @@ impl Config {
 		if bin.is_empty() {
 			bail!("Invalid mise.bin: the remote mise executable must not be empty");
 		}
-		// A path-relative executable would resolve against the remote project
-		// directory when the command runs, but against the home directory when
-		// the availability probe runs, so only unambiguous forms are accepted.
+		// Keep the configured executable independent of whichever project is synced.
+		// Project-relative wrappers remain available through command_prefix.
 		if bin.contains('/')
 			&& !bin.starts_with('/')
 			&& !bin.starts_with('~')

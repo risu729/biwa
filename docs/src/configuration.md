@@ -130,6 +130,8 @@ The wrapper prefixes the command, so `biwa run 'a && b'` runs only `a` inside
 the mise environment; use `biwa run sh -c 'a && b'` to run the whole compound
 command under mise.
 
+The availability check uses the remote command's working directory and forwarded environment, including `PATH`. Shell-dependent prefixes such as `MISE_ENV=dev mise x --` skip the convenience probe and are resolved by the remote shell when executed.
+
 ::: danger The `[mise]` section is global-only
 `[mise]` selects the program that wraps every remote command, so biwa reads the
 whole section only from global configuration or `BIWA_MISE_*` environment

@@ -336,13 +336,24 @@ struct MiseProbeTarget {
 /// of guessing and reporting a misleading failure.
 fn command_prefix_probe_word(prefix: &str) -> Option<String> {
 	let word = shell_words::split(prefix).ok()?.into_iter().next()?;
-	if word.is_empty() {
+	if word.is_empty()
+		|| word.contains(['`', '=', '*', '?', '[', ';', '&', '|', '(', ')', '<', '>'])
+	{
 		return None;
 	}
 	// `shell_quote_path` re-expands a leading `$HOME`; any other expansion would
 	// be quoted into a literal and could not be looked up.
-	let home_relative = word == "$HOME" || word.starts_with("$HOME/");
-	if word.contains('$') && !home_relative {
+	let home_relative = word
+		.strip_prefix("$HOME")
+		.filter(|rest| rest.is_empty() || rest.starts_with('/'));
+	if word.contains('$') && home_relative.is_none_or(|rest| rest.contains('$')) {
+		return None;
+	}
+	// Splitting removes quotes, so do not turn a literal home spelling into an expansion.
+	if home_relative.is_some() && prefix.contains(['\'', '\\']) {
+		return None;
+	}
+	if word.starts_with('~') && !prefix.starts_with("~/") {
 		return None;
 	}
 	Some(word)
@@ -377,20 +388,55 @@ fn mise_probe_target(mise: &MiseConfig) -> Option<MiseProbeTarget> {
 }
 
 /// Fails early when the mise integration is enabled but the remote executable is missing.
-async fn ensure_remote_mise_available(client: &Client, mise: &MiseConfig) -> Result<()> {
+async fn ensure_remote_mise_available(
+	client: &Client,
+	mise: &MiseConfig,
+	working_dir: Option<&str>,
+	env_vars: &[ResolvedEnvVar],
+	forward_method: &EnvForwardMethod,
+	umask: &Umask,
+) -> Result<()> {
 	let Some(target) = mise_probe_target(mise) else {
 		return Ok(());
 	};
 
-	let probe = format!("command -v {} > /dev/null 2>&1", target.word);
-	let result = client.execute(&probe).await.wrap_err_with(|| {
+	// Match the command's forwarding order: SSH setenv is applied before the shell
+	// starts, while shell exports run after entering the working directory.
+	let env_prefix = match forward_method {
+		EnvForwardMethod::Export => build_export_prefix(env_vars),
+		EnvForwardMethod::Setenv => String::new(),
+	};
+	let probe = RemoteShellCommand {
+		umask,
+		working_dir,
+		env_prefix: &env_prefix,
+		mise_prefix: None,
+		command: &format!("command -v {} > /dev/null 2>&1", target.word),
+	}
+	.render();
+	let (output_tx, mut output_rx) = mpsc::channel(1);
+	let execute = execute_with_forward_method(
+		client,
+		&probe,
+		env_vars,
+		forward_method,
+		ExecuteCommandStreams {
+			stdout_tx: output_tx.clone(),
+			stderr_tx: output_tx,
+			stdin_rx: None,
+			stdin_is_terminal: false,
+		},
+	);
+	let discard_output = async { while output_rx.recv().await.is_some() {} };
+	let (result, ()) = tokio::join!(execute, discard_output);
+	let exit_status = result.wrap_err_with(|| {
 		format!(
 			"Failed to check for `{}` (from `{}`) on the remote host",
 			target.display, target.source
 		)
 	})?;
 
-	if result.exit_status == 0 {
+	if exit_status == 0 {
 		debug!(
 			probe_target = target.display,
 			source = target.source,
@@ -739,7 +785,15 @@ pub async fn execute_command_status(
 	let env_vars = resolve_env_vars(config, options.cli_env_vars)?;
 	let mise_prefix = build_mise_prefix(&config.mise)?;
 	if config.mise.enabled && config.mise.verify {
-		ensure_remote_mise_available(client, &config.mise).await?;
+		ensure_remote_mise_available(
+			client,
+			&config.mise,
+			options.working_dir,
+			&env_vars,
+			&config.env.forward_method,
+			&config.ssh.umask,
+		)
+		.await?;
 	}
 	run_command(
 		client,
@@ -957,8 +1011,9 @@ async fn stream_channel_output(
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::config::types::EnvConfig;
+	use crate::config::types::{EnvConfig, HostKeyChecking};
 	use crate::env_vars::{EnvForwardMethod, EnvVarRule, EnvVarSelector, EnvVarSpec, EnvVars};
+	use crate::ssh::client::auth::Method;
 	use crate::ssh::client::auth::{AuthenticationFailed, AuthenticationFailureKind};
 	use crate::testing::EnvCleanup;
 	use color_eyre::eyre::Report;
@@ -1274,6 +1329,18 @@ mod tests {
 			}),
 			None
 		);
+		for prefix in [
+			"MISE_ENV=dev mise x --",
+			"`printf mise` x --",
+			"$HOME/$MISE_BIN x --",
+			"'~/bin/mise' x --",
+			"\"~/bin/mise\" x --",
+			"~other/bin/mise x --",
+			r#""\$HOME/bin/mise" x --"#,
+			"'$HOME/bin/mise' x --",
+		] {
+			assert_eq!(command_prefix_probe_word(prefix), None, "prefix: {prefix}");
+		}
 		// Only the remote shell could resolve this expansion.
 		assert_eq!(
 			mise_probe_target(&MiseConfig {
@@ -1287,6 +1354,81 @@ mod tests {
 	#[test]
 	fn mise_probe_target_is_none_for_prefix_mode_without_a_prefix() {
 		assert_eq!(mise_probe_target(&mise_config(MiseMode::Prefix)), None);
+	}
+
+	#[tokio::test]
+	async fn remote_mise_probe_uses_the_command_directory_and_environment() -> Result<()> {
+		let dir = tempfile::tempdir()?;
+		let port = env::var("BIWA_TEST_SSH_PORT")
+			.unwrap_or_else(|_| "2222".to_owned())
+			.parse()?;
+		let client = Client::connect(
+			("127.0.0.1", port),
+			"testuser",
+			Method::Password("password123".to_owned()),
+			HostKeyVerification::new(
+				"127.0.0.1".to_owned(),
+				port,
+				HostKeyChecking::AcceptNew,
+				Some(dir.path().join("known_hosts")),
+			),
+		)
+		.await?;
+		let umask = Umask::default();
+		let mut mise = MiseConfig {
+			command_prefix: Some("./sh -c".to_owned()),
+			..mise_config(MiseMode::Prefix)
+		};
+		ensure_remote_mise_available(
+			&client,
+			&mise,
+			Some("/bin"),
+			&[],
+			&EnvForwardMethod::Export,
+			&umask,
+		)
+		.await?;
+
+		mise.command_prefix = None;
+		mise.mode = MiseMode::Exec;
+		mise.bin = "sh".to_owned();
+		ensure_remote_mise_available(&client, &mise, None, &[], &EnvForwardMethod::Export, &umask)
+			.await?;
+		let env_vars = [ResolvedEnvVar {
+			name: "PATH".to_owned(),
+			value: "/biwa-missing-directory".to_owned(),
+		}];
+		let error = ensure_remote_mise_available(
+			&client,
+			&mise,
+			None,
+			&env_vars,
+			&EnvForwardMethod::Export,
+			&umask,
+		)
+		.await
+		.unwrap_err();
+		assert!(
+			error
+				.to_string()
+				.contains("`sh` (from `mise.bin`) was not found")
+		);
+		mise.command_prefix = Some("biwa-missing-wrapper x --".to_owned());
+		let error = ensure_remote_mise_available(
+			&client,
+			&mise,
+			None,
+			&[],
+			&EnvForwardMethod::Export,
+			&umask,
+		)
+		.await
+		.unwrap_err();
+		assert!(error.to_string().contains("from `mise.command_prefix`"));
+		mise.command_prefix = Some("MISE_ENV=dev sh -c".to_owned());
+		ensure_remote_mise_available(&client, &mise, None, &[], &EnvForwardMethod::Export, &umask)
+			.await?;
+		Ok(())
 	}
 
 	#[test]

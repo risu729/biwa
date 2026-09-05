@@ -1473,6 +1473,74 @@ fn e2e_run_mise_command_prefix_and_env_selection() -> Result<()> {
 }
 
 #[test]
+fn e2e_run_mise_verifies_the_wrapper_in_the_command_context() -> Result<()> {
+	let fake_mise = FakeMise::install(".biwa-test-mise-context", false)?;
+	let remote_dir = format!("~/{}", fake_mise.dir_name);
+
+	for prefix in [
+		None,
+		Some("./mise x --"),
+		Some("MISE_ENV=inline ./mise x --"),
+	] {
+		let mut command = biwa_cmd(&[
+			"--quiet",
+			"run",
+			"-d",
+			&remote_dir,
+			"--env",
+			"PATH=.:/usr/bin:/bin",
+			"echo",
+			"context resolved",
+		])
+		.env("BIWA_MISE_ENABLED", "true");
+		if let Some(prefix) = prefix {
+			command = command.env("BIWA_MISE_COMMAND_PREFIX", prefix);
+		}
+		let output = command
+			.stdout_capture()
+			.stderr_capture()
+			.unchecked()
+			.run()?;
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		let stdout = String::from_utf8_lossy(&output.stdout);
+		assert!(
+			output.status.success(),
+			"prefix: {prefix:?}; stderr: {stderr}"
+		);
+		assert!(stdout.contains("context resolved"), "stdout: {stdout}");
+	}
+	Ok(())
+}
+
+#[test]
+fn e2e_run_mise_probe_applies_setenv_before_resolving_the_working_directory() -> Result<()> {
+	// The forwarded CDPATH makes `cd bin` enter /bin, where ./sh is available.
+	let output = biwa_cmd_capable(&[
+		"--quiet",
+		"run",
+		"-d",
+		"bin",
+		"--env",
+		"CDPATH=/",
+		"printf",
+		"setenv-context",
+	])
+	.env("BIWA_MISE_ENABLED", "true")
+	.env("BIWA_MISE_COMMAND_PREFIX", r#"./sh -c 'exec "$@"' biwa"#)
+	.env("BIWA_ENV_FORWARD_METHOD", "setenv")
+	.stdout_capture()
+	.stderr_capture()
+	.unchecked()
+	.run()?;
+
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(output.status.success(), "stderr: {stderr}");
+	// Shell `cd` may print its destination when CDPATH is set.
+	assert!(String::from_utf8_lossy(&output.stdout).ends_with("setenv-context"));
+	Ok(())
+}
+
+#[test]
 fn e2e_run_mise_forwards_env_with_setenv_method() -> Result<()> {
 	let fake_mise = FakeMise::install(".biwa-test-mise-setenv", true)?;
 
