@@ -53,7 +53,7 @@ zeroize = "=1.9.0"
 # TODO: Restore the inline dependency after Renovate supports TOML 1.1.
 # https://github.com/renovatebot/renovate/discussions/44345
 [dependencies.russh]
-version = "=0.63.2"
+version = "=0.63.3"
 default-features = false
 features = ["flate2", "ring", "rsa"]
 
