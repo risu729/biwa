@@ -670,7 +670,7 @@ url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/565630871"
 provenance = "github-attestations"
 
 [[tools.wrangler]]
-version = "4.131.1"
+version = "4.131.2"
 backend = "npm:wrangler"
 
 [tools.wrangler.options]
