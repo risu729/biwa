@@ -231,38 +231,38 @@ url_api = "https://api.github.com/repos/suzuki-shunsuke/ghalint/releases/assets/
 url = "https://github.com/suzuki-shunsuke/ghalint/releases/download/v1.5.6/multiple.intoto.jsonl"
 
 [[tools."github:xd009642/tarpaulin"]]
-version = "0.37.2"
+version = "0.37.3"
 backend = "github:xd009642/tarpaulin"
 
 [tools."github:xd009642/tarpaulin"."platforms.linux-arm64"]
-checksum = "sha256:c8cc929a259871cfe4e3cda6e31975abe33b9b0a6078b76cbd466b6494c72792"
-url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.2/cargo-tarpaulin-aarch64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/515605581"
+checksum = "sha256:8622e9a808d135af2c538bb79745f6980934ea8254d5e47c2861f609f976935b"
+url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.3/cargo-tarpaulin-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/574407877"
 
 [tools."github:xd009642/tarpaulin"."platforms.linux-arm64-musl"]
-checksum = "sha256:f94bfd24784134d03b61872d0f52f192325a9a2b0511d09fab37acb84e65a603"
-url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.2/cargo-tarpaulin-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/515604438"
+checksum = "sha256:c47f3e366c0628e9f7d96397fb6f21ad57a683e47e30a6fabae01c44c164d332"
+url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.3/cargo-tarpaulin-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/574407305"
 
 [tools."github:xd009642/tarpaulin"."platforms.linux-x64"]
-checksum = "sha256:8e47625d26c3c265886faf1ef8cfa3ccaf071abc87bf4854ef8e239f5ffeabd8"
-url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.2/cargo-tarpaulin-x86_64-unknown-linux-gnu.tar.gz"
-url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/515604914"
+checksum = "sha256:c7213ff47fb7a21b40552ddd3cb2f9c860940fc563adc650524491807014fdaa"
+url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.3/cargo-tarpaulin-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/574407293"
 
 [tools."github:xd009642/tarpaulin"."platforms.linux-x64-musl"]
-checksum = "sha256:837dc54d21da101e96e888c6f6680d25f3c06554b0614880ea385cdf68cd5173"
-url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.2/cargo-tarpaulin-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/515607456"
+checksum = "sha256:ccbdf6f2871788d41c823f93cf172f45c84c6daef1b471df37c354a710a44be4"
+url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.3/cargo-tarpaulin-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/574403465"
 
 [tools."github:xd009642/tarpaulin"."platforms.macos-arm64"]
-checksum = "sha256:d7c19e5d1c45d0a2c6ae22ce7a59e747999e583095806ec02b92bfea66f15eaa"
-url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.2/cargo-tarpaulin-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/515604487"
+checksum = "sha256:bd938bad919aa92f8f3d67a5a496c67810fd6b167f3e34b33b20c5a009aa930f"
+url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.3/cargo-tarpaulin-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/574406168"
 
 [tools."github:xd009642/tarpaulin"."platforms.macos-x64"]
-checksum = "sha256:ce1acc986b42ae8d94725d0889529807a213e7bb0cd1b8b8bdf08f6b2e7ee110"
-url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.2/cargo-tarpaulin-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/515604538"
+checksum = "sha256:4b9449c22059256062004e854842f946a9e6e0da543f0270df0f475bce9f17e4"
+url = "https://github.com/xd009642/tarpaulin/releases/download/0.37.3/cargo-tarpaulin-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/574410048"
 
 [[tools.hk]]
 version = "1.58.1"
