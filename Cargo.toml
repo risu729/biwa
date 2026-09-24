@@ -18,7 +18,7 @@ confique = { version = "=0.4.0", features = ["json5", "toml", "yaml"] }
 console = "=0.16.6"
 derive_more = { version = "=2.1.1", features = ["deref"] }
 dialoguer = "=0.12.0"
-dirs = "=6.0.0"
+dirs = "=7.0.0"
 gethostname = "=1.1.0"
 getrandom = "=0.4.3"
 globset = "=0.4.20"
@@ -47,7 +47,7 @@ tokio-util = { version = "=0.7.19", features = ["io"] }
 toml = "=1.1.6"
 tracing = "=0.1.44"
 tracing-subscriber = "=0.3.23"
-usage_rs = { package = "usage-rs", version = "=6.11.0", features = ["completions"] }
+usage_rs = { package = "usage-rs", version = "=6.11.1", features = ["completions"] }
 zeroize = "=1.9.0"
 
 # TODO: Restore the inline dependency after Renovate supports TOML 1.1.
