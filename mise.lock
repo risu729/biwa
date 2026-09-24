@@ -428,27 +428,22 @@ url_api = "https://api.github.com/repos/suzuki-shunsuke/pinact/releases/assets/4
 provenance = "github-attestations"
 
 [[tools.pitchfork]]
-version = "2.24.2"
+version = "2.27.0"
 backend = "packslip:github.com/jdx/pitchfork"
 
 [tools.pitchfork."platforms.linux-arm64"]
-checksum = "sha256:3b95c60978d404f7b92a8ac9610f2266fca07a8db4941c1d8f0fca8a6e9fb963"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.24.2/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:14f7a5e758407e8306234cabb2dd3768670453d9078bcdec6cc4089dfd72d8ed"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.27.0/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
 
 [tools.pitchfork."platforms.linux-x64"]
-checksum = "sha256:e1196b2d347299651b53cafb45f30d8fa62ba3fee680e8c954b9cd578f461177"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.24.2/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
-signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
-
-[tools.pitchfork."platforms.linux-x64-baseline"]
-checksum = "sha256:e1196b2d347299651b53cafb45f30d8fa62ba3fee680e8c954b9cd578f461177"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.24.2/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:20d7f851e3baec00fd97d53b2f95a986287b959957f56195c6f7f8d504bbea6e"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.27.0/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
 
 [tools.pitchfork."platforms.macos-arm64"]
-checksum = "sha256:6659397ed9c94b8ebecc3458431500e94efd3463cba29ef28372f13ddd5b7789"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.24.2/pitchfork-aarch64-apple-darwin.tar.gz"
+checksum = "sha256:77491f4d803039ae4cf346c292db62b9b5aad971cc0850413917ef92cf335901"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.27.0/pitchfork-aarch64-apple-darwin.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
 
 [[tools.release-plz]]
