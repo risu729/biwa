@@ -219,7 +219,7 @@ jobs:
       attestations: write # for release artifact attestations
       id-token: write # for release artifact attestations
       actions: read # for release artifact downloads
-    uses: ./.github/workflows/release.yml
+    uses: ./.github/workflows/release.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
   docs:
     name: Build docs
     needs:
