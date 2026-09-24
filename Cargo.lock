@@ -2942,9 +2942,9 @@ dependencies = [
 
 [[package]]
 name = "usage-lib"
-version = "6.7.1"
+version = "6.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "99c8cc45cd9014fdedce0790f49499bf6af8967ae3a87ec8eb58185d2e7248b7"
+checksum = "9fe60917b97f6948229e63d3cbc59cebd78afd00bfb5ff788933b942cca01b11"
 dependencies = [
  "indexmap",
  "itertools",
@@ -2955,6 +2955,7 @@ dependencies = [
  "serde",
  "thiserror",
  "unicode-width",
+ "usage-argv",
  "winnow 1.0.4",
 ]
 
