@@ -15,7 +15,7 @@ defaults:
 jobs:
   plan:
     name: Plan
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read # for checkout
@@ -140,7 +140,7 @@ jobs:
       - plan # required for safe context access
       - build-local-artifacts
     if: github.event_name == 'push' && needs.plan.outputs.publishing == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       id-token: write # for attestation
@@ -161,7 +161,7 @@ jobs:
     needs:
       - plan # required for safe context access
       - build-local-artifacts
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: read # for checkout
@@ -223,7 +223,7 @@ jobs:
       needs.plan.result == 'success' &&
       (needs.attest-local-artifacts.result == 'success' || needs.attest-local-artifacts.result == 'skipped') &&
       needs.build-global-artifacts.result == 'success'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: write # for checkout and create release
@@ -292,7 +292,7 @@ jobs:
     needs:
       - release
     if: ${{ !cancelled() && github.event_name == 'push' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       actions: read # for actions-timeline
