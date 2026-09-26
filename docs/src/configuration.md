@@ -45,17 +45,17 @@ For example, if you set `key_path = "id_rsa"` in `./.config/biwa.toml`, it will 
 
 ### `[ssh]` — SSH Connection Settings
 
-| Key                | Type    | Default             | Description                                                                                               |
-| ------------------ | ------- | ------------------- | --------------------------------------------------------------------------------------------------------- |
-| `host`             | string  | `"cse.unsw.edu.au"` | Hostname or OpenSSH `Host` alias                                                                          |
-| `port`             | integer | OpenSSH, then `22`  | Biwa value, otherwise OpenSSH `Port`, otherwise `22`; duplicate values must match                         |
-| `user`             | string? | OpenSSH `User`      | Optional direct username; required from either Biwa or OpenSSH config                                     |
-| `use_ssh_config`   | boolean | `true`              | Read the supported subset of `~/.ssh/config`                                                              |
-| `key_path`         | string? | `null`              | Explicit private key; disables automatic agent and default-key discovery                                  |
-| `auth`             | string  | `"public-key"`      | Authentication mode: `"public-key"` or `"password"`                                                     |
-| `host_key_checking`| string  | `"strict"`          | Host-key policy: `"strict"`, `"accept-new"`, or `"insecure"`                                           |
-| `known_hosts`      | string? | `~/.ssh/known_hosts`| Optional known-hosts file override                                                                        |
-| `umask`            | string  | `"077"`             | Umask (3-digit octal: owner/group/other) applied to the remote SSH execution environment and sync actions |
+| Key                 | Type    | Default              | Description                                                                                               |
+| ------------------- | ------- | -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `host`              | string  | `"cse.unsw.edu.au"`  | Hostname or OpenSSH `Host` alias                                                                          |
+| `port`              | integer | OpenSSH, then `22`   | Biwa value, otherwise OpenSSH `Port`, otherwise `22`; duplicate values must match                         |
+| `user`              | string? | OpenSSH `User`       | Optional direct username; required from either Biwa or OpenSSH config                                     |
+| `use_ssh_config`    | boolean | `true`               | Read the supported subset of `~/.ssh/config`                                                              |
+| `key_path`          | string? | `null`               | Explicit private key; disables automatic agent and default-key discovery                                  |
+| `auth`              | string  | `"public-key"`       | Authentication mode: `"public-key"` or `"password"`                                                       |
+| `host_key_checking` | string  | `"strict"`           | Host-key policy: `"strict"`, `"accept-new"`, or `"insecure"`                                              |
+| `known_hosts`       | string? | `~/.ssh/known_hosts` | Optional known-hosts file override                                                                        |
+| `umask`             | string  | `"077"`              | Umask (3-digit octal: owner/group/other) applied to the remote SSH execution environment and sync actions |
 
 Biwa reads `Host`, `HostName`, `User`, `Port`, and `IdentityFile` from OpenSSH config. You may put `user`, `port`, and key selection in either Biwa or OpenSSH config. Equivalent duplicate values are accepted; conflicting values fail before connecting. `host` remains the lookup alias, while `HostName` supplies the network destination.
 
@@ -101,13 +101,13 @@ Relative `known_hosts` paths follow the same rules described above: project root
 
 ### `[mise]` — mise Integration Settings
 
-| Key              | Type    | Default  | Description                                                          |
-| ---------------- | ------- | -------- | -------------------------------------------------------------------- |
-| `enabled`        | boolean | `false`  | Run remote commands inside a [mise](https://mise.jdx.dev)-managed environment |
-| `bin`            | string  | `"mise"` | mise executable on the remote host (bare name, absolute path, or `~`-relative path) |
-| `mode`           | string  | `"exec"` | Wrapping strategy: `"exec"` or `"prefix"`                            |
-| `env`            | string? | `null`   | mise environment name, forwarded to the remote command as `MISE_ENV` |
-| `command_prefix` | string? | `null`   | Literal shell prefix used instead of the prefix built from `mode`    |
+| Key              | Type    | Default  | Description                                                                          |
+| ---------------- | ------- | -------- | ------------------------------------------------------------------------------------ |
+| `enabled`        | boolean | `false`  | Run remote commands inside a [mise](https://mise.jdx.dev)-managed environment        |
+| `bin`            | string  | `"mise"` | mise executable on the remote host (bare name, absolute path, or `~`-relative path)  |
+| `mode`           | string  | `"exec"` | Wrapping strategy: `"exec"` or `"prefix"`                                            |
+| `env`            | string? | `null`   | mise environment name, forwarded to the remote command as `MISE_ENV`                 |
+| `command_prefix` | string? | `null`   | Literal shell prefix used instead of the prefix built from `mode`                    |
 | `verify`         | boolean | `true`   | Check that the configured wrapper exists on the remote host before running a command |
 
 The integration is off by default, so remote execution is unchanged until you
@@ -187,20 +187,20 @@ It is strongly recommended to use a relative path starting with `~` for your `re
 
 ##### `[sync.sftp.cache]` — Sync Cache Settings
 
-| Key               | Type    | Default            | Description                                                                              |
-| ----------------- | ------- | ------------------ | ---------------------------------------------------------------------------------------- |
+| Key               | Type    | Default            | Description                                                                                |
+| ----------------- | ------- | ------------------ | ------------------------------------------------------------------------------------------ |
 | `enabled`         | boolean | `true`             | Reuse cached local and remote file hashes while a file's metadata fingerprint is unchanged |
-| `path`            | string? | State subdirectory | Directory to store sync cache files in                                                   |
-| `auto_revalidate` | boolean | `true`             | Re-hash every remote file once a day instead of trusting cached remote hashes             |
+| `path`            | string? | State subdirectory | Directory to store sync cache files in                                                     |
+| `auto_revalidate` | boolean | `true`             | Re-hash every remote file once a day instead of trusting cached remote hashes              |
 
 The sync cache speeds up repeated syncs by reusing hashes while a file's metadata fingerprint is unchanged. Both sides check size and modification time; the remote side also checks change time, and the local side checks change time and inode on Unix. See [Hash cache](/sync-behavior#hash-cache) for how invalidation works and when to reset it.
 
 ### `[hooks]` — Synchronization Hook Settings
 
-| Key         | Type    | Default | Description                                                  |
-| ----------- | ------- | ------- | ------------------------------------------------------------ |
-| `pre_sync`  | string? | `null`  | Local command run before synchronization uploads files       |
-| `post_sync` | string? | `null`  | Local command run after a successful synchronization         |
+| Key         | Type    | Default | Description                                            |
+| ----------- | ------- | ------- | ------------------------------------------------------ |
+| `pre_sync`  | string? | `null`  | Local command run before synchronization uploads files |
+| `post_sync` | string? | `null`  | Local command run after a successful synchronization   |
 
 Hooks are loaded **only from global configuration** (`~/biwa.*`, `~/.biwa.*`, or the platform configuration directory's `biwa/config.*`). Hooks in automatically discovered project or ancestor configuration are ignored with a warning, so a cloned repository cannot authorize local commands. Configure hooks only for commands you trust to run in the current project's sync root; task runners such as `bun`, `cargo`, and `mise` can themselves execute project code.
 
@@ -247,11 +247,11 @@ Hooks are intentionally single one-line commands. For multi-step workflows, defi
 
 ### `[clean]` — Remote Directory Cleanup Settings
 
-| Key                | Type    | Default | Description                                                                |
-| ------------------ | ------- | ------- | -------------------------------------------------------------------------- |
-| `max_age`          | string  | `"30d"` | Remove default-layout remote project directories older than this age       |
+| Key                | Type    | Default | Description                                                                              |
+| ------------------ | ------- | ------- | ---------------------------------------------------------------------------------------- |
+| `max_age`          | string  | `"30d"` | Remove default-layout remote project directories older than this age                     |
 | `auto`             | boolean | `true`  | Start background cleanup after successful `biwa sync`, `biwa pull`, and `biwa run` calls |
-| `quota_thresholds` | table   | `{}`    | Map quota usage percentages (`0`–`100`) to stricter maximum directory ages |
+| `quota_thresholds` | table   | `{}`    | Map quota usage percentages (`0`–`100`) to stricter maximum directory ages               |
 
 Duration values are strings such as `"30d"`, `"12h"`, `"45m"`, `"60s"`, or `"30"` for 30 minutes. `quota_thresholds` is merged with `max_age` as the baseline `0%` threshold; if quota data is unavailable, only `max_age` applies.
 
