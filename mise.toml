@@ -1,7 +1,7 @@
 [tools]
 rust = { version = "1.98.1", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.20.2"
-"github:xd009642/tarpaulin" = "0.37.4"
+"github:xd009642/tarpaulin" = "0.37.5"
 usage = "6.11.1"
 hk = "2.3.0"
 actionlint = "1.7.12"
