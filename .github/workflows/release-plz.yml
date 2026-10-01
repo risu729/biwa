@@ -14,7 +14,7 @@ jobs:
   release-pr:
     name: Create Release PR
     if: github.repository_owner == 'risu729'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: read # for checkout
@@ -47,7 +47,7 @@ jobs:
   release:
     name: Release
     if: github.repository_owner == 'risu729'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: read # for checkout
@@ -83,7 +83,7 @@ jobs:
       - release-pr
       - release
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       actions: read # for actions-timeline

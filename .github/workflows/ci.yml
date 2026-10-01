@@ -25,7 +25,7 @@ jobs:
   paths:
     name: Detect changes
     if: github.event_name == 'pull_request' || github.event_name == 'push'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read # for checkout and changed files
@@ -80,7 +80,7 @@ jobs:
   pr-title:
     name: Lint PR title
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       pull-requests: read # for semantic PR title linting
@@ -109,7 +109,7 @@ jobs:
     needs:
       - paths
     if: ${{ !cancelled() && !failure() && needs.paths.outputs.test == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: read # for checkout
@@ -146,7 +146,7 @@ jobs:
           use_oidc: true
   lint:
     name: Lint
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: read # for checkout
@@ -190,7 +190,7 @@ jobs:
     needs:
       - paths
     if: ${{ !cancelled() && !failure() && needs.paths.outputs.schema == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -225,7 +225,7 @@ jobs:
     needs:
       - paths
     if: ${{ always() && !cancelled() && !failure() && (needs.paths.outputs.docs == 'true' || github.event_name == 'workflow_dispatch') }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read # for checkout
@@ -264,7 +264,7 @@ jobs:
       - schema
       - docs
     if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     steps:
       - run: exit 1
@@ -273,7 +273,7 @@ jobs:
     needs:
       - ci-check
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       actions: read # for actions-timeline
