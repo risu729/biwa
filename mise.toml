@@ -24,7 +24,7 @@ oxfmt = "0.71.0"
 pitchfork = "2.29.0"
 tombi = "1.7.1"
 "npm:ajv-cli" = "5.0.0"
-wrangler = "4.143.0"
+wrangler = "4.143.1"
 jq = "1.8.2"
 yq = "4.54.1"
 
