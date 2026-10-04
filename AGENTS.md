@@ -191,9 +191,12 @@ It captures the commands, conventions, and guardrails that are actually used her
   with `--no-deps --skip-tools` after tools and dependencies are prepared.
 - Preview builds omit production domains. Keep production and Preview output
   separate; never replace the archived production artifact with a Preview.
-- Keep the token scoped to `Workers Scripts: Edit` on account `risu` and
-  `Workers Routes: Read` on zone `takuk.me`; ordinary routes require
-  `Workers Routes: Edit`, while Custom Domains do not require `DNS: Edit`.
+- Keep the token at `Individual Workers Editor` scoped only to `biwa-docs`
+  on account `risu`. This covers production version deployment and named
+  Preview creation and cleanup. Routine CI keeps `deploy-triggers: false`
+  and requires no zone `Workers Routes` permission. Manage Custom Domains and
+  routes separately with suitable permissions; Individual-Worker tokens cannot
+  manage Custom Domains.
 
 ## Safe Agent Workflow
 
