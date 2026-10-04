@@ -245,7 +245,7 @@ jobs:
       - name: Build docs
         run: mise run docs:build
       - name: Validate production build
-        uses: risu729/wrangler-deploy-action@c2c1bf1396daf8ec7de4189e7b0dc92cab32f244 # v2.1.0
+        uses: risu729/wrangler-deploy-action@0d45a001e87e556e88dcf4aa6111a2dab05ea42b # v2.1.1
         with:
           mode: dry-run
           working-directory: docs
@@ -294,7 +294,7 @@ jobs:
           EXPECTED_REVISION: ${{ github.sha }}
         run: mise run --no-deps --skip-tools docs:artifact:restore
       - name: Deploy validated docs
-        uses: risu729/wrangler-deploy-action@c2c1bf1396daf8ec7de4189e7b0dc92cab32f244 # v2.1.0
+        uses: risu729/wrangler-deploy-action@0d45a001e87e556e88dcf4aa6111a2dab05ea42b # v2.1.1
         with:
           mode: production
           working-directory: docs
