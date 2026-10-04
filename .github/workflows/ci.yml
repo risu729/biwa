@@ -263,16 +263,6 @@ jobs:
           path: out/docs-artifact/
           if-no-files-found: error
           retention-days: 7
-  preview-docs:
-    name: Workers Preview
-    needs: docs
-    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    permissions:
-      contents: read # for checkout
-      pull-requests: read # for live PR state verification
-    uses: ./.github/workflows/docs-preview.yml # zizmor: ignore[self-repository] -- actionlint 1.7.12 does not support $/ yet.
-    secrets:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   deploy-docs:
     name: Deploy validated docs
     needs: [docs, lint, test, schema, build]
@@ -331,7 +321,6 @@ jobs:
       - build
       - schema
       - docs
-      - preview-docs
       - deploy-docs
     if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04

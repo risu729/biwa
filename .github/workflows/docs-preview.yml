@@ -1,9 +1,12 @@
 name: Docs Preview
 on:
-  workflow_call:
-    secrets:
-      CLOUDFLARE_API_TOKEN:
-        required: false
+  pull_request:
+    paths:
+      - "docs/**"
+      - "tasks.toml"
+      - "mise.toml"
+      - "mise.lock"
+      - ".github/workflows/**"
   pull_request_target: # zizmor: ignore[dangerous-triggers] -- Closed-event cleanup uses only trusted base checkout and a pinned action; no PR code runs.
     types: [closed]
 permissions: {}
@@ -17,6 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     concurrency:
+      # This workflow is separate from CI so cancellation cannot interrupt an upload.
       group: docs-preview-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     permissions:
