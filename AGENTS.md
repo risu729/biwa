@@ -176,7 +176,15 @@ It captures the commands, conventions, and guardrails that are actually used her
 
 ## Cloudflare Docs Deployment
 
-- Deploy docs through `risu729/wrangler-deploy-action`.
+- Deploy docs through `risu729/wrangler-deploy-action` v2 and pinned cf.
+- `docs:build` renders VitePress, then packages the complete site with the
+  Cloudflare Vite plugin. Production restores the validated artifact after CI
+  checks pass and preserves existing domains without synchronizing triggers.
+- `docs:build-preview` creates separate Preview Build Output. Same-repository
+  PRs use named Workers Previews; the Preview workflow serializes updates and
+  trusted-base close-event cleanup, checking live PR state before acting.
+- Preview builds omit production domains. Keep production and Preview output
+  separate; never replace the archived production artifact with a Preview.
 - Keep the token scoped to `Workers Scripts: Edit` on account `risu` and
   `Workers Routes: Read` on zone `takuk.me`; ordinary routes require
   `Workers Routes: Edit`, while Custom Domains do not require `DNS: Edit`.

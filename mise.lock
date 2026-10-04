@@ -365,10 +365,6 @@ url = "https://nodejs.org/dist/v26.10.0/node-v26.10.0-darwin-x64.tar.gz"
 version = "5.0.0"
 backend = "npm:ajv-cli"
 
-[[tools."npm:wrangler"]]
-version = "4.92.0"
-backend = "npm:wrangler"
-
 [[tools.oxfmt]]
 version = "0.71.0"
 backend = "npm:oxfmt"
@@ -653,13 +649,6 @@ checksum = "sha256:960da44cb4b73685206ddd250b19e0a117fa41095710c1038f081f5cb613e
 url = "https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-apple-darwin.tar.gz"
 url_api = "https://api.github.com/repos/astral-sh/uv/releases/assets/608232607"
 provenance = "github-attestations"
-
-[[tools.wrangler]]
-version = "4.145.0"
-backend = "npm:wrangler"
-
-[tools.wrangler.options]
-allow_builds = '["esbuild", "sharp", "workerd"]'
 
 [[tools.yamlfmt]]
 version = "0.21.0"

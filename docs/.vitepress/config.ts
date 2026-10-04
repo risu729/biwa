@@ -1,4 +1,3 @@
-import { cloudflare } from "@cloudflare/vite-plugin";
 import { defineConfig } from "vitepress";
 import { withMermaid } from "vitepress-plugin-mermaid";
 
@@ -65,14 +64,5 @@ export default withMermaid(
 			socialLinks: [{ icon: "github", link: "https://github.com/risu729/biwa" }],
 		},
 		title: "biwa",
-		vite: {
-			plugins: [
-				// Cloudflare plugin doesn't work on dev for some reason
-				// oxlint-disable-next-line no-undef
-				...(process.env.NODE_ENV === "production"
-					? [cloudflare({ configPath: "../wrangler.jsonc" })]
-					: []),
-			],
-		},
 	}),
 );

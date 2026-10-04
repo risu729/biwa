@@ -41,9 +41,14 @@ dir = "docs"
 description = "Start VitePress development server."
 
 ["docs:build"]
-run = "bun run vitepress build"
+run = ["bun run vitepress build", "bun run cf-vite build"]
 dir = "docs"
 description = "Build VitePress documentation for production."
+
+["docs:build-preview"]
+run = ["bun run vitepress build", "bun run cf-vite build --preview"]
+dir = "docs"
+description = "Build documentation for a Workers Preview."
 
 ["docs:preview"]
 run = "bun run vitepress preview"
