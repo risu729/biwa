@@ -245,7 +245,7 @@ jobs:
       - name: Build docs
         run: mise run docs:build
       - name: Validate production build
-        uses: risu729/wrangler-deploy-action@db82fbec0db564950f5c319292aab124896d74f3 # v2.0.0
+        uses: risu729/wrangler-deploy-action@c2c1bf1396daf8ec7de4189e7b0dc92cab32f244 # v2.1.0
         with:
           mode: dry-run
           working-directory: docs
@@ -304,7 +304,7 @@ jobs:
           jq -e '.buildContext.isPreview == false and .buildContext.mode == "production"' docs/.cloudflare/output/v0/config.json
           jq -e '.name == "biwa-docs"' docs/.cloudflare/output/v0/workers/default/worker.config.json
       - name: Deploy validated docs
-        uses: risu729/wrangler-deploy-action@db82fbec0db564950f5c319292aab124896d74f3 # v2.0.0
+        uses: risu729/wrangler-deploy-action@c2c1bf1396daf8ec7de4189e7b0dc92cab32f244 # v2.1.0
         with:
           mode: production
           working-directory: docs
