@@ -230,6 +230,7 @@ jobs:
     permissions:
       contents: read # for checkout
     env:
+      MISE_ENABLE_TOOLS: bun,node
       MISE_RUSTUP_HOME: /home/runner/.local/share/mise/rustup
       MISE_CARGO_HOME: /home/runner/.local/share/mise/cargo
     steps:
@@ -241,17 +242,74 @@ jobs:
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.10.2
-        env:
-          MISE_ENABLE_TOOLS: bun,node,wrangler
       - name: Build docs
         run: mise run docs:build
-      - name: Deploy docs
-        uses: risu729/wrangler-deploy-action@e943f9681fb250fa0d0a104bd95ea121c510d192 # v1.2.0
+      - name: Validate production build
+        uses: risu729/wrangler-deploy-action@c2c1bf1396daf8ec7de4189e7b0dc92cab32f244 # v2.1.0
         with:
-          mode: ${{ github.event_name == 'pull_request' && 'preview-or-dry-run' || 'production' }}
+          mode: dry-run
           working-directory: docs
-          config: .vitepress/dist/wrangler.json
-          preview-alias: pr-${{ github.event.pull_request.number }}
+          worker: biwa-docs
+      - name: Package validated docs
+        run: |
+          mkdir -p out/docs-artifact
+          tar -C docs -czf out/docs-artifact/build.tar.gz .cloudflare/output/v0
+          git rev-parse HEAD > out/docs-artifact/revision
+          (cd out/docs-artifact && sha256sum build.tar.gz revision > SHA256SUMS)
+      - name: Upload validated docs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docs-build
+          path: out/docs-artifact/
+          if-no-files-found: error
+          retention-days: 7
+  deploy-docs:
+    name: Deploy validated docs
+    needs: [docs, lint, test, schema, build]
+    if: >-
+      ${{ !cancelled() && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.docs.result == 'success' && needs.lint.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      group: docs-production
+      cancel-in-progress: false
+    permissions:
+      contents: read # for checkout
+    env:
+      MISE_ENABLE_TOOLS: bun,node
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install mise
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          version: 2026.10.2
+      - name: Install locked deployment dependencies
+        working-directory: docs
+        run: bun install --frozen-lockfile
+      - name: Download validated docs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: docs-build
+          path: out/docs-artifact/
+      - name: Verify and restore docs
+        env:
+          EXPECTED_REVISION: ${{ github.sha }}
+        run: |
+          (cd out/docs-artifact && sha256sum --check SHA256SUMS)
+          [[ "$(cat out/docs-artifact/revision)" == "${EXPECTED_REVISION}" ]]
+          tar -C docs -xzf out/docs-artifact/build.tar.gz
+          jq -e '.buildContext.isPreview == false and .buildContext.mode == "production"' docs/.cloudflare/output/v0/config.json
+          jq -e '.name == "biwa-docs"' docs/.cloudflare/output/v0/workers/default/worker.config.json
+      - name: Deploy validated docs
+        uses: risu729/wrangler-deploy-action@c2c1bf1396daf8ec7de4189e7b0dc92cab32f244 # v2.1.0
+        with:
+          mode: production
+          working-directory: docs
+          worker: biwa-docs
+          deploy-triggers: "false"
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
   ci-check:
@@ -263,6 +321,7 @@ jobs:
       - build
       - schema
       - docs
+      - deploy-docs
     if: ${{ !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5

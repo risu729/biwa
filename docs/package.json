@@ -2,9 +2,10 @@
 	"$schema": "https://www.schemastore.org/package",
 	"type": "module",
 	"devDependencies": {
-		"@cloudflare/vite-plugin": "1.62.3",
+		"@cloudflare/vite-plugin": "2.0.0-beta.sha-c82c3efb3",
 		"@risu729/tsconfigs": "3.0.0",
 		"@types/bun": "1.4.2",
+		"cf": "1.0.0-beta.12",
 		"oxc-minify": "0.152.0",
 		"typescript": "6.0.3",
 		"vitepress": "2.0.0-alpha.20",
