@@ -177,12 +177,18 @@ It captures the commands, conventions, and guardrails that are actually used her
 ## Cloudflare Docs Deployment
 
 - Deploy docs through `risu729/wrangler-deploy-action` v2 and pinned cf.
-- `docs:build` renders VitePress, then packages the complete site with the
-  Cloudflare Vite plugin. Production restores the validated artifact after CI
-  checks pass and preserves existing domains without synchronizing triggers.
+- `docs:build` and `docs:build-preview` depend on the shared `docs:render`
+  task, then package the complete site with the Cloudflare Vite plugin.
+  Packaging shares one output directory; mise orders both tasks when requested
+  together, but do not run them in separate concurrent processes. Production
+  restores the validated artifact after CI checks pass and preserves existing domains without synchronizing triggers.
 - `docs:build-preview` creates separate Preview Build Output. Same-repository
   PRs use named Workers Previews; the Preview workflow serializes updates and
   trusted-base close-event cleanup, checking live PR state before acting.
+- `docs:artifact:pack` archives already-validated production output.
+  `docs:artifact:restore` requires `EXPECTED_REVISION` and verifies checksums,
+  revision, production mode, and Worker name without rebuilding. CI runs these
+  with `--no-deps --skip-tools` after tools and dependencies are prepared.
 - Preview builds omit production domains. Keep production and Preview output
   separate; never replace the archived production artifact with a Preview.
 - Keep the token scoped to `Workers Scripts: Edit` on account `risu` and

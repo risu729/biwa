@@ -51,8 +51,7 @@ depends = ["test:ssh-server"]
 BIWA_TEST_SSH_PORT = { default = "{{ exec(command='pitchfork status ssh-server --json | jq --exit-status --raw-output \".port[0]\"') }}" }
 BIWA_TEST_SSH_CAPABLE_PORT = { default = "{{ exec(command='pitchfork status ssh-server --json | jq --exit-status --raw-output \".port[1]\"') }}" }
 
-[deps.bun_docs]
+[deps.bun]
 auto = true
-sources = ["docs/bun.lock", "docs/package.json"]
-outputs = ["docs/node_modules"]
-run = "cd docs && bun install --frozen-lockfile"
+dir = "docs"
+run = "bun install --frozen-lockfile"
