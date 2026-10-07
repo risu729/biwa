@@ -543,38 +543,38 @@ url_api = "https://api.github.com/repos/tombi-toml/tombi/releases/assets/6159018
 provenance = "github-attestations"
 
 [[tools.typos]]
-version = "1.51.0"
+version = "1.51.1"
 backend = "aqua:crate-ci/typos"
 
 [tools.typos."platforms.linux-arm64"]
-checksum = "sha256:ec77ba48a6cf05f8416455b83e9aa86e206480c2be72136071842aba3b9f71ea"
-url = "https://github.com/crate-ci/typos/releases/download/v1.51.0/typos-v1.51.0-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/615958302"
+checksum = "sha256:2ac5e37b3236b3c07dec5cdf1527acf143aec4674a6089b0bf424d021b35e099"
+url = "https://github.com/crate-ci/typos/releases/download/v1.51.1/typos-v1.51.1-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/616652747"
 
 [tools.typos."platforms.linux-arm64-musl"]
-checksum = "sha256:ec77ba48a6cf05f8416455b83e9aa86e206480c2be72136071842aba3b9f71ea"
-url = "https://github.com/crate-ci/typos/releases/download/v1.51.0/typos-v1.51.0-aarch64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/615958302"
+checksum = "sha256:2ac5e37b3236b3c07dec5cdf1527acf143aec4674a6089b0bf424d021b35e099"
+url = "https://github.com/crate-ci/typos/releases/download/v1.51.1/typos-v1.51.1-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/616652747"
 
 [tools.typos."platforms.linux-x64"]
-checksum = "sha256:cfaf1683883b2851afeccf310c8f9c086e70d6ea33f939e595a6b1b1c2c8e5d6"
-url = "https://github.com/crate-ci/typos/releases/download/v1.51.0/typos-v1.51.0-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/615959214"
+checksum = "sha256:93c301fd4120ff076e2cc2a6d6a61cab4a4bdb81899287c0938b452e56d1f454"
+url = "https://github.com/crate-ci/typos/releases/download/v1.51.1/typos-v1.51.1-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/616653682"
 
 [tools.typos."platforms.linux-x64-musl"]
-checksum = "sha256:cfaf1683883b2851afeccf310c8f9c086e70d6ea33f939e595a6b1b1c2c8e5d6"
-url = "https://github.com/crate-ci/typos/releases/download/v1.51.0/typos-v1.51.0-x86_64-unknown-linux-musl.tar.gz"
-url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/615959214"
+checksum = "sha256:93c301fd4120ff076e2cc2a6d6a61cab4a4bdb81899287c0938b452e56d1f454"
+url = "https://github.com/crate-ci/typos/releases/download/v1.51.1/typos-v1.51.1-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/616653682"
 
 [tools.typos."platforms.macos-arm64"]
-checksum = "sha256:9b650aed321349d9b0b2d61ac1c03b0a291be4c3c02b4d0d4d3d103bffb7fd96"
-url = "https://github.com/crate-ci/typos/releases/download/v1.51.0/typos-v1.51.0-aarch64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/615959461"
+checksum = "sha256:316d50a32c3726a80ab39c6d12141b70080498973c5e8a9b068b12cde78b10c1"
+url = "https://github.com/crate-ci/typos/releases/download/v1.51.1/typos-v1.51.1-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/616656668"
 
 [tools.typos."platforms.macos-x64"]
-checksum = "sha256:fef59b9297a808bffeffe3be61754d5f71d9ab0d4eeaf46bd281929d4dd8f95d"
-url = "https://github.com/crate-ci/typos/releases/download/v1.51.0/typos-v1.51.0-x86_64-apple-darwin.tar.gz"
-url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/615959073"
+checksum = "sha256:f3451079971633a7f769fb958fe06b0d64b5f1dc46df0854aa1ddb9a6f4031d6"
+url = "https://github.com/crate-ci/typos/releases/download/v1.51.1/typos-v1.51.1-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/crate-ci/typos/releases/assets/616660774"
 
 [[tools.usage]]
 version = "6.12.1"
