@@ -414,22 +414,22 @@ url_api = "https://api.github.com/repos/suzuki-shunsuke/pinact/releases/assets/4
 provenance = "github-attestations"
 
 [[tools.pitchfork]]
-version = "2.30.0"
+version = "2.30.1"
 backend = "packslip:github.com/jdx/pitchfork"
 
 [tools.pitchfork."platforms.linux-arm64"]
-checksum = "sha256:3792cb7388a477ad3fa9005fc8e1adcec4f0a3a12b70dc0f311ff2dd52da1b24"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.30.0/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:b20bdf5bf3e1f5d7ec227e67a493f1966a6f8967e78bbff702c331f77739b2a3"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.30.1/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
 
 [tools.pitchfork."platforms.linux-x64"]
-checksum = "sha256:03fca4c4e563c369ad8b27ca252e15723bcb59661de9f145d939650a7f8b87f8"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.30.0/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:cc2aa26c9d3c0833bfa16d79f8ae167bd7d88a708b489322296286517643a1c4"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.30.1/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
 
 [tools.pitchfork."platforms.macos-arm64"]
-checksum = "sha256:7607e38406f9cc8fb35eadc1a7032ee97cdf64f5444c54fa370a584fce3f9227"
-url = "https://github.com/jdx/pitchfork/releases/download/v2.30.0/pitchfork-aarch64-apple-darwin.tar.gz"
+checksum = "sha256:148d3fc64a71245f3752d57e9b8b5e656c4723bc72b2ab4fc61fa883abb46ae7"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.30.1/pitchfork-aarch64-apple-darwin.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
 
 [[tools.release-plz]]
