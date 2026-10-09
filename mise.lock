@@ -366,7 +366,7 @@ version = "5.0.0"
 backend = "npm:ajv-cli"
 
 [[tools.oxfmt]]
-version = "0.71.0"
+version = "0.72.0"
 backend = "npm:oxfmt"
 
 [[tools.oxlint]]
