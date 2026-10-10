@@ -98,13 +98,15 @@ GitHub Actions deploys the documentation Worker through
 `risu729/wrangler-deploy-action`. Maintainers configure repository variable
 `CLOUDFLARE_ACCOUNT_ID` and repository secret `CLOUDFLARE_API_TOKEN`.
 
-The token's minimum permissions are:
+The token needs `Individual Workers Editor` scoped only to the existing
+`biwa-docs` Worker on account `risu`. The same permission supports production
+version deployment and named Workers Preview creation and cleanup.
 
-- Account `risu`: `Workers Scripts: Edit`.
-- Zone `takuk.me`: `Workers Routes: Read`.
+Routine production deployment uses `deploy-triggers: false`: it uploads the
+validated artifact, deploys that exact version, and preserves the existing
+Custom Domain without synchronizing triggers. No zone `Workers Routes`
+permission is required for this flow.
 
-Wrangler reads the zone's Worker routes before publishing the configured Custom
-Domain to detect assignments to another Worker. Cloudflare creates the Custom
-Domain's DNS record and certificate, so `DNS: Edit` is not required. If the
-configuration later uses an ordinary route, replace `Workers Routes: Read`
-with `Workers Routes: Edit`.
+Manage Custom Domain and route changes separately with suitable permissions.
+Individual-Worker tokens cannot manage Custom Domains. Keep trigger updates
+outside routine CI deployment.
