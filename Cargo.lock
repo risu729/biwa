@@ -2930,6 +2930,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95e0e816704b1c059bade81820deb21681403e303b7b1b43f7d103ccca52a561"
 
 [[package]]
+name = "usage-argv"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f31e087c07f22ebec8bdfacc0882da2acc40f4cebe7f7076c063989f3ed8591"
+
+[[package]]
 name = "usage-derive"
 version = "6.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2943,9 +2949,9 @@ dependencies = [
 
 [[package]]
 name = "usage-lib"
-version = "6.12.1"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3629826d1fd197c3734b6d0450fefd90a57d413a3eef09b3038ddbae395740a"
+checksum = "2cdf41d75ec80333e3fef9dd05593cf7c180975a122bc0ee52a08869f78afaee"
 dependencies = [
  "indexmap",
  "itertools",
@@ -2956,7 +2962,7 @@ dependencies = [
  "serde",
  "thiserror",
  "unicode-width",
- "usage-argv",
+ "usage-argv 7.0.0",
  "winnow 1.0.4",
 ]
 
@@ -2966,7 +2972,7 @@ version = "6.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c296fe5806b82d0d80374bb56ccd31cd9fe5c49b4b0e5683de6231416bd976d"
 dependencies = [
- "usage-argv",
+ "usage-argv 6.12.1",
  "usage-derive",
  "usage-test",
 ]
@@ -2977,7 +2983,7 @@ version = "6.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5be92e160b54b3f3c58dd43e903c7b2e2c676655c5fe20ec9a7b2ba8f06fb861"
 dependencies = [
- "usage-argv",
+ "usage-argv 6.12.1",
 ]
 
 [[package]]
