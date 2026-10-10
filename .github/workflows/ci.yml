@@ -219,7 +219,7 @@ jobs:
       attestations: write # for release artifact attestations
       id-token: write # for release artifact attestations
       actions: read # for release artifact downloads
-    uses: ./.github/workflows/release.yml # zizmor: ignore[self-repository] -- Reuse the workflow from the caller's revision.
+    uses: $/.github/workflows/release.yml
   docs:
     name: Build docs
     needs:
