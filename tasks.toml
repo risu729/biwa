@@ -40,15 +40,50 @@ run = "bun run vitepress dev"
 dir = "docs"
 description = "Start VitePress development server."
 
+["docs:render"]
+run = "bun run vitepress build"
+dir = "docs"
+hide = true
+description = "Render the complete VitePress site before packaging."
+
 ["docs:build"]
-run = ["bun run vitepress build", "bun run cf-vite build"]
+depends = ["docs:render"]
+run = "bun run cf-vite build"
 dir = "docs"
 description = "Build VitePress documentation for production."
 
 ["docs:build-preview"]
-run = ["bun run vitepress build", "bun run cf-vite build --preview"]
+depends = ["docs:render"]
+# Both packagers write the same output; serialize them if scheduled together.
+wait_for = ["docs:build"]
+run = "bun run cf-vite build --preview"
 dir = "docs"
 description = "Build documentation for a Workers Preview."
+
+["docs:artifact:pack"]
+# Archive only the artifact already validated by the deployment action.
+run = '''
+set -eu
+jq -e '.buildContext.isPreview == false and .buildContext.mode == "production"' docs/.cloudflare/output/v0/config.json
+jq -e '.name == "biwa-docs"' docs/.cloudflare/output/v0/workers/default/worker.config.json
+mkdir -p out/docs-artifact
+tar -C docs -czf out/docs-artifact/build.tar.gz .cloudflare/output/v0
+git rev-parse HEAD > out/docs-artifact/revision
+(cd out/docs-artifact && sha256sum build.tar.gz revision > SHA256SUMS)
+'''
+description = "Archive the validated production docs without rebuilding."
+
+["docs:artifact:restore"]
+run = '''
+set -eu
+: "${EXPECTED_REVISION:?Expected commit revision is required}"
+(cd out/docs-artifact && sha256sum --check SHA256SUMS)
+test "$(cat out/docs-artifact/revision)" = "${EXPECTED_REVISION}"
+tar -C docs -xzf out/docs-artifact/build.tar.gz
+jq -e '.buildContext.isPreview == false and .buildContext.mode == "production"' docs/.cloudflare/output/v0/config.json
+jq -e '.name == "biwa-docs"' docs/.cloudflare/output/v0/workers/default/worker.config.json
+'''
+description = "Verify and restore production docs for EXPECTED_REVISION without rebuilding."
 
 ["docs:preview"]
 run = "bun run vitepress preview"
