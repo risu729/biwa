@@ -1,11 +1,13 @@
+min_version = "2026.10.7"
+
 [tools]
 rust = { version = "1.98.1", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.20.2"
 "github:xd009642/tarpaulin" = "0.37.5"
 usage = "6.12.1"
 hk = "2.5.0"
-actionlint = "1.7.12"
-# used in actionlint
+jactionlint = "2.0.2"
+# used by jactionlint's workflow shell checks
 shellcheck = "0.11.0"
 ghalint = "1.5.6"
 pinact = "4.1.1"
