@@ -13,7 +13,7 @@ defaults:
 jobs:
   release-pr:
     name: Create Release PR
-    if: github.repository_owner == 'risu729'
+    if: ${{ github.repository_owner == 'risu729' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
@@ -46,7 +46,7 @@ jobs:
           GIT_TOKEN: ${{ steps.github-app.outputs.token }}
   release:
     name: Release
-    if: github.repository_owner == 'risu729'
+    if: ${{ github.repository_owner == 'risu729' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:

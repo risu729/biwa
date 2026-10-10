@@ -16,6 +16,7 @@ defaults:
 jobs:
   preview:
     name: Deploy or clean up Preview
+    environment: preview
     if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
@@ -53,22 +54,22 @@ jobs:
           fi
           echo 'run=true' >> "${GITHUB_OUTPUT}"
       - name: Checkout tested source or trusted base for cleanup
-        if: steps.current.outputs.run == 'true'
+        if: ${{ steps.current.outputs.run == 'true' }}
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # pull_request_target checks out the trusted base, never the PR head.
           persist-credentials: false
       - name: Install mise
-        if: steps.current.outputs.run == 'true' && github.event_name != 'pull_request_target'
+        if: ${{ steps.current.outputs.run == 'true' && github.event_name != 'pull_request_target' }}
         uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           version: 2026.10.7
       - name: Build Preview
-        if: steps.current.outputs.run == 'true' && github.event_name != 'pull_request_target'
+        if: ${{ steps.current.outputs.run == 'true' && github.event_name != 'pull_request_target' }}
         run: mise run docs:build-preview
       - name: Deploy or delete Preview
         id: preview
-        if: steps.current.outputs.run == 'true'
+        if: ${{ steps.current.outputs.run == 'true' }}
         uses: risu729/wrangler-deploy-action@a9db854f3a31cdf3cdf28977e66f52f32fc9e8a0 # v2.2.2
         with:
           mode: ${{ github.event_name == 'pull_request_target' && 'delete-preview' || 'worker-preview' }}
@@ -78,7 +79,7 @@ jobs:
           cloudflare-account-id: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           cloudflare-api-token: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       - name: Verify rendered Preview page
-        if: steps.current.outputs.run == 'true' && github.event_name != 'pull_request_target'
+        if: ${{ steps.current.outputs.run == 'true' && github.event_name != 'pull_request_target' }}
         env:
           PREVIEW_URL: ${{ steps.preview.outputs.preview-url }}
         run: |

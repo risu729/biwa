@@ -2,9 +2,4 @@
 
 [env]
 forward_method = "export"
-vars = [
-	"NODE_ENV",
-	{ API_KEY = "secret" },
-	"!*PATH",
-	{ "DEBUG_*" = true, "!DEBUG_OLD" = true }
-]
+vars = ["NODE_ENV", { API_KEY = "secret" }, "!*PATH", { "DEBUG_*" = true, "!DEBUG_OLD" = true }]

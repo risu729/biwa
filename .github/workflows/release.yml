@@ -103,7 +103,7 @@ jobs:
           MISE_ENABLE_TOOLS: rust,cargo-dist
       - name: Rust Cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        if: needs.plan.outputs.publishing == 'false'
+        if: ${{ needs.plan.outputs.publishing == 'false' }}
         with:
           key: ${{ join(matrix.targets, '-') }}
           cache-bin: "false"
@@ -139,7 +139,7 @@ jobs:
     needs:
       - plan # required for safe context access
       - build-local-artifacts
-    if: github.event_name == 'push' && needs.plan.outputs.publishing == 'true'
+    if: ${{ github.event_name == 'push' && needs.plan.outputs.publishing == 'true' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
@@ -216,13 +216,13 @@ jobs:
       - plan # required for safe context access
       - attest-local-artifacts
       - build-global-artifacts
-    if: |
-      always() &&
+    if: |-
+      ${{ always() &&
       github.repository_owner == 'risu729' &&
       needs.plan.outputs.publishing == 'true' &&
       needs.plan.result == 'success' &&
       (needs.attest-local-artifacts.result == 'success' || needs.attest-local-artifacts.result == 'skipped') &&
-      needs.build-global-artifacts.result == 'success'
+      needs.build-global-artifacts.result == 'success' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:

@@ -24,7 +24,7 @@ defaults:
 jobs:
   paths:
     name: Detect changes
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
@@ -79,7 +79,7 @@ jobs:
               - 'tasks.toml'
   pr-title:
     name: Lint PR title
-    if: github.event_name == 'pull_request'
+    if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
@@ -133,10 +133,10 @@ jobs:
       - name: Test (coverage)
         run: mise run test:coverage
       - name: Show SSH service logs
-        if: failure()
+        if: ${{ failure() }}
         run: pitchfork logs ssh-server --raw --no-pager
       - name: Stop SSH test services
-        if: always()
+        if: ${{ always() }}
         run: pitchfork stop ssh-server
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -260,6 +260,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   deploy-docs:
+    environment: production
     name: Deploy validated docs
     needs: [docs, lint, test, schema, build]
     if: >-
