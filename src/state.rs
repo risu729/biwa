@@ -308,6 +308,7 @@ const fn process_matches_cleanup_daemon(_pid: i32) -> bool {
 }
 
 /// Returns whether command-line arguments look like the detached cleanup daemon.
+#[cfg(any(target_os = "linux", test))]
 fn cleanup_daemon_args_match(args: &[String]) -> bool {
 	let mut args = args.iter();
 	args.any(|arg| arg == "clean") && args.any(|arg| arg == "--auto")

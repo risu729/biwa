@@ -12,6 +12,7 @@ use common::Result;
 use serial_test::serial;
 use std::{fs, path::Path};
 
+#[path = "common/helpers.rs"]
 mod common;
 
 fn biwa_cmd(args: &[&str], current_dir: &Path) -> duct::Expression {

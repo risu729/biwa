@@ -13,28 +13,40 @@ use tracing_subscriber::{
 use usage_rs::embedded::{Exit, Outcome};
 
 /// Shell activation and direct command shims.
+#[path = "activate.rs"]
 mod activate;
 /// Cleanup of stale remote directories.
+#[path = "clean.rs"]
 mod clean;
 /// Shell completion generation command.
+#[path = "completion.rs"]
 mod completion;
 /// Local lifecycle hooks executed around synchronization.
+#[path = "hooks.rs"]
 mod hooks;
 /// Configuration initialization command.
+#[path = "init.rs"]
 mod init;
 /// Remote-to-local project mirroring command.
+#[path = "pull.rs"]
 mod pull;
 /// Command execution on remote hosts.
+#[path = "run.rs"]
 mod run;
 /// Configuration schema generation command.
+#[path = "schema.rs"]
 mod schema;
 /// Automated SSH key authentication setup command.
+#[path = "setup_ssh.rs"]
 mod setup_ssh;
 /// File synchronization command.
+#[path = "sync.rs"]
 mod sync;
 /// Shared project transfer arguments and target resolution.
+#[path = "transfer.rs"]
 mod transfer;
 /// Usage specification generation command.
+#[path = "usage.rs"]
 mod usage;
 
 /// CLI arguments parser.
@@ -307,7 +319,7 @@ mod tests {
 	fn cli_run_subcommand() {
 		let cli = Cli::parse_unchecked(["biwa", "run", "ls", "-la"]);
 		assert!(matches!(cli.command, Some(Commands::Run(_))));
-		assert!(cli.run_command_args.is_empty());
+		assert_eq!(cli.run_command_args, Vec::<String>::new());
 	}
 
 	#[test]
@@ -327,15 +339,15 @@ mod tests {
 	fn cli_activate_subcommand() {
 		let cli = Cli::parse_unchecked(["biwa", "activate", "--shell", "bash"]);
 		assert!(matches!(cli.command, Some(Commands::Activate(_))));
-		assert!(cli.run_command_args.is_empty());
+		assert_eq!(cli.run_command_args, Vec::<String>::new());
 
 		let cli = Cli::parse_unchecked(["biwa", "activate", "doctor"]);
 		assert!(matches!(cli.command, Some(Commands::Activate(_))));
-		assert!(cli.run_command_args.is_empty());
+		assert_eq!(cli.run_command_args, Vec::<String>::new());
 
 		let cli = Cli::parse_unchecked(["biwa", "activate", "install", "--force"]);
 		assert!(matches!(cli.command, Some(Commands::Activate(_))));
-		assert!(cli.run_command_args.is_empty());
+		assert_eq!(cli.run_command_args, Vec::<String>::new());
 	}
 
 	#[test]

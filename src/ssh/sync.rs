@@ -773,13 +773,13 @@ pub async fn ensure_remote_matches_local_snapshot(
 	let mut expected = RemoteState::default();
 	for (path, entry) in &baseline.entries {
 		match entry {
-			LocalSnapshotEntry::File { hash, .. } => {
+			LocalSnapshotEntry::File { hash, mode: _ } => {
 				expected.file_hashes.insert(path.clone(), hash.clone());
 			}
-			LocalSnapshotEntry::Directory { .. } => {
+			LocalSnapshotEntry::Directory { mode: _ } => {
 				expected.directories.insert(path.clone());
 			}
-			LocalSnapshotEntry::Symlink { .. } => {}
+			LocalSnapshotEntry::Symlink { target: _ } => {}
 		}
 	}
 	collect_parent_directories_into(
@@ -1906,7 +1906,8 @@ async fn preserve_round_trip_file_mode(
 	baseline: Option<&LocalSnapshot>,
 ) -> Result<()> {
 	let Some(LocalSnapshotEntry::File {
-		mode: Some(mode), ..
+		mode: Some(mode),
+		hash: _,
 	}) = baseline.and_then(|snapshot| snapshot.entries.get(&staged.relative_path))
 	else {
 		return Ok(());
@@ -1920,7 +1921,8 @@ async fn preserve_round_trip_file_mode(
 			)
 		})?;
 	let LocalSnapshotEntry::File {
-		mode: staged_mode, ..
+		mode: staged_mode,
+		hash: _,
 	} = &mut staged.fingerprint
 	else {
 		bail!("Staged pull entry is not a regular file")
@@ -2171,7 +2173,7 @@ async fn ensure_pull_backups_unchanged(
 				backup.relative_path
 			);
 		}
-		if matches!(expected, Some(LocalSnapshotEntry::Directory { .. }))
+		if matches!(expected, Some(LocalSnapshotEntry::Directory { mode: _ }))
 			&& !local_directory_is_empty(&backup.backup_path).await?
 		{
 			bail!(
@@ -2760,7 +2762,8 @@ async fn apply_pull_actions(
 		project_root,
 		remote_dir,
 		spinner,
-		..
+		options: _,
+		interrupts: _,
 	} = context;
 	let interrupts = context
 		.interrupts
@@ -3055,7 +3058,7 @@ fn ensure_no_round_trip_symlink_collisions(
 		.entries
 		.iter()
 		.filter_map(|(path, entry)| {
-			if !matches!(entry, LocalSnapshotEntry::Symlink { .. }) {
+			if !matches!(entry, LocalSnapshotEntry::Symlink { target: _ }) {
 				return None;
 			}
 			let prefix = format!("{path}/");
@@ -4530,8 +4533,8 @@ mod tests {
 
 		assert_eq!(actions.directory_creations, vec!["empty".to_owned()]);
 		assert_eq!(actions.directory_deletions, vec!["stale".to_owned()]);
-		assert!(actions.file_deletions.is_empty());
-		assert!(actions.uploads.is_empty());
+		assert_eq!(actions.file_deletions, Vec::<String>::new());
+		assert_eq!(actions.uploads, Vec::<PathBuf>::new());
 	}
 
 	#[test]
@@ -4551,8 +4554,8 @@ mod tests {
 		);
 
 		assert_eq!(actions.file_deletions, vec!["dir/file.txt".to_owned()]);
-		assert!(actions.directory_deletions.is_empty());
-		assert!(actions.directory_creations.is_empty());
+		assert_eq!(actions.directory_deletions, Vec::<String>::new());
+		assert_eq!(actions.directory_creations, Vec::<String>::new());
 	}
 
 	#[test]
@@ -4595,7 +4598,7 @@ mod tests {
 		assert_eq!(actions.uploads, vec![PathBuf::from("node/child.txt")]);
 		assert_eq!(actions.file_deletions, vec!["node".to_owned()]);
 		assert_eq!(actions.directory_creations, vec!["node".to_owned()]);
-		assert!(actions.directory_deletions.is_empty());
+		assert_eq!(actions.directory_deletions, Vec::<String>::new());
 	}
 
 	#[test]
@@ -4619,7 +4622,7 @@ mod tests {
 
 		assert_eq!(actions.uploads, vec![PathBuf::from("node")]);
 		assert_eq!(actions.file_deletions, vec!["node/child.txt".to_owned()]);
-		assert!(actions.directory_creations.is_empty());
+		assert_eq!(actions.directory_creations, Vec::<String>::new());
 		assert_eq!(actions.directory_deletions, vec!["node".to_owned()]);
 	}
 
@@ -4654,7 +4657,7 @@ mod tests {
 			]
 		);
 		assert_eq!(actions.unchanged, 0);
-		assert!(actions.file_deletions.is_empty());
+		assert_eq!(actions.file_deletions, Vec::<String>::new());
 	}
 
 	#[test]
@@ -4670,7 +4673,7 @@ mod tests {
 		);
 
 		assert_eq!(actions.file_deletions, vec!["stale.txt".to_owned()]);
-		assert!(actions.uploads.is_empty());
+		assert_eq!(actions.uploads, Vec::<PathBuf>::new());
 	}
 
 	#[test]
@@ -4721,7 +4724,7 @@ mod tests {
 
 		let actions =
 			calculate_pull_actions(&local_state, &remote_state, &Options::default(), false);
-		assert!(actions.downloads.is_empty());
+		assert_eq!(actions.downloads, Vec::<Download>::new());
 		assert_eq!(actions.unchanged, 1);
 
 		let actions = calculate_pull_actions(
@@ -4759,7 +4762,7 @@ mod tests {
 		assert_eq!(actions.file_deletions, vec!["stale.txt".to_owned()]);
 		assert_eq!(actions.directory_deletions, vec!["old".to_owned()]);
 		assert_eq!(actions.directory_creations, vec!["empty".to_owned()]);
-		assert!(actions.downloads.is_empty());
+		assert_eq!(actions.downloads, Vec::<Download>::new());
 	}
 
 	#[test]
@@ -4788,7 +4791,7 @@ mod tests {
 		);
 		assert_eq!(actions.file_deletions, vec!["node".to_owned()]);
 		assert_eq!(actions.directory_creations, vec!["node".to_owned()]);
-		assert!(actions.directory_deletions.is_empty());
+		assert_eq!(actions.directory_deletions, Vec::<String>::new());
 	}
 
 	#[test]
@@ -4813,7 +4816,7 @@ mod tests {
 
 		assert_eq!(actions.downloads, vec![download("node", "remote")]);
 		assert_eq!(actions.file_deletions, vec!["node/child.txt".to_owned()]);
-		assert!(actions.directory_creations.is_empty());
+		assert_eq!(actions.directory_creations, Vec::<String>::new());
 		assert_eq!(actions.directory_deletions, vec!["node".to_owned()]);
 	}
 
@@ -4846,7 +4849,7 @@ mod tests {
 			true,
 		);
 
-		assert!(actions.file_deletions.is_empty());
+		assert_eq!(actions.file_deletions, Vec::<String>::new());
 	}
 
 	#[test]
@@ -5511,8 +5514,11 @@ mod tests {
 		// has to stay empty rather than turning into a command with no operands.
 		// The operand invariant itself is pinned by
 		// `build_mkdir_commands_chunks_large_directory_sets`.
-		assert!(collect_leaf_directories(&[]).is_empty());
-		assert!(build_mkdir_commands("0077", "~/project", &[]).is_empty());
+		assert_eq!(collect_leaf_directories(&[]), Vec::<String>::new());
+		assert_eq!(
+			build_mkdir_commands("0077", "~/project", &[]),
+			Vec::<String>::new()
+		);
 	}
 
 	#[test]

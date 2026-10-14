@@ -277,7 +277,7 @@ mod tests {
 		assert_eq!(target.hostname, "example.test");
 		assert_eq!(target.user, "alice");
 		assert_eq!(target.port, 22);
-		assert!(target.identity_files.is_empty());
+		assert_eq!(target.identity_files, Vec::<PathBuf>::new());
 		Ok(())
 	}
 

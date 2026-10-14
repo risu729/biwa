@@ -546,7 +546,10 @@ mod tests {
 
 		record_connection_use(&config, "~/remote/project-deadbeef");
 
-		assert!(state::load_state(dir.path())?.connections.is_empty());
+		assert_eq!(
+			state::load_state(dir.path())?.connections,
+			Vec::<state::Connection>::new()
+		);
 		Ok(())
 	}
 }

@@ -3,6 +3,7 @@
 	reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
 )]
 #![expect(clippy::panic_in_result_fn, reason = "color_eyre handles panics")]
+#[path = "common/helpers.rs"]
 mod common;
 
 use color_eyre::eyre::eyre;

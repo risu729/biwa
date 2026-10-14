@@ -6,6 +6,7 @@
 use std::io::{BufRead as _, BufReader, Read as _};
 
 use core::time::Duration;
+#[path = "common/helpers.rs"]
 mod common;
 use color_eyre::eyre::{WrapErr as _, eyre};
 use common::{
