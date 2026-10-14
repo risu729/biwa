@@ -14,6 +14,9 @@ ignore = [
 	# rsa crate timing sidechannel (Marvin Attack) — no fix available upstream.
 	# Transitive dependency from russh via async-ssh2-tokio.
 	"RUSTSEC-2023-0071",
+	# unsafe-libyaml is unmaintained; retained through serde_yaml and confique's
+	# YAML support until both dependency paths migrate to a maintained parser.
+	"RUSTSEC-2024-0449",
 ]
 unused-ignored-advisory = "deny"
 
