@@ -83,7 +83,7 @@ messages, and pull request titles and descriptions.
 - `mise run render` - generate all rendered artifacts.
 - `mise run render:schema` - write `schema/config.json`.
 - `mise run render:usage` - write `biwa.usage.kdl` and docs CLI reference pages.
-- Generated files are intentionally read-only in `.vscode/settings.json`: `Cargo.lock`, `biwa.usage.kdl`, `docs/src/cli/*`, `schema/*`.
+- Treat generated files as read-only: `Cargo.lock`, `biwa.usage.kdl`, `docs/src/cli/*`, `schema/*`.
 - Always prefer regenerating these files instead of hand-editing them.
 - The docs dev server is also auto-managed by `pitchfork`; when you need to inspect it, just use `xh localhost:5173`.
 
