@@ -987,7 +987,7 @@ async fn stream_channel_output(
 					exit_status = Some(status);
 					stop_forwarding_stdin_after_remote_exit(&channel, &mut stdin_rx).await;
 				}
-				Some(ChannelMsg::ExitSignal { signal_name, .. }) => {
+				Some(ChannelMsg::ExitSignal { signal_name, core_dumped: _, error_message: _, lang_tag: _ }) => {
 					exit_status = Some(exit_status_from_signal(&signal_name));
 					stop_forwarding_stdin_after_remote_exit(&channel, &mut stdin_rx).await;
 				}

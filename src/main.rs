@@ -23,6 +23,7 @@ extern crate alloc;
 pub type Result<T> = color_eyre::Result<T>;
 
 /// CLI commands and parsing.
+#[path = "cli/entry.rs"]
 mod cli;
 /// Configuration loading and definitions.
 mod config;

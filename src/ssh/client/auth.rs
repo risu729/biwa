@@ -86,8 +86,11 @@ impl AgentCredential {
 	#[must_use]
 	pub fn from_identity(identity: AgentIdentity) -> Self {
 		match identity {
-			AgentIdentity::PublicKey { key, .. } => Self::from_public_key(key),
-			AgentIdentity::Certificate { certificate, .. } => Self {
+			AgentIdentity::PublicKey { key, comment: _ } => Self::from_public_key(key),
+			AgentIdentity::Certificate {
+				certificate,
+				comment: _,
+			} => Self {
 				public_key: certificate.public_key().clone().into(),
 				certificate: Some(certificate),
 			},
@@ -103,14 +106,24 @@ impl AgentCredential {
 	/// Returns whether a freshly enumerated identity is this exact credential.
 	fn matches_identity(&self, identity: &AgentIdentity) -> bool {
 		match (&self.certificate, identity) {
-			(None, AgentIdentity::PublicKey { key, .. }) => {
+			(None, AgentIdentity::PublicKey { key, comment: _ }) => {
 				self.public_key.key_data() == key.key_data()
 			}
-			(Some(expected), AgentIdentity::Certificate { certificate, .. }) => {
-				expected == certificate
-			}
-			(None, AgentIdentity::Certificate { .. })
-			| (Some(_), AgentIdentity::PublicKey { .. }) => false,
+			(
+				Some(expected),
+				AgentIdentity::Certificate {
+					certificate,
+					comment: _,
+				},
+			) => expected == certificate,
+			(
+				None,
+				AgentIdentity::Certificate {
+					certificate: _,
+					comment: _,
+				},
+			)
+			| (Some(_), AgentIdentity::PublicKey { key: _, comment: _ }) => false,
 		}
 	}
 
@@ -197,8 +210,12 @@ impl Method {
 	#[must_use]
 	pub fn description(&self) -> String {
 		match self {
-			Self::Password(_) | Self::PasswordPrompt { .. } => "password".to_owned(),
-			Self::PrivateKeyFile { key_file_path, .. } => {
+			Self::Password(_) | Self::PasswordPrompt { prompt: _ } => "password".to_owned(),
+			Self::PrivateKeyFile {
+				key_file_path,
+				allow_prompt: _,
+				fallback_on_load_failure: _,
+			} => {
 				format!("key {}", key_file_path.display())
 			}
 			Self::AgentKey { credential } => {
@@ -220,7 +237,7 @@ impl fmt::Debug for Method {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
 			Self::Password(_) => f.debug_tuple("Password").field(&"***").finish(),
-			Self::PasswordPrompt { .. } => f.debug_struct("PasswordPrompt").finish(),
+			Self::PasswordPrompt { prompt: _ } => f.debug_struct("PasswordPrompt").finish(),
 			Self::PrivateKeyFile {
 				key_file_path,
 				allow_prompt,
@@ -255,11 +272,14 @@ fn require_success(result: &AuthResult, method: &str) -> Result<()> {
 		AuthResult::Success => Ok(()),
 		AuthResult::Failure {
 			partial_success: true,
-			..
+			remaining_methods: _,
 		} => Err(terminal_failure(
 			"The server accepted one factor but requires additional authentication; MFA chains are not supported",
 		)),
-		AuthResult::Failure { .. } => Err(failure(format!("{method} authentication was rejected"))),
+		AuthResult::Failure {
+			remaining_methods: _,
+			partial_success: _,
+		} => Err(failure(format!("{method} authentication was rejected"))),
 	}
 }
 
@@ -388,12 +408,15 @@ pub(super) async fn authenticate<H: Handler>(
 				})?
 				.flatten();
 			let result = match identity {
-				AgentIdentity::PublicKey { key, .. } => {
+				AgentIdentity::PublicKey { key, comment: _ } => {
 					handle
 						.authenticate_publickey_with(username, key, hash_alg, &mut agent)
 						.await
 				}
-				AgentIdentity::Certificate { certificate, .. } => {
+				AgentIdentity::Certificate {
+					certificate,
+					comment: _,
+				} => {
 					handle
 						.authenticate_certificate_with(username, certificate, hash_alg, &mut agent)
 						.await

@@ -180,7 +180,7 @@ fn resolve_password_auth(
 		},
 		Method::with_password,
 	);
-	if matches!(method, Method::PasswordPrompt { .. }) && !interaction_allowed {
+	if matches!(method, Method::PasswordPrompt { prompt: _ }) && !interaction_allowed {
 		bail!(
 			"Password authentication was requested, but BIWA_SSH_PASSWORD is unset and interactive input is unavailable"
 		);
@@ -521,7 +521,10 @@ mod tests {
 			Vec::new(),
 			false,
 		)?;
-		assert_matches!(plan.methods.as_slice(), [Method::AgentKey { .. }]);
+		assert_matches!(
+			plan.methods.as_slice(),
+			[Method::AgentKey { credential: _ }]
+		);
 		Ok(())
 	}
 
@@ -594,7 +597,7 @@ mod tests {
 					.collect::<Vec<_>>()
 			);
 		} else {
-			assert!(paths.is_empty());
+			assert_eq!(paths, Vec::<PathBuf>::new());
 		}
 	}
 
@@ -620,7 +623,14 @@ mod tests {
 		config.ssh.key_path = Some(fixture_private_key(dir.path())?);
 
 		let plan = resolve_auth(&config, &target()).await?;
-		assert_matches!(plan.methods.as_slice(), [Method::PrivateKeyFile { .. }]);
+		assert_matches!(
+			plan.methods.as_slice(),
+			[Method::PrivateKeyFile {
+				key_file_path: _,
+				allow_prompt: _,
+				fallback_on_load_failure: _
+			}]
+		);
 		Ok(())
 	}
 
@@ -628,7 +638,10 @@ mod tests {
 	#[tokio::test]
 	async fn agent_enumeration_is_empty_without_a_socket() {
 		let _socket = EnvCleanup::remove("SSH_AUTH_SOCK");
-		assert!(enumerate_agent_credentials().await.is_empty());
+		assert_eq!(
+			enumerate_agent_credentials().await,
+			Vec::<AgentCredential>::new()
+		);
 	}
 
 	#[serial]
@@ -638,7 +651,10 @@ mod tests {
 		let missing_socket = dir.path().join("missing-agent.sock");
 		let _socket = EnvCleanup::set("SSH_AUTH_SOCK", &missing_socket.to_string_lossy());
 
-		assert!(enumerate_agent_credentials().await.is_empty());
+		assert_eq!(
+			enumerate_agent_credentials().await,
+			Vec::<AgentCredential>::new()
+		);
 		Ok(())
 	}
 }

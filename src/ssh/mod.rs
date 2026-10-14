@@ -3,6 +3,7 @@ pub mod auth;
 /// Remote cleanup operations.
 pub mod clean;
 /// SSH Client wrapper.
+#[path = "client/connection.rs"]
 pub mod client;
 
 /// Remote command execution handling.

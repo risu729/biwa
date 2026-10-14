@@ -112,7 +112,12 @@ fn collect_message(msg: ChannelMsg, output: (&mut Vec<u8>, &mut Vec<u8>, &mut Op
 		} => {
 			*exit_status = Some(status);
 		}
-		ChannelMsg::ExitSignal { signal_name, .. } => {
+		ChannelMsg::ExitSignal {
+			signal_name,
+			core_dumped: _,
+			error_message: _,
+			lang_tag: _,
+		} => {
 			*exit_status = Some(exit_status_from_signal(&signal_name));
 		}
 		_ => {}

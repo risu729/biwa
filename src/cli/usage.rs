@@ -25,7 +25,7 @@ impl Usage {
 mod tests {
 	use super::*;
 	use ::usage::{Spec, SpecCommandEffect};
-	use pretty_assertions::assert_eq;
+	use pretty_assertions::{assert_eq, assert_ne};
 
 	/// Parses the emitted spec the way external usage consumers do.
 	fn parsed_spec() -> Spec {
@@ -37,7 +37,7 @@ mod tests {
 	#[test]
 	fn usage_spec_generation() {
 		let output = Cli::to_kdl();
-		assert!(!output.is_empty());
+		assert_ne!(output, "");
 		// Should contain the biwa command
 		assert!(output.contains("biwa"));
 	}

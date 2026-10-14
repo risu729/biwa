@@ -6,6 +6,7 @@
 
 use std::fs;
 
+#[path = "common/helpers.rs"]
 mod common;
 use common::{Result, biwa_cmd};
 

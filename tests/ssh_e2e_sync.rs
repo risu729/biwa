@@ -29,6 +29,7 @@ use std::{
 	path::{Path, PathBuf},
 };
 
+#[path = "common/helpers.rs"]
 mod common;
 
 fn biwa_cmd(args: &[&str], current_dir: &Path) -> duct::Expression {

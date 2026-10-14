@@ -1,6 +1,8 @@
 /// Authentication types.
+#[path = "auth.rs"]
 pub mod auth;
 /// Command execution.
+#[path = "execute.rs"]
 pub mod execute;
 
 use self::auth::{Method, authenticate};
@@ -196,7 +198,7 @@ impl ClientHandler {
 
 		let PublicKeyOrCertificate::PublicKey {
 			key: server_public_key,
-			..
+			hash_alg: _,
 		} = server_key
 		else {
 			return Err(Report::new(HostKeyVerificationFailed::new(format!(

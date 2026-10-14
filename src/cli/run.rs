@@ -488,11 +488,11 @@ mod tests {
 	#[test]
 	fn run_command() {
 		let args = Cli::parse_unchecked(["biwa", "run", "ls", "-la"]);
-		assert!(args.run_command_args.is_empty());
+		assert_eq!(args.run_command_args, Vec::<String>::new());
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(run.command, "ls");
 			assert_eq!(run.command_args, vec!["-la"]);
-			assert!(run.env_vars.is_empty());
+			assert_eq!(run.env_vars, Vec::<String>::new());
 		} else {
 			assert_matches!(args.command, Some(Commands::Run(_)));
 		}
@@ -503,8 +503,8 @@ mod tests {
 		let args = Cli::parse_unchecked(["biwa", "r", "pwd"]);
 		if let Some(Commands::Run(run)) = args.command {
 			assert_eq!(run.command, "pwd");
-			assert!(run.command_args.is_empty());
-			assert!(run.env_vars.is_empty());
+			assert_eq!(run.command_args, Vec::<String>::new());
+			assert_eq!(run.env_vars, Vec::<String>::new());
 		} else {
 			assert_matches!(args.command, Some(Commands::Run(_)));
 		}
@@ -683,7 +683,7 @@ mod tests {
 		let run = parse_run_command(&["biwa", "run", "grep", "-e", "pattern", "file"]);
 		assert_eq!(run.command, "grep");
 		assert_eq!(run.command_args, vec!["-e", "pattern", "file"]);
-		assert!(run.transfer_args.exclude.is_empty());
+		assert_eq!(run.transfer_args.exclude, Vec::<String>::new());
 
 		let run = parse_run_command(&["biwa", "run", "sh", "--pull", "-c", "script"]);
 		assert!(!run.pull);
