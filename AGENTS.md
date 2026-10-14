@@ -3,6 +3,11 @@
 This file is for agentic coding agents working in this repository.
 It captures the commands, conventions, and guardrails that are actually used here.
 
+## Language
+
+Use English consistently for repository documentation, code comments, commit
+messages, and pull request titles and descriptions.
+
 ## Project Overview
 
 - Language: Rust for the CLI in `src/` and tests in `tests/`.
