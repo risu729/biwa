@@ -126,10 +126,10 @@ single_char_lifetime_names = "allow"
 std_instead_of_core = "allow"
 # mut String is worse than String + "..."
 string_add = "allow"
-# Conflicts with `rest_pattern_accessible_field`, which requires explicit ignored fields
-unneeded_field_pattern = "allow"
 # We have some unimplemented features
 unimplemented = "allow"
+# Conflicts with `rest_pattern_accessible_field`, which requires explicit ignored fields
+unneeded_field_pattern = "allow"
 
 # TODO: remove this after merging PRs to avoid conflicts
 arbitrary_source_item_ordering = "allow"
