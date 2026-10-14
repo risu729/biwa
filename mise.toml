@@ -31,6 +31,8 @@ yq = "4.54.1"
 
 [settings]
 experimental = true
+lockfile = true
+lockfile_mode = "generate"
 lockfile_platforms = [
 	"linux-arm64",
 	"linux-arm64-musl",
