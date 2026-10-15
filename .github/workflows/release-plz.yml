@@ -36,7 +36,7 @@ jobs:
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: github-app
         with:
-          client-id: ${{ vars.BOT_APP_ID }}
+          client-id: ${{ vars.BOT_APP_CLIENT_ID }}
           private-key: ${{ secrets.BOT_PRIVATE_KEY }}
           permission-contents: write # for updating branches
           permission-pull-requests: write # for creating PRs
@@ -70,7 +70,7 @@ jobs:
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: github-app
         with:
-          client-id: ${{ vars.BOT_APP_ID }}
+          client-id: ${{ vars.BOT_APP_CLIENT_ID }}
           private-key: ${{ secrets.BOT_PRIVATE_KEY }}
           permission-contents: write # for creating tags
       - name: Release
