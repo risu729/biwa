@@ -85,7 +85,7 @@ mise run test:update-snapshot
 `render:schema` caches the generated schema by source content, dependency locks,
 resolved tools and Rust build flags. Repeated runs reuse the result, and mise
 restores a deleted or edited `schema/config.json` from the local artifact cache.
-Content freshness detects source changes even when timestamps are preserved. Use
+Use
 `mise run --force render:schema` to regenerate it unconditionally; tests and checks
 continue to run normally.
 
