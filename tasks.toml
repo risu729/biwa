@@ -95,6 +95,9 @@ depends = ["render:*"]
 description = "Run all render tasks."
 
 ["render:schema"]
+sources = ["src/**", "Cargo.toml", "Cargo.lock", "mise.toml", "mise.lock", ".cargo/**", "build.rs", "rust-toolchain", "rust-toolchain.toml"]
+outputs = ["schema/config.json"]
+cache = { enabled = true, env = ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "RUSTC_BOOTSTRAP", "CARGO_BUILD_TARGET", "RUSTC", "RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"] }
 run = "cargo run --quiet -- schema > schema/config.json"
 description = "Generate the configuration schema."
 
