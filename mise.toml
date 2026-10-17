@@ -5,7 +5,7 @@ rust = { version = "1.99.0", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.20.2"
 "github:xd009642/tarpaulin" = "0.37.5"
 usage = "7.0.1"
-hk = "2.6.0"
+hk = "2.7.0"
 jactionlint = "v2.1.0"
 # used by jactionlint's workflow shell checks
 shellcheck = "0.11.0"
