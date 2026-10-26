@@ -47,7 +47,7 @@ tokio-util = { version = "=0.7.20", features = ["io"] }
 toml = "=1.1.8"
 tracing = "=0.1.44"
 tracing-subscriber = "=0.3.23"
-usage_rs = { package = "usage-rs", version = "=7.1.1", features = ["completions"] }
+usage_rs = { package = "usage-rs", version = "=7.1.2", features = ["completions"] }
 zeroize = "=1.9.1"
 
 # TODO: Restore the inline dependency after Renovate supports TOML 1.1.
@@ -66,7 +66,7 @@ rstest = "=0.28.0"
 serial_test = "=4.0.1"
 tempfile = "=3.27.0"
 # Used to validate the emitted usage spec the way external consumers parse it.
-usage-lib = { version = "=7.1.1", default-features = false }
+usage-lib = { version = "=7.1.2", default-features = false }
 
 [lints.clippy]
 # We prefer disabling rules than enabling them
