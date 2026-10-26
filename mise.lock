@@ -241,26 +241,31 @@ specifiers = ["2.8.0"]
 checksum = "sha256:d6802a66213972561f9e4aa4d3274decf3725b1fe513da762c0922274c18955b"
 url = "https://github.com/jdx/hk/releases/download/v2.8.0/hk-aarch64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/hk/.github/workflows/release.yml"
+repository_ids = { repository = "922514152" }
 
 [tools.hk."platforms.linux-arm64-musl"]
 checksum = "sha256:75c88574984380f3a76ab79ab89cf7d8c35d161e3b2d858ac9f13b4e936150a3"
 url = "https://github.com/jdx/hk/releases/download/v2.8.0/hk-aarch64-unknown-linux-musl.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/hk/.github/workflows/release.yml"
+repository_ids = { repository = "922514152" }
 
 [tools.hk."platforms.linux-x64"]
 checksum = "sha256:5b5d7021625d12825b3d44496b466ad65697e02651c8b9fe00117f5c25c73d0a"
 url = "https://github.com/jdx/hk/releases/download/v2.8.0/hk-x86_64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/hk/.github/workflows/release.yml"
+repository_ids = { repository = "922514152" }
 
 [tools.hk."platforms.linux-x64-musl"]
 checksum = "sha256:5a9f2e4f8ff945d19da5f4c914ec7feb3f636aa3b2eac02de2b1c6cfe76fe385"
 url = "https://github.com/jdx/hk/releases/download/v2.8.0/hk-x86_64-unknown-linux-musl.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/hk/.github/workflows/release.yml"
+repository_ids = { repository = "922514152" }
 
 [tools.hk."platforms.macos-arm64"]
 checksum = "sha256:9f0290ff3cbfa9f6baff640c846bf07f78dd29e2023b0c230d3d5226c23385ca"
 url = "https://github.com/jdx/hk/releases/download/v2.8.0/hk-aarch64-apple-darwin.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/hk/.github/workflows/release.yml"
+repository_ids = { repository = "922514152" }
 
 [[tools.jactionlint]]
 version = "2.1.0"
@@ -375,7 +380,7 @@ url = "https://nodejs.org/dist/v26.12.1/node-v26.12.1-darwin-x64.tar.gz"
 
 [[tools."npm:ajv-cli"]]
 version = "5.0.0"
-aube = { path = ".mise/locks/npm-ajv-cli/5.0.0", digest = "sha256:c6bd542579453b2939078812311b051a3ec4d71a86a6428b5b47e0386c7b6b84" }
+aube = { path = ".mise/locks/npm-ajv-cli/5.0.0", digest = "sha256:36d7da953aa2dac85d8e85af560d39cd2802e0b55dbc19ab9416b6ca0a1c3f9e" }
 backend = "npm:ajv-cli"
 specifiers = ["5.0.0"]
 
@@ -470,16 +475,19 @@ specifiers = ["2.32.1"]
 checksum = "sha256:1da03bd3dafc7821c46767f0e393776841fbc556fa7b74cd9f710e628fa94821"
 url = "https://github.com/jdx/pitchfork/releases/download/v2.32.1/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
+repository_ids = { repository = "899500793" }
 
 [tools.pitchfork."platforms.linux-x64"]
 checksum = "sha256:83bb4742a8aa7dee8abfb3ac1a24f6da5c777a438024263cd8d25280fd0e469f"
 url = "https://github.com/jdx/pitchfork/releases/download/v2.32.1/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
+repository_ids = { repository = "899500793" }
 
 [tools.pitchfork."platforms.macos-arm64"]
 checksum = "sha256:1b29158573448b6e21dc57a047b5bb8bdb8b925e7a46bc6968f56ea1b618ea3c"
 url = "https://github.com/jdx/pitchfork/releases/download/v2.32.1/pitchfork-aarch64-apple-darwin.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/pitchfork/.github/workflows/release.yml"
+repository_ids = { repository = "899500793" }
 
 [[tools.release-plz]]
 version = "0.3.159"
@@ -639,31 +647,37 @@ specifiers = ["7.1.1"]
 checksum = "sha256:596a2a7a2d460d6a80ef4328ffb7c56e4577fe2e4dba942d036f90d14354534d"
 url = "https://github.com/jdx/usage/releases/download/v7.1.1/usage-aarch64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/usage/.github/workflows/publish-cli.yml"
+repository_ids = { repository = "677629099" }
 
 [tools.usage."platforms.linux-arm64-musl"]
 checksum = "sha256:5f5d8ed6295130fb82df9a5ee0fabb226c80a7085eda849c18edb561b76f4d97"
 url = "https://github.com/jdx/usage/releases/download/v7.1.1/usage-aarch64-unknown-linux-musl.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/usage/.github/workflows/publish-cli.yml"
+repository_ids = { repository = "677629099" }
 
 [tools.usage."platforms.linux-x64"]
 checksum = "sha256:dcc37cb5fb59088bab82e6f5f752c002a526dd9b35909be76d8459f46b4c30ca"
 url = "https://github.com/jdx/usage/releases/download/v7.1.1/usage-x86_64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/usage/.github/workflows/publish-cli.yml"
+repository_ids = { repository = "677629099" }
 
 [tools.usage."platforms.linux-x64-musl"]
 checksum = "sha256:afea9fb0636305e011860ce2f3de26b5702c7bc8ffce8eb32aa9c95ff7f5804f"
 url = "https://github.com/jdx/usage/releases/download/v7.1.1/usage-x86_64-unknown-linux-musl.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/usage/.github/workflows/publish-cli.yml"
+repository_ids = { repository = "677629099" }
 
 [tools.usage."platforms.macos-arm64"]
 checksum = "sha256:50234db60947885bf87cda5ce28ee9c13924b6694528737bf6a7327e980f3bcd"
 url = "https://github.com/jdx/usage/releases/download/v7.1.1/usage-universal-apple-darwin.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/usage/.github/workflows/publish-cli.yml"
+repository_ids = { repository = "677629099" }
 
 [tools.usage."platforms.macos-x64"]
 checksum = "sha256:50234db60947885bf87cda5ce28ee9c13924b6694528737bf6a7327e980f3bcd"
 url = "https://github.com/jdx/usage/releases/download/v7.1.1/usage-universal-apple-darwin.tar.gz"
 signer = "sigstore-oidc:https://github.com/jdx/usage/.github/workflows/publish-cli.yml"
+repository_ids = { repository = "677629099" }
 
 [[tools.uv]]
 version = "0.13.5"
