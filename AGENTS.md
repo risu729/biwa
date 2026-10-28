@@ -181,15 +181,17 @@ messages, and pull request titles and descriptions.
 
 ## Cloudflare Docs Deployment
 
-- Deploy docs through `risu729/wrangler-deploy-action` v2 and pinned cf.
-- `docs:build` and `docs:build-preview` depend on the shared `docs:render`
-  task, then package the complete site with the Cloudflare Vite plugin.
-  Packaging shares one output directory; mise orders both tasks when requested
-  together, but do not run them in separate concurrent processes. Production
+- Deploy docs through `risu729/wrangler-deploy-action` v3 and pinned cf.
+- `docs:build` depends on the shared `docs:render` task, then packages the
+  complete site with the Cloudflare Vite plugin. Production
   restores the validated artifact after CI checks pass and preserves existing domains without synchronizing triggers.
-- `docs:build-preview` creates separate Preview Build Output. Same-repository
-  PRs use named Workers Previews; the Preview workflow serializes updates and
-  trusted-base close-event cleanup, checking live PR state before acting.
+- Same-repository PRs use named Workers Previews. After `docs:render`, the
+  action runs `cf previews deploy`, which packages the site with Preview
+  context, as Cloudflare documents; cf has no standalone Preview build. The
+  Preview workflow serializes updates and trusted-base close-event cleanup,
+  checking live PR state before acting.
+- cf holds the API token while building a Preview, so build-time code from
+  same-repository PRs, including dependency updates, can read it.
 - `docs:artifact:pack` archives already-validated production output.
   `docs:artifact:restore` requires `EXPECTED_REVISION` and verifies checksums,
   revision, production mode, and Worker name without rebuilding. CI runs these
