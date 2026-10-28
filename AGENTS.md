@@ -188,8 +188,16 @@ messages, and pull request titles and descriptions.
 - Same-repository PRs use named Workers Previews. After `docs:render`, the
   action runs `cf previews deploy`, which packages the site with Preview
   context, as Cloudflare documents; cf has no standalone Preview build. The
-  Preview workflow serializes updates and trusted-base close-event cleanup,
-  checking live PR state before acting.
+  CI job is required by `CI Check`, so a broken Preview build or deployment
+  blocks merging. Fork PRs only run validation; runs without Preview
+  credentials, such as Dependabot's, skip the Preview. Superseded PR runs are
+  cancelled with the rest of CI, and the job checks that the PR is open at the
+  tested head, so re-running an old run cannot replace the current Preview.
+- Previews of closed PRs are not deleted. Cloudflare evicts the least recently
+  deployed Preview once a Worker reaches its Preview limit, and this
+  assets-only Worker has no storage bindings whose data would outlive the PR.
+  A closed PR's Preview stays reachable only at its unadvertised Preview URL
+  until it is evicted. Revisit cleanup if the Worker gains bindings or secrets.
 - cf holds the API token while building a Preview, so build-time code from
   same-repository PRs, including dependency updates, can read it.
 - `docs:artifact:pack` archives already-validated production output.
@@ -200,7 +208,7 @@ messages, and pull request titles and descriptions.
   separate; never replace the archived production artifact with a Preview.
 - Keep the token at `Individual Workers Editor` scoped only to `biwa-docs`
   on account `risu`. This covers production version deployment and named
-  Preview creation and cleanup. Routine CI keeps `deploy-triggers: false`
+  Preview creation. Routine CI keeps `deploy-triggers: false`
   and requires no zone `Workers Routes` permission. Manage Custom Domains and
   routes separately with suitable permissions; Individual-Worker tokens cannot
   manage Custom Domains.

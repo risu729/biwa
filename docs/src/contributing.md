@@ -100,7 +100,7 @@ GitHub Actions deploys the documentation Worker through
 
 The token needs `Individual Workers Editor` scoped only to the existing
 `biwa-docs` Worker on account `risu`. The same permission supports production
-version deployment and named Workers Preview creation and cleanup.
+version deployment and named Workers Preview creation.
 
 Routine production deployment uses `deploy-triggers: false`: it uploads the
 validated artifact, deploys that exact version, and preserves the existing
