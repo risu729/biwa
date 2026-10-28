@@ -7,7 +7,7 @@
 		"@types/bun": "1.4.4",
 		"cf": "1.0.0-beta.23",
 		"oxc-minify": "0.156.0",
-		"typescript": "6.0.3",
+		"typescript": "7.0.2",
 		"vitepress": "2.0.0-alpha.21",
 		"vitepress-plugin-mermaid": "2.0.17",
 		"vue-tsc": "3.3.13"
