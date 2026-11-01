@@ -125,7 +125,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
-          version: 2026.10.24
+          version: 2026.10.25
       - name: Rust Cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -161,7 +161,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
-          version: 2026.10.24
+          version: 2026.10.25
       - name: Rust Cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -205,7 +205,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
-          version: 2026.10.24
+          version: 2026.10.25
       - name: Validate schema
         run: mise run schema
   build:
@@ -241,7 +241,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
-          version: 2026.10.24
+          version: 2026.10.25
       - name: Build docs
         run: mise run docs:build
       - name: Validate production build
@@ -282,7 +282,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
-          version: 2026.10.24
+          version: 2026.10.25
       - name: Install locked deployment dependencies
         run: mise deps install bun
       - name: Download validated docs
