@@ -63,7 +63,7 @@ jobs:
         if: ${{ steps.current.outputs.run == 'true' && github.event_name != 'pull_request_target' }}
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
-          version: 2026.10.25
+          version: 2026.11.0
       - name: Build Preview
         if: ${{ steps.current.outputs.run == 'true' && github.event_name != 'pull_request_target' }}
         run: mise run docs:build-preview
