@@ -52,14 +52,6 @@ run = "bun run cf-vite build"
 dir = "docs"
 description = "Build VitePress documentation for production."
 
-["docs:build-preview"]
-depends = ["docs:render"]
-# Both packagers write the same output; serialize them if scheduled together.
-wait_for = ["docs:build"]
-run = "bun run cf-vite build --preview"
-dir = "docs"
-description = "Build documentation for a Workers Preview."
-
 ["docs:artifact:pack"]
 # Archive only the artifact already validated by the deployment action.
 run = '''
