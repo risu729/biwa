@@ -1,7 +1,6 @@
 name: Release
 on:
   workflow_call:
-  # zizmor: ignore[cache-poisoning] mutually exclusive fallback
   push:
     tags:
       - v*
@@ -55,7 +54,7 @@ jobs:
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           version: 2026.11.0
-          cache: ${{ steps.mode.outputs.publishing == 'false' }}
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
       - name: Plan Release
@@ -99,12 +98,13 @@ jobs:
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           version: 2026.11.0
-          cache: ${{ needs.plan.outputs.publishing == 'false' }}
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
       - name: Rust Cache
+        # zizmor: ignore[cache-poisoning] the step condition disables caching on tag refs
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        if: ${{ needs.plan.outputs.publishing == 'false' }}
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         with:
           key: ${{ join(matrix.targets, '-') }}
           cache-bin: "false"
@@ -181,7 +181,7 @@ jobs:
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           version: 2026.11.0
-          cache: ${{ needs.plan.outputs.publishing == 'false' }}
+          cache: ${{ !startsWith(github.ref, 'refs/tags/') }}
         env:
           MISE_ENABLE_TOOLS: rust,cargo-dist
       - name: Download local artifacts
