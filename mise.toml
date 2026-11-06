@@ -42,6 +42,9 @@ lockfile_platforms = [
 	"macos-x64",
 ]
 
+[settings.task]
+source_freshness_hash_contents = true
+
 [env]
 "_".path = ["target/debug"]
 
