@@ -32,6 +32,10 @@ jobs:
         uses: jdx/mise-action@f5be966e4a917d54244728e6a5fdcd1d93a35e6c # v5.2.6
         with:
           version: 2026.11.1
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-bin: "false"
       - name: Create biwa-bot GitHub App token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         id: github-app
@@ -40,8 +44,18 @@ jobs:
           private-key: ${{ secrets.BOT_PRIVATE_KEY }}
           permission-contents: write # for updating branches
           permission-pull-requests: write # for creating PRs
+      - name: Prepare release version
+        # Defer the changelog to release-pr so its PR body includes the new entry.
+        run: release-plz update --no-changelog
+        env:
+          GIT_TOKEN: ${{ steps.github-app.outputs.token }}
+      - name: Render release artifacts
+        run: mise run render
+      - name: Validate release artifacts
+        run: cargo test --locked --bin biwa cli::usage::tests
       - name: Create release-plz PR
-        run: release-plz release-pr
+        # Include the regenerated files in release-plz's own commit on every update.
+        run: release-plz release-pr --allow-dirty
         env:
           GIT_TOKEN: ${{ steps.github-app.outputs.token }}
   release:
