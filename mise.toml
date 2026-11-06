@@ -27,7 +27,7 @@ pitchfork = "2.33.1"
 tombi = "1.10.0"
 "npm:ajv-cli" = "5.0.0"
 jq = "1.8.2"
-yq = "4.54.1"
+yq = "4.54.2"
 
 [settings]
 experimental = true
