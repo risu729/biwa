@@ -6,7 +6,7 @@ rust = { version = "1.99.1", profile = "default" }
 "github:xd009642/tarpaulin" = "0.37.6"
 usage = "7.2.0"
 hk = "2.11.1"
-jactionlint = "v2.1.0"
+jactionlint = "v2.4.0"
 # used by jactionlint's workflow shell checks
 shellcheck = "0.11.0"
 ghalint = "1.6.0"
