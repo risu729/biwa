@@ -1,4 +1,4 @@
-FROM lscr.io/linuxserver/openssh-server@sha256:aa4e1b3916e8555f24e574e6108b0b89a1b20362b0a11800a71280b45999649e
+FROM lscr.io/linuxserver/openssh-server@sha256:161e0b670b31d9539ca1718bc5943e981779331b4e1c9d32e8929d7652a1f22f
 
 # `PerSourcePenalties no` keeps the deliberate authentication failures in the suite from
 # throttling the test runner's later connections.
