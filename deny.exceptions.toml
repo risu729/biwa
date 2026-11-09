@@ -1,0 +1,6 @@
+# Allow the LLVM exception only for ar_archive_writer, introduced via psm in #1603.
+# Keep this in the project exceptions file so it can land before the dependency
+# without relaxing deny.toml's unused-license checks.
+exceptions = [
+	{ crate = "ar_archive_writer", allow = ["Apache-2.0 WITH LLVM-exception"] },
+]
