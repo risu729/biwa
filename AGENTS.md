@@ -228,3 +228,7 @@ messages, and pull request titles and descriptions.
 - Preserve tab-based formatting.
 - Preserve existing logging, error-context, and lint-suppression patterns.
 - When uncertain, align with the surrounding file rather than imposing generic style.
+
+## Hostname maintenance
+
+See [hostname maintenance](docs/hostname-maintenance.md) for the separate manual plan/apply workflow and its current permission limits.
