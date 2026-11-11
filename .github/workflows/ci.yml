@@ -371,7 +371,7 @@ jobs:
           EXPECTED_REVISION: ${{ github.sha }}
         run: mise run --no-deps --skip-tools docs:artifact:restore
       - name: Deploy validated docs
-        uses: risu729/wrangler-deploy-action@1ba26ce11cbfadc9ef193b5b2187e8dcb18cdd2d # v3.0.1
+        uses: risu729/wrangler-deploy-action@6bb27960f8e904e4961616a5b02e529df3a5a702 # v3.0.2
         with:
           mode: production
           working-directory: docs
