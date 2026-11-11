@@ -184,7 +184,8 @@ messages, and pull request titles and descriptions.
 - Deploy docs through `risu729/wrangler-deploy-action` v3 and pinned cf.
 - `docs:build` depends on the shared `docs:render` task, then packages the
   complete site with the Cloudflare Vite plugin. Production
-  restores the validated artifact after CI checks pass and preserves existing domains without synchronizing triggers.
+  restores the validated artifact after CI checks pass, then reconciles configured
+  triggers after verifying the deployed version.
 - Same-repository PRs use named Workers Previews. After `docs:render`, the
   action runs `cf previews deploy`, which packages the site with Preview
   context, as Cloudflare documents; cf has no standalone Preview build. The
@@ -208,10 +209,12 @@ messages, and pull request titles and descriptions.
   separate; never replace the archived production artifact with a Preview.
 - Keep the token at `Individual Workers Editor` scoped only to `biwa-docs`
   on account `risu`. This covers production version deployment and named
-  Preview creation. Routine CI keeps `deploy-triggers: false`
-  and requires no zone `Workers Routes` permission. Manage Custom Domains and
-  routes separately with suitable permissions; Individual-Worker tokens cannot
-  manage Custom Domains.
+  Preview creation. Routine production now enables trigger synchronization.
+  Verify the same credential against the actual legacy Custom Domain endpoint;
+  add only demonstrated necessary permissions. Public account-wide domain API
+  permission tables do not establish the legacy endpoint's effective grants.
+  The shared action checks domain conflicts before publication and verifies the
+  resulting attachment. Existing docs domain and URL settings remain unchanged.
 
 ## Safe Agent Workflow
 
@@ -228,7 +231,3 @@ messages, and pull request titles and descriptions.
 - Preserve tab-based formatting.
 - Preserve existing logging, error-context, and lint-suppression patterns.
 - When uncertain, align with the surrounding file rather than imposing generic style.
-
-## Hostname maintenance
-
-See [hostname maintenance](docs/hostname-maintenance.md) for the separate manual plan/apply workflow and its current permission limits.

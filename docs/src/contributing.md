@@ -102,11 +102,20 @@ The token needs `Individual Workers Editor` scoped only to the existing
 `biwa-docs` Worker on account `risu`. The same permission supports production
 version deployment and named Workers Preview creation.
 
-Routine production deployment uses `deploy-triggers: false`: it uploads the
-validated artifact, deploys that exact version, and preserves the existing
-Custom Domain without synchronizing triggers. No zone `Workers Routes`
-permission is required for this flow.
+On 2026-11-11 the owner selected routine production trigger reconciliation.
+Production uses `deploy-triggers: true`: it uploads the validated artifact,
+verifies that exact version at 100%, then synchronizes `biwa.takuk.me`,
+`workersDev: false` and `previewUrls: true`. Preview builds still omit production
+domains. The separate manual hostname workflow has been removed.
 
-Manage Custom Domain and route changes separately with suitable permissions.
-Individual-Worker tokens cannot manage Custom Domains. Keep trigger updates
-outside routine CI deployment.
+The shared action checks for domain conflicts before publication and immediately
+before synchronization, then verifies the resulting attachment. Authentication
+or verification failures fail the release; a failure after activation does not
+roll back the published version. The checks are not an atomic lock against an
+external writer, so retain the existing production concurrency.
+
+Use the existing Worker-scoped credential and verify actual legacy endpoint
+access. Add only demonstrated necessary grants; the public account-wide domain
+API's permission table does not establish that broader script permissions are
+needed. Effective credential and production synchronization verification remain
+separate from offline CI. No new route, schedule or binding is declared.
