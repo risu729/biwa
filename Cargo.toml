@@ -58,7 +58,7 @@ default-features = false
 features = ["flate2", "ring", "rsa"]
 
 [dev-dependencies]
-ctor = "=1.0.13"
+ctor = "=1.0.14"
 duct = "=1.1.2"
 insta = { version = "=1.49.0", features = ["json"] }
 pretty_assertions = { version = "=1.4.1", features = ["unstable"] }
