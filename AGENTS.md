@@ -5,8 +5,39 @@ It captures the commands, conventions, and guardrails that are actually used her
 
 ## Language
 
-Use English consistently for repository documentation, code comments, commit
-messages, and pull request titles and descriptions.
+Use English consistently for repository documentation, research notes, code
+comments, commit messages, and pull request titles and descriptions. Messages to
+the owner are in Japanese (see [Owner Conventions](#owner-conventions)).
+
+## Documentation
+
+- Read [docs/README.md](docs/README.md) and the [plan](docs/plan.md) before starting work.
+- `docs/src/` is the published user docs site; the other Markdown files in `docs/` are maintainer docs and are not published.
+- The [plan](docs/plan.md) is the single work tracker: roadmap, status and open questions.
+- Record decisions as described in [Recording decisions](docs/README.md#recording-decisions); large ones get an [ADR](docs/adr/README.md).
+- CI, docs deployment, review and merging are in [docs/delivery.md](docs/delivery.md).
+
+## Owner Conventions
+
+These are the owner's standing rules for agents (owner, 2026-11-16 17:07 UTC).
+
+- Reply to the owner in Japanese.
+- Show the concrete thing, such as a data shape, a real example value, a file or code, instead of coining a term and explaining it.
+- Write every PR, issue, commit, workflow run and URL shown to the owner as a clickable Markdown link, for example [#1635](https://github.com/risu729/biwa/pull/1635), never a bare `#1635`, SHA or URL.
+- Give times to the owner in UTC with JST in parentheses, for example 09:20 UTC (18:20 JST).
+- Record every design decision the owner makes in the repository: an ADR for a large one, otherwise the owning `docs/` page. Nothing lives only in a thread or an agent's memory.
+- While a design is still under discussion, write no ADR, code or PR for it until the owner approves it.
+- Have an independent subagent review a plan or proposal before the owner sees it.
+- One PR per scope. A code PR needs an independent subagent review; after that and a green `CI Check`, merge it yourself ([merging](docs/delivery.md#merging)).
+- Work in cloud sessions and test there first: the Docker SSH servers through `pitchfork`, and anything in a browser in cloud Chromium with Playwright.
+- Never request access to the owner's device. Only checks that need the owner's real machine, profile or real accounts go to a local session: push the branch and send the coordinating session what to test and why. Only that local session gives the owner hands-on steps.
+- That local session opens and prefills every page up to the step only the owner can take, and never asks the owner to type into a terminal it opened.
+
+## Continuing The Work
+
+- A merged PR is not a stopping point. Continue with the next item of the current phase in the [roadmap](docs/plan.md#roadmap), then the next phase.
+- The owner has not set the roadmap phases yet; until then, ask the owner rather than choosing the next work (see [open questions](docs/plan.md#open-questions)).
+- A thread that researches something lands its findings in its own docs PR under [docs/research/](docs/research/README.md), together with the plan lines it changes.
 
 ## Project Overview
 
@@ -181,40 +212,7 @@ messages, and pull request titles and descriptions.
 
 ## Cloudflare Docs Deployment
 
-- Deploy docs through `risu729/wrangler-deploy-action` v3 and pinned cf.
-- `docs:build` depends on the shared `docs:render` task, then packages the
-  complete site with the Cloudflare Vite plugin. Production
-  restores the validated artifact after CI checks pass, then reconciles configured
-  triggers after verifying the deployed version.
-- Same-repository PRs use named Workers Previews. After `docs:render`, the
-  action runs `cf previews deploy`, which packages the site with Preview
-  context, as Cloudflare documents; cf has no standalone Preview build. The
-  CI job is required by `CI Check`, so a broken Preview build or deployment
-  blocks merging. Fork PRs only run validation; runs without Preview
-  credentials, such as Dependabot's, skip the Preview. Superseded PR runs are
-  cancelled with the rest of CI, and the job checks that the PR is open at the
-  tested head, so re-running an old run cannot replace the current Preview.
-- Previews of closed PRs are not deleted. Cloudflare evicts the least recently
-  deployed Preview once a Worker reaches its Preview limit, and this
-  assets-only Worker has no storage bindings whose data would outlive the PR.
-  A closed PR's Preview stays reachable only at its unadvertised Preview URL
-  until it is evicted. Revisit cleanup if the Worker gains bindings or secrets.
-- cf holds the API token while building a Preview, so build-time code from
-  same-repository PRs, including dependency updates, can read it.
-- `docs:artifact:pack` archives already-validated production output.
-  `docs:artifact:restore` requires `EXPECTED_REVISION` and verifies checksums,
-  revision, production mode, and Worker name without rebuilding. CI runs these
-  with `--no-deps --skip-tools` after tools and dependencies are prepared.
-- Preview builds omit production domains. Keep production and Preview output
-  separate; never replace the archived production artifact with a Preview.
-- Keep the token at `Individual Workers Editor` scoped only to `biwa-docs`
-  on account `risu`. This covers production version deployment and named
-  Preview creation. Routine production now enables trigger synchronization.
-  Verify the same credential against the actual legacy Custom Domain endpoint;
-  add only demonstrated necessary permissions. Public account-wide domain API
-  permission tables do not establish the legacy endpoint's effective grants.
-  The shared action checks domain conflicts before publication and verifies the
-  resulting attachment. Existing docs domain and URL settings remain unchanged.
+- See [Docs deployment](docs/delivery.md#docs-deployment) before changing the docs build, the deploy workflow or its Cloudflare token.
 
 ## Safe Agent Workflow
 
