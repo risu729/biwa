@@ -14,14 +14,14 @@ Read this page, then the [plan](plan.md), before starting work.
 
 ## What belongs where
 
-| Document                           | Owns                                                  | Update rule                                                               |
-| ---------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------- |
-| [Plan](plan.md)                    | Roadmap, current status, open questions for the owner | Update in the PR that changes the status, the roadmap or an open question |
-| [ADRs](adr/README.md)              | Large design decisions, with context and alternatives | See the [ADR index](adr/README.md)                                        |
-| [Delivery](delivery.md)            | CI, docs deployment, review and merge procedure       | Update with the workflow change                                           |
-| [Research](research/README.md)     | Dated observations and primary sources                | Append or supersede; never present old evidence as current                |
-| [Agent instructions](../AGENTS.md) | Commands, code conventions and agent workflow rules   | Update with the tooling or rule change                                    |
-| [User docs site](src/index.md)     | Installation, configuration, CLI reference for users  | Derived: update with the code or document that owns each fact             |
+| Document                           | Owns                                                              | Update rule                                                   |
+| ---------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
+| [Plan](plan.md)                    | Current status, how work is tracked, open questions for the owner | Update in the PR that changes the status or an open question  |
+| [ADRs](adr/README.md)              | Large design decisions, with context and alternatives             | See the [ADR index](adr/README.md)                            |
+| [Delivery](delivery.md)            | CI, docs deployment, review and merge procedure                   | Update with the workflow change                               |
+| [Research](research/README.md)     | Dated observations and primary sources                            | Append or supersede; never present old evidence as current    |
+| [Agent instructions](../AGENTS.md) | Commands, code conventions and agent workflow rules               | Update with the tooling or rule change                        |
+| [User docs site](src/index.md)     | Installation, configuration, CLI reference for users              | Derived: update with the code or document that owns each fact |
 
 Code, `mise.toml`, `tasks.toml` and the workflows under `.github/workflows/` are the
 authority for what the project does now. A document that disagrees with them is
