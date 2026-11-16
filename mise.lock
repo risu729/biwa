@@ -374,7 +374,7 @@ url = "https://nodejs.org/dist/v26.13.1/node-v26.13.1-darwin-x64.tar.gz"
 
 [[tools."npm:ajv-cli"]]
 version = "5.0.0"
-aube = { path = ".mise/locks/npm-ajv-cli/5.0.0", digest = "sha256:36d7da953aa2dac85d8e85af560d39cd2802e0b55dbc19ab9416b6ca0a1c3f9e" }
+aube = { path = ".mise/locks/npm-ajv-cli/5.0.0", digest = "sha256:de14666238c2c1fcdcb8c94d67fc7642597b3c2dcbbd3cd155c09f5ec732d209" }
 backend = "npm:ajv-cli"
 specifiers = ["5.0.0"]
 
