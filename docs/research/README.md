@@ -10,8 +10,6 @@ check against UNSW CSE servers.
 - Separate what was verified from what was inferred.
 - Never present an old note as current; append new evidence or write a new note
   that supersedes it.
-- A thread that researches something lands its note in its own docs PR, together
-  with the [plan](../plan.md) lines it changes.
 - Use synthetic examples. Never commit credentials, real zIDs, hostnames of private
   machines or other personal data.
 

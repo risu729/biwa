@@ -13,13 +13,13 @@ the owner are in Japanese (see [Owner Conventions](#owner-conventions)).
 
 - Read [docs/README.md](docs/README.md) and the [plan](docs/plan.md) before starting work.
 - `docs/src/` is the published user docs site; the other Markdown files in `docs/` are maintainer docs and are not published.
-- The [plan](docs/plan.md) is the single work tracker: roadmap, status and open questions.
+- The [plan](docs/plan.md) holds the roadmap, current status and open questions for the owner.
 - Record decisions as described in [Recording decisions](docs/README.md#recording-decisions); large ones get an [ADR](docs/adr/README.md).
 - CI, docs deployment, review and merging are in [docs/delivery.md](docs/delivery.md).
 
 ## Owner Conventions
 
-These are the owner's standing rules for agents (owner, 2026-11-16 17:07 UTC).
+The owner is risu ([@risu729](https://github.com/risu729)). These are the owner's standing rules for agents (owner, 2026-11-16 17:07 UTC); the extension rule in that message is left out because biwa has no browser extension.
 
 - Reply to the owner in Japanese.
 - Show the concrete thing, such as a data shape, a real example value, a file or code, instead of coining a term and explaining it.
@@ -29,15 +29,16 @@ These are the owner's standing rules for agents (owner, 2026-11-16 17:07 UTC).
 - While a design is still under discussion, write no ADR, code or PR for it until the owner approves it.
 - Have an independent subagent review a plan or proposal before the owner sees it.
 - One PR per scope. A code PR needs an independent subagent review; after that and a green `CI Check`, merge it yourself ([merging](docs/delivery.md#merging)).
-- Work in cloud sessions and test there first: the Docker SSH servers through `pitchfork`, and anything in a browser in cloud Chromium with Playwright.
-- Never request access to the owner's device. Only checks that need the owner's real machine, profile or real accounts go to a local session: push the branch and send the coordinating session what to test and why. Only that local session gives the owner hands-on steps.
+- Work in cloud sessions and test in cloud Chromium with Playwright first.
+- Never request access to the owner's device. Only checks that need the owner's real Chrome, profile or real accounts go to a local session: push the branch and send the coordinating session what to test and why. Only that local session gives the owner hands-on steps.
 - That local session opens and prefills every page up to the step only the owner can take, and never asks the owner to type into a terminal it opened.
+
+Agent note, not an owner rule: for biwa, testing in the cloud first also covers the Docker SSH servers that `pitchfork` starts (see [Test Environment Notes](#test-environment-notes)).
 
 ## Continuing The Work
 
-- A merged PR is not a stopping point. Continue with the next item of the current phase in the [roadmap](docs/plan.md#roadmap), then the next phase.
-- The owner has not set the roadmap phases yet; until then, ask the owner rather than choosing the next work (see [open questions](docs/plan.md#open-questions)).
-- A thread that researches something lands its findings in its own docs PR under [docs/research/](docs/research/README.md), together with the plan lines it changes.
+- Goal: follow the [roadmap](docs/plan.md#roadmap) (phase 1 now). Finishing one PR does not end the work (owner, 2026-11-16 17:07 UTC).
+- The roadmap phases are not written down yet; until the owner sets them, ask the owner rather than choosing the next work (see [open questions](docs/plan.md#open-questions)).
 
 ## Project Overview
 

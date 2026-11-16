@@ -6,30 +6,17 @@ PR that changes them.
 
 ## Pull requests
 
-- One PR per scope: one independently reviewable change. Keep the implementation,
-  its tests and the owning documentation together; split unrelated changes.
+- One PR per scope (owner, 2026-11-16 17:07 UTC).
 - PR titles use conventional commits (`type(scope): description`), checked by the
   `Lint PR title` job; see [AGENTS.md](../AGENTS.md#commit-message-and-pr-title-conventions).
-- An agent writes every PR, issue, commit, workflow run and URL it mentions in PR
-  and issue text as a Markdown link, never a bare `#123`, SHA or URL.
 
 ## Merging
 
-An agent merges its own PR without waiting for another confirmation from the owner
-when all of these hold:
+A code PR needs an independent subagent review. After that review and a green
+`CI Check` on the PR, the agent merges it itself, without waiting for the owner
+(owner, 2026-11-16 17:07 UTC).
 
-1. A PR that changes code or tests has been reviewed by an independent subagent.
-2. Every review finding is resolved.
-3. The required `CI Check` passes on the head commit.
-4. The change was approved: it implements a decision the owner already made, or it
-   is routine maintenance within one. A design still under discussion is not
-   merged.
-
-Changes made after the review, including conflict resolutions, are rechecked
-before merging. Never skip, disable or quarantine a test to make CI pass.
-
-Plans and design proposals are reviewed by an independent subagent before the
-owner is asked to decide on them, and the ask says that they were reviewed.
+Plans and proposals get an independent subagent review before the owner sees them.
 
 ## Docs deployment
 

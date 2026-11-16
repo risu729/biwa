@@ -23,11 +23,7 @@ anything an agent added beyond the owner's answer as not confirmed by the owner.
 
 After acceptance, change an ADR only through a dated amendment section that keeps
 the accepted text, and note the amendment in its `Status:` line. An ADR that amends
-another also updates the other's `Status:` line. An accepted ADR can still be wrong:
-propose an amendment with the reason instead of defending it because it was
-decided.
-
-Write an ADR only after the owner approves the decision.
+another also updates the other's `Status:` line.
 
 ## Records
 

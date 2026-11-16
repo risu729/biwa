@@ -8,10 +8,7 @@ runs commands on UNSW CSE servers over SSH (`biwa run`), synchronizes the projec
 environment variables, dispatches configured [direct commands](src/direct-commands.md)
 such as `1511 autotest lab01` without typing `biwa run`, and cleans stale remote projects (`biwa clean`). The user
 docs site is deployed at [biwa.takuk.me](https://biwa.takuk.me/). Releases are cut
-by release-plz; dependency updates come from Renovate.
-
-This page is the single work tracker. Issues and PRs link to the roadmap below
-instead of keeping a second one.
+by release-plz and binaries published by cargo-dist; dependency updates come from Renovate.
 
 ## Roadmap
 
