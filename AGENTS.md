@@ -13,7 +13,7 @@ the owner are in Japanese (see [Owner Conventions](#owner-conventions)).
 
 - Read [docs/README.md](docs/README.md) and the [plan](docs/plan.md) before starting work.
 - `docs/src/` is the published user docs site; the other Markdown files in `docs/` are maintainer docs and are not published.
-- The [plan](docs/plan.md) holds the roadmap, current status and open questions for the owner.
+- The [plan](docs/plan.md) holds the current status and open questions for the owner. Work is tracked in [GitHub issues](https://github.com/risu729/biwa/issues); there are no roadmap phases.
 - Record decisions as described in [Recording decisions](docs/README.md#recording-decisions); large ones get an [ADR](docs/adr/README.md).
 - CI, docs deployment, review and merging are in [docs/delivery.md](docs/delivery.md).
 
@@ -35,6 +35,8 @@ The owner is risu ([@risu729](https://github.com/risu729)). These are the owner'
 
 Agent note, not an owner rule: for biwa, testing in the cloud first also covers the Docker SSH servers that `pitchfork` starts (see [Test Environment Notes](#test-environment-notes)).
 
+Do not test against a real UNSW CSE account for now (owner, 2026-11-16 17:27 UTC; see [the plan](docs/plan.md#real-unsw-cse-account-checks)).
+
 ## Configuration Defaults
 
 - Do not set a configuration option to the value its tool already uses. Leave it unset unless the repository needs a different value. This covers every tool configuration here, including `.github/renovate.json`, `mise.toml`, `hk.pkl`, `deny.toml`, `release-plz.toml`, `dist-workspace.toml`, `tombi.toml`, `docs/tsconfig.json` and the linter and formatter configurations. Check the default in the tool's source at the version in use, not in its documentation.
@@ -43,8 +45,18 @@ Agent note, not an owner rule: for biwa, testing in the cloud first also covers 
 
 ## Continuing The Work
 
-- Goal: follow the [roadmap](docs/plan.md#roadmap) (phase 1 now). Finishing one PR does not end the work (owner, 2026-11-16 17:07 UTC).
-- The roadmap phases are not written down yet; until the owner sets them, ask the owner rather than choosing the next work (see [open questions](docs/plan.md#open-questions)).
+- Work is tracked in [GitHub issues](https://github.com/risu729/biwa/issues), with no roadmap phases (owner, 2026-11-16 17:27 UTC; see [work tracking](docs/plan.md#work-tracking)).
+- No implementation is in progress. The owner asked only for the repository to be ready so work can resume at any time (owner, 2026-11-16 17:28 UTC); start an issue when the owner asks for it.
+- Once the owner has started work, finishing one PR does not end it (owner, 2026-11-16 17:07 UTC): continue with the next issue in that scope.
+
+### Picking Up An Issue
+
+1. Read the issue and its comments, [docs/README.md](docs/README.md), the [plan](docs/plan.md) and the user docs page for the feature under `docs/src/`.
+2. If the issue needs a design choice the owner has not made, write a proposal, have an independent subagent review it, and ask the owner before writing code.
+3. Work on a branch from `main`, with tests next to the change (see [Testing Conventions](#testing-conventions)) and the owning docs updated in the same PR.
+4. Run focused tests, then `mise run test` and `mise run check --lint`.
+5. Open one PR for the scope, titled as in [Commit Message And PR Title Conventions](#commit-message-and-pr-title-conventions), with `Closes #N` in the body.
+6. Merge as described in [docs/delivery.md](docs/delivery.md#merging).
 
 ## Project Overview
 
