@@ -1,4 +1,4 @@
-min_version = "2026.10.8"
+min_version = "2026.10.19"
 
 [tools]
 rust = { version = "1.99.1", profile = "default" }
@@ -32,7 +32,6 @@ yq = "4.54.3"
 [settings]
 experimental = true
 lockfile = true
-lockfile_mode = "generate"
 lockfile_platforms = [
 	"linux-arm64",
 	"linux-arm64-musl",

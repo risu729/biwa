@@ -33,7 +33,6 @@ unused-allowed-license = "deny"
 unused-license-exception = "deny"
 
 [bans]
-multiple-versions = "warn"
 multiple-versions-include-dev = true
 wildcards = "deny"
 skip = [
