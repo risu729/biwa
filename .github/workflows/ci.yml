@@ -245,7 +245,7 @@ jobs:
       - name: Build docs
         run: mise run docs:build
       - name: Validate production build
-        uses: risu729/wrangler-deploy-action@6bb27960f8e904e4961616a5b02e529df3a5a702 # v3.0.2
+        uses: risu729/wrangler-deploy-action@a371aa836e01c95d3928ba1a62b052229c7184c2 # v3.0.3
         with:
           mode: dry-run
           working-directory: docs
@@ -316,7 +316,7 @@ jobs:
         id: preview
         if: ${{ steps.current.outputs.run == 'true' }}
         # cf previews deploy packages the rendered site with Preview context, which drops production domains.
-        uses: risu729/wrangler-deploy-action@6bb27960f8e904e4961616a5b02e529df3a5a702 # v3.0.2
+        uses: risu729/wrangler-deploy-action@a371aa836e01c95d3928ba1a62b052229c7184c2 # v3.0.3
         with:
           mode: worker-preview
           working-directory: docs
@@ -371,7 +371,7 @@ jobs:
           EXPECTED_REVISION: ${{ github.sha }}
         run: mise run --no-deps --skip-tools docs:artifact:restore
       - name: Deploy validated docs
-        uses: risu729/wrangler-deploy-action@6bb27960f8e904e4961616a5b02e529df3a5a702 # v3.0.2
+        uses: risu729/wrangler-deploy-action@a371aa836e01c95d3928ba1a62b052229c7184c2 # v3.0.3
         with:
           mode: production
           working-directory: docs
