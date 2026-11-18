@@ -17,6 +17,12 @@ ignore = [
 	# unsafe-libyaml is unmaintained; retained through serde_yaml and confique's
 	# YAML support until both dependency paths migrate to a maintained parser.
 	"RUSTSEC-2024-0449",
+	# humantime is unmaintained because it wraps chrono; biwa uses it directly. The
+	# owner chose to ignore it until development resumes (2026-11-18, #1658).
+	"RUSTSEC-2026-0542",
+	# chrono is unmaintained; used directly and through russh-sftp. Ignored with
+	# humantime until development resumes (owner, 2026-11-18, #1658).
+	"RUSTSEC-2026-0543",
 ]
 unused-ignored-advisory = "deny"
 
