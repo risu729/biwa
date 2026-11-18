@@ -48,7 +48,7 @@ description = "Render the complete VitePress site before packaging."
 
 ["docs:build"]
 depends = ["docs:render"]
-run = "bun run cf-vite build"
+run = "bun run cf build"
 dir = "docs"
 description = "Build VitePress documentation for production."
 
@@ -56,10 +56,10 @@ description = "Build VitePress documentation for production."
 # Archive only the artifact already validated by the deployment action.
 run = '''
 set -eu
-jq -e '.buildContext.isPreview == false and .buildContext.mode == "production"' docs/.cloudflare/output/v0/config.json
-jq -e '.name == "biwa-docs"' docs/.cloudflare/output/v0/workers/default/worker.config.json
+jq -e '.buildContext.isPreview == false and .buildContext.mode == "production"' docs/.cloudflare/output/v1/config.json
+jq -e '.name == "biwa-docs"' docs/.cloudflare/output/v1/workers/default/worker.config.json
 mkdir -p out/docs-artifact
-tar -C docs -czf out/docs-artifact/build.tar.gz .cloudflare/output/v0
+tar -C docs -czf out/docs-artifact/build.tar.gz .cloudflare/output/v1
 git rev-parse HEAD > out/docs-artifact/revision
 (cd out/docs-artifact && sha256sum build.tar.gz revision > SHA256SUMS)
 '''
@@ -72,8 +72,8 @@ set -eu
 (cd out/docs-artifact && sha256sum --check SHA256SUMS)
 test "$(cat out/docs-artifact/revision)" = "${EXPECTED_REVISION}"
 tar -C docs -xzf out/docs-artifact/build.tar.gz
-jq -e '.buildContext.isPreview == false and .buildContext.mode == "production"' docs/.cloudflare/output/v0/config.json
-jq -e '.name == "biwa-docs"' docs/.cloudflare/output/v0/workers/default/worker.config.json
+jq -e '.buildContext.isPreview == false and .buildContext.mode == "production"' docs/.cloudflare/output/v1/config.json
+jq -e '.name == "biwa-docs"' docs/.cloudflare/output/v1/workers/default/worker.config.json
 '''
 description = "Verify and restore production docs for EXPECTED_REVISION without rebuilding."
 
