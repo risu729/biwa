@@ -20,7 +20,7 @@ Plans and proposals get an independent subagent review before the owner sees the
 
 ## Docs deployment
 
-- Deploy docs through `risu729/wrangler-deploy-action` v3 and pinned cf.
+- Deploy docs through `risu729/wrangler-deploy-action` v4 and pinned cf.
 - `docs:build` depends on the shared `docs:render` task, then packages the
   complete site with the Cloudflare Vite plugin. Production
   restores the validated artifact after CI checks pass, then reconciles configured
