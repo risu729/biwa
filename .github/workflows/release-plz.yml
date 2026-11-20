@@ -31,7 +31,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
-          version: 2026.11.9
+          version: 2026.11.10
       - name: Rust Cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
@@ -79,7 +79,7 @@ jobs:
       - name: Install mise
         uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
-          version: 2026.11.9
+          version: 2026.11.10
       - name: Create biwa-bot GitHub App token
         uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
         id: github-app
