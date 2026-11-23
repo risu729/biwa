@@ -1,4 +1,4 @@
-FROM lscr.io/linuxserver/openssh-server@sha256:161e0b670b31d9539ca1718bc5943e981779331b4e1c9d32e8929d7652a1f22f
+FROM lscr.io/linuxserver/openssh-server@sha256:c8431b8982e7eb3935ebf9c46607d19c6417e39c12ce884cc66945df2e9334e8
 
 # The suite deliberately fails authentication (unauthorized keys, wrong passwords), and
 # sshd's per-source penalties would throttle the test runner's later connections.
