@@ -123,6 +123,10 @@ provenance = "github-attestations"
 version = "1.46.3"
 backend = "aqua:mitsuhiko/insta"
 specifiers = ["1.46.3"]
+unsupported_platforms = [
+    "linux-arm64",
+    "linux-arm64-musl",
+]
 
 [tools.cargo-insta."platforms.linux-x64"]
 checksum = "sha256:bad9a7c73d30f844ba04ce1808cbb72935c849cadb38a741f4b5c17c6514f077"
@@ -230,6 +234,7 @@ url_api = "https://api.github.com/repos/xd009642/tarpaulin/releases/assets/71314
 version = "2.13.0"
 backend = "packslip:github.com/jdx/hk"
 specifiers = ["2.13.0"]
+unsupported_platforms = ["macos-x64"]
 
 [tools.hk."platforms.linux-arm64"]
 checksum = "sha256:490196a4e638991c671f42941d72ade4d00b14750145f34fc64377b49fc070bb"
@@ -492,6 +497,7 @@ repository_ids = { repository = "899500793" }
 version = "0.3.159"
 backend = "aqua:release-plz/release-plz"
 specifiers = ["0.3.159"]
+unsupported_platforms = ["macos-x64"]
 
 [tools.release-plz."platforms.linux-arm64"]
 checksum = "sha256:68c8a1790cb30dbf6a1a16de8e4ab5c343a961197c381b0e4dc4e314fbfa1c99"
