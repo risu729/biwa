@@ -4,7 +4,7 @@ min_version = "2026.10.19"
 rust = { version = "1.99.1", profile = "default" }
 "aqua:EmbarkStudios/cargo-deny" = "0.21.0"
 "github:xd009642/tarpaulin" = "0.37.6"
-usage = "7.4.0"
+usage = "7.4.1"
 hk = "2.13.0"
 jactionlint = "v2.6.0"
 # used by jactionlint's workflow shell checks
