@@ -2,7 +2,7 @@ min_version = "2026.10.19"
 
 [tools]
 rust = { version = "1.99.1", profile = "default" }
-"aqua:EmbarkStudios/cargo-deny" = "0.21.0"
+"aqua:EmbarkStudios/cargo-deny" = "0.22.1"
 "github:xd009642/tarpaulin" = "0.37.6"
 usage = "7.4.1"
 hk = "2.14.0"
